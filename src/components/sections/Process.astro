@@ -1,0 +1,46 @@
+---
+import styles from './Process.module.css';
+
+const steps = [
+  {
+    title: 'Разбираем задачу',
+    text: 'Цель, пользователи, ограничения и критерий успеха.',
+  },
+  {
+    title: 'Фиксируем первый релиз',
+    text: 'Состав работ, сроки, стоимость и зоны риска.',
+  },
+  {
+    title: 'Проектируем и собираем',
+    text: 'Короткие итерации с видимым прогрессом.',
+  },
+  {
+    title: 'Запускаем и наблюдаем',
+    text: 'Продакшен, аналитика, исправления и следующий шаг.',
+  },
+];
+---
+
+<section class="section" id="process" aria-labelledby="process-title">
+  <div class="container">
+    <p class="section-label">Scene 05</p>
+    <h2 class="section-title" id="process-title">Как строится работа</h2>
+
+    <div class={styles.flow}>
+      {steps.map((step) => (
+        <article class={styles.step}>
+          <h3>{step.title}</h3>
+          <p>{step.text}</p>
+        </article>
+      ))}
+    </div>
+
+    <div class={styles.pipeline} aria-label="Артефакты процесса">
+      <span>brief</span>
+      <span>scope</span>
+      <span>preview</span>
+      <span>release</span>
+      <span>observe</span>
+    </div>
+  </div>
+</section>

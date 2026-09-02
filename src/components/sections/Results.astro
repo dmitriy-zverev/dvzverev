@@ -1,0 +1,41 @@
+---
+import styles from './Results.module.css';
+
+const moments = [
+  {
+    title: 'Заявка на сайте',
+    text: 'Человек оставляет контакт и сразу видит подтверждение.',
+    route: 'form.submit → lead.created → CRM',
+  },
+  {
+    title: 'Ответ в мессенджере',
+    text: 'Бот подхватывает диалог и ведёт по сценарию.',
+    route: 'webhook → bot.reply → queue',
+  },
+  {
+    title: 'Данные в кабинете',
+    text: 'Нужные поля появляются там, где ими пользуются.',
+    route: 'API → database → dashboard',
+  },
+];
+---
+
+<section class="section" id="results" aria-labelledby="results-title">
+  <div class="container">
+    <p class="section-label">Scene 02</p>
+    <div class={styles['section-intro']}>
+      <h2 class="section-title" id="results-title">Вы видите результат</h2>
+      <p>Три законченных пользовательских момента. Наведите — увидите, какая система сработала под действием.</p>
+    </div>
+
+    <div class={styles['moment-grid']}>
+      {moments.map((moment) => (
+        <article class={styles['moment-card']} data-route tabindex="0">
+          <h3>{moment.title}</h3>
+          <p>{moment.text}</p>
+          <span class={styles['route-hint']}>{moment.route}</span>
+        </article>
+      ))}
+    </div>
+  </div>
+</section>

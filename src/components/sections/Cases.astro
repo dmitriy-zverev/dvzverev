@@ -1,0 +1,57 @@
+---
+import { cases } from '../../content/cases';
+import styles from './Cases.module.css';
+import { externalLink } from '../../lib/links';
+import { formatWorkTree, siteHostname } from '../../lib/siteHost';
+
+const workTree = formatWorkTree(cases);
+---
+
+<section class={`section defer-paint ${styles.section}`} id="cases" aria-labelledby="cases-title">
+  <div class="container">
+    <div class={styles.heading}>
+      <div>
+        <p class="section-label">buffer 02 / work.md</p>
+        <h2 class="section-title" id="cases-title">Три проекта.<br />По делу.</h2>
+      </div>
+      <pre class={styles.tree} aria-hidden="true">{workTree}</pre>
+    </div>
+
+    <div class={styles.list}>
+      {cases.map((item, index) => (
+        <details class={styles.case} open={index === 0}>
+          <summary>
+            <span class={styles.index}>{String(index + 1).padStart(2, '0')}</span>
+            <div class={styles.summaryMain}>
+              <span class={styles.name}>{item.name}</span>
+              <span class={styles.headline}>{item.headline}</span>
+            </div>
+            <span class={styles.siteHint}>{siteHostname(item.siteUrl)}</span>
+            <span class={styles.toggle} aria-hidden="true"></span>
+          </summary>
+          <div class={styles.body}>
+            <p class={styles.problem}>{item.problem}</p>
+            <dl class={styles.meta}>
+              <div>
+                <dt>role</dt>
+                <dd>{item.role}</dd>
+              </div>
+              <div>
+                <dt>site</dt>
+                <dd>
+                  <a href={item.siteUrl} {...externalLink}>
+                    {siteHostname(item.siteUrl)}<span aria-hidden="true"> </span>
+                  </a>
+                </dd>
+              </div>
+              <div class={styles.route}>
+                <dt>pipeline</dt>
+                <dd>{item.surfaceRoute} → {item.systemRoute}</dd>
+              </div>
+            </dl>
+          </div>
+        </details>
+      ))}
+    </div>
+  </div>
+</section>

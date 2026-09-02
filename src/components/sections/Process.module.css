@@ -1,0 +1,48 @@
+.flow {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.step {
+  padding: var(--space-lg);
+  border-radius: var(--radius-lg);
+  background: #fff;
+  box-shadow: var(--shadow-soft);
+}
+
+.step h3 {
+  margin: 0 0 var(--space-sm);
+}
+
+.step p {
+  margin: 0;
+  color: rgb(20 21 26 / 68%);
+}
+
+.pipeline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-xl);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.pipeline span {
+  padding: 0.45rem 0.7rem;
+  border-radius: 999px;
+  background: rgb(48 75 255 / 14%);
+  color: #2439d6;
+}
+
+@media (min-width: 48rem) {
+  .flow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 64rem) {
+  .flow {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}

@@ -1,0 +1,12 @@
+---
+import { site } from '../../content/site';
+import styles from './Footer.module.css';
+---
+
+<footer class={styles.footer}>
+  <div class={`container ${styles.inner}`}>
+    <span>© {new Date().getFullYear()} {site.fullName}</span>
+    <span class={styles.saved}>written 3 buffers&nbsp;&nbsp;all saved</span>
+    <span>www.dvzverev.ru</span>
+  </div>
+</footer>

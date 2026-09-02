@@ -1,0 +1,50 @@
+.section-intro {
+  max-width: 42rem;
+  margin-bottom: var(--space-xl);
+}
+
+.moment-grid {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.moment-card {
+  padding: var(--space-lg);
+  border-radius: var(--radius-lg);
+  background: rgb(255 255 255 / 72%);
+  box-shadow: var(--shadow-soft);
+}
+
+.moment-card h3 {
+  margin: 0 0 var(--space-sm);
+  font-size: 1.1rem;
+}
+
+.moment-card p {
+  margin: 0;
+  color: rgb(20 21 26 / 68%);
+}
+
+.moment-card[data-route] {
+  transition: box-shadow 160ms ease, transform 160ms ease;
+}
+
+.moment-card:hover,
+.moment-card:focus-within {
+  transform: translateY(-2px);
+  box-shadow: 0 1rem 2rem rgb(48 75 255 / 12%);
+}
+
+.route-hint {
+  display: block;
+  margin-top: var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-scanner-blue);
+}
+
+@media (min-width: 48rem) {
+  .moment-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

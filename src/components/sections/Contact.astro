@@ -1,0 +1,38 @@
+---
+import { site } from '../../content/site';
+import styles from './Contact.module.css';
+import { externalLink } from '../../lib/links';
+---
+
+<section class={`section defer-paint ${styles.contact}`} id="contact" aria-labelledby="contact-title">
+  <div class="container">
+    <p class="section-label">command / contact.sh</p>
+    <div class={styles.layout}>
+      <header class={styles.header}>
+        <h2 class={`section-title ${styles.title}`} id="contact-title">
+          {site.contactHeadline}<br /><span class={styles.accent}>{site.contactAccent}</span>
+        </h2>
+        <p class={styles.lede}>{site.contactSubline}</p>
+      </header>
+
+      <aside class={styles.aside} aria-label="Контакты">
+        <a class={styles.cta} href={site.telegramUrl} {...externalLink}>
+          <div class={styles.ctaMain}>
+            <span class={styles.ctaLabel}>Telegram</span>
+            <span class={styles.ctaValue}>@zverev_dmitry</span>
+            <span class={styles.ctaArrow} aria-hidden="true">↗</span>
+          </div>
+          <p class={styles.ctaNote}>{site.heroCtaMicro}</p>
+        </a>
+
+        <ul class={styles.facts}>
+          <li>Москва / remote</li>
+          <li>{site.footerTagline}</li>
+          <li>
+            <a href={site.githubUrl} {...externalLink}>GitHub ↗</a>
+          </li>
+        </ul>
+      </aside>
+    </div>
+  </div>
+</section>

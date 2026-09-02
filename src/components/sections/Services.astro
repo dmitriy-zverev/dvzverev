@@ -1,0 +1,24 @@
+---
+import { services } from '../../content/services';
+import styles from './Services.module.css';
+---
+
+<section class="section" id="services" aria-labelledby="services-title">
+  <div class="container">
+    <p class="section-label">Scene 03</p>
+    <div class="section-intro">
+      <h2 class="section-title" id="services-title">Что можно собрать</h2>
+      <p>Не каталог карточек, а маршрут: привести к действию, автоматизировать диалог, сохранить данные и запустить продукт.</p>
+    </div>
+
+    <div class={styles.grid}>
+      {services.map((service) => (
+        <article class={styles.card}>
+          <h3>{service.title}</h3>
+          <p class={styles.meta}>{service.outcome}</p>
+          <p class={styles.examples}>{service.examples}</p>
+        </article>
+      ))}
+    </div>
+  </div>
+</section>

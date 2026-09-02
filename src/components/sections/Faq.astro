@@ -1,0 +1,20 @@
+---
+import { site } from '../../content/site';
+import styles from './Faq.module.css';
+---
+
+<section class="section" id="faq" aria-labelledby="faq-title">
+  <div class="container">
+    <p class="section-label">FAQ</p>
+    <h2 class="section-title" id="faq-title">Частые вопросы</h2>
+
+    <div class={styles.list}>
+      {site.faq.map((item) => (
+        <details class={styles.item}>
+          <summary>{item.question}</summary>
+          <p>{item.answer}</p>
+        </details>
+      ))}
+    </div>
+  </div>
+</section>

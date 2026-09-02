@@ -1,0 +1,112 @@
+---
+import { site } from '../../content/site';
+import styles from './Hero.module.css';
+import { externalLink } from '../../lib/links';
+---
+
+<section class={styles.hero} id="hero" aria-labelledby="hero-title">
+  <div class={`container ${styles.frame}`}>
+    <div class={styles.terminal}>
+      <div class={styles.topBar} aria-hidden="true">
+        <span class={styles.box}>┌─</span>
+        <span class={styles.tabOn}>● profile.lua</span>
+        <span class={styles.dim}> ─ work.md ─</span>
+        <span class={styles.topEnd}>main ↑0 ─┐</span>
+      </div>
+
+      <div class={styles.workspace}>
+        <nav class={styles.sidebar} aria-label="Разделы страницы">
+          <p class={styles.sideTitle}>EXPLORER</p>
+          <p class={styles.sideRule} aria-hidden="true">────────</p>
+          <a class={`${styles.sideLink} ${styles.sideActive}`} href="#hero" aria-current="page">
+            ▸ profile.lua
+          </a>
+          <a class={styles.sideLink} href="#cases"> work/</a>
+          <a class={styles.sideLink} href="#contact"> contact.sh</a>
+          <span class={styles.sideMuted}> stack.json</span>
+        </nav>
+
+        <div class={styles.main}>
+          <div class={styles.mainGrid}>
+            <div class={styles.copy}>
+              <div class={styles.line}>
+                <span class={styles.n}>01</span>
+                <span class={styles.dim}>-- available for selected projects</span>
+              </div>
+              <div class={styles.line}>
+                <span class={styles.n}>02</span>
+                <span>
+                  <span class={styles.kw}>local</span> dmitriy = <span class={styles.val}>product_engineer</span>
+                </span>
+              </div>
+
+              <h1 class={styles.headline} id="hero-title">
+                <div class={styles.line}>
+                  <span class={styles.n}>03</span>
+                  <span class={styles.hl}>Собираю сайты,</span>
+                </div>
+                <div class={styles.line}>
+                  <span class={styles.n}>04</span>
+                  <span class={styles.hl}>ботов и backend,</span>
+                </div>
+                <div class={styles.line}>
+                  <span class={styles.n}>05</span>
+                  <span class={`${styles.hl} ${styles.accent}`}>которые работают.</span>
+                </div>
+              </h1>
+
+              <div class={styles.line}>
+                <span class={styles.n}>06</span>
+                <span class={styles.stack}>Python / FastAPI / React / TypeScript / Docker</span>
+              </div>
+              <div class={styles.line}>
+                <span class={styles.n}>07</span>
+                <span class={styles.dim}>От архитектуры и API до интерфейса, запуска и поддержки.</span>
+              </div>
+              <div class={styles.line}>
+                <span class={styles.n}>08</span>
+                <span>
+                  <span class={styles.kw}>experience</span> = <span class={styles.val}>&quot;3+ years / B2B SaaS&quot;</span>
+                </span>
+              </div>
+
+              <div class={styles.line}>
+                <span class={styles.n}>09</span>
+                <div class={styles.actions}>
+                  <a class="button button-primary" href={site.telegramUrl} {...externalLink}>
+                    {site.heroCtaLabel}
+                  </a>
+                  <a class="button button-secondary" href="#cases">{site.heroSecondaryLabel}</a>
+                </div>
+              </div>
+            </div>
+
+            <pre class={styles.diagram} aria-hidden="true">
+{`┌─ product.pipeline ────────┐
+│ request  →  FastAPI        │
+│              ├─ bot        │
+│ React  ← API ┤             │
+│              └─ data       │
+└─ status: production ● ─────┘`}</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class={styles.status} aria-hidden="true">
+        <span class={styles.box}>├─</span>
+        <span class={styles.mode}>NORMAL</span>
+        <span> profile.lua </span>
+        <span class={styles.statusMeta}>utf-8&nbsp;&nbsp;100%&nbsp;&nbsp;09:1</span>
+        <span class={styles.box}> ─┤</span>
+      </div>
+      <p class={styles.prompt} aria-hidden="true">
+        <span class={styles.box}>│ :</span> build product<span class={`${styles.cursor} cursor-blink`}></span>
+        <span class={styles.promptPad}></span>
+        <span class={styles.box}>│</span>
+      </p>
+      <p class={styles.bottomBar} aria-hidden="true">
+        <span>└</span><span class={styles.bottomFill}></span><span>┘</span>
+      </p>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,26 @@
+.list {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.item {
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-md);
+  background: #fff;
+  box-shadow: var(--shadow-soft);
+}
+
+.item summary {
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+}
+
+.item summary::-webkit-details-marker {
+  display: none;
+}
+
+.item p {
+  margin: var(--space-sm) 0 0;
+  color: rgb(20 21 26 / 68%);
+}
