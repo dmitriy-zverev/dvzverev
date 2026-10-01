@@ -94,15 +94,7 @@
     background-color var(--duration-fast) var(--ease-out);
 }
 
-.telegram span:first-child {
-  margin-right: 0.45rem;
-}
-
-.telegram span:last-child {
-  margin-left: 0.4rem;
-  font-size: 0.65rem;
-  opacity: 0.7;
-}
+.telegramIcon { display: block; flex: 0 0 auto; }
 
 .telegram:hover,
 .telegram:focus-visible {
@@ -166,20 +158,17 @@
   }
 
   .telegram {
-    padding: 0.35rem 0.5rem;
-    font-size: 0.72rem;
+    display: grid;
+    place-items: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    gap: 0;
   }
-  .telegram {
-    font-size: 0;
-  }
-  .telegram span:first-child {
-    font-size: 0.9rem;
-    margin: 0;
-  }
-
-  .telegram span:last-child {
+  .telegramText {
     display: none;
   }
+  .telegramIcon { width: 1.35rem; height: 1.35rem; }
 }
 
 @media (max-width: 22rem) {

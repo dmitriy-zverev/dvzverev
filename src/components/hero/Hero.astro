@@ -9,14 +9,14 @@ import CodeTerminal from './CodeTerminal.astro';
 <section class={styles.hero} id="hero" aria-labelledby="hero-title">
   <div class="container">
     <div class={styles.tabs}>
-      <span class={styles.active}><span aria-hidden="true"></span> profile.lua</span>
+      <span class={styles.active}>profile.lua</span>
       <a href="#cases">work.md</a>
       <a href="#contact">contact.sh</a>
       <span class={styles.branch} aria-hidden="true"> main</span>
     </div>
     <div class={styles.workspace}>
       <div class={styles.copy}>
-        <p class={styles.intro}><span class={styles.number} aria-hidden="true">01</span><span>Дмитрий Зверев <span class={styles.comment}>/ Python-разработчик</span></span></p>
+        <p class={styles.intro}><span class={styles.number} aria-hidden="true">01</span><span class={styles.identity}><span>Дмитрий Зверев</span><span class={styles.comment}>Python-разработчик</span></span></p>
         <h1 id="hero-title" class={styles.title}>
           <span>Сайты.</span>
           <span>Боты.</span>
@@ -28,7 +28,7 @@ import CodeTerminal from './CodeTerminal.astro';
           <a class="button button-primary" href={site.telegramUrl} {...externalLink}>Обсудить проект <Arrow /></a>
           <a class={styles.workLink} href="#cases">Смотреть проекты <Arrow direction="down" /></a>
         </div>
-        <p class={styles.stack}>Python · FastAPI · Go · Rust · React · TypeScript · Docker</p>
+        <p class={styles.stack} aria-label="Технологии">{['Python', 'FastAPI', 'Go', 'Rust', 'React', 'TypeScript', 'Docker'].map(item => <span>{item}</span>)}</p>
       </div>
       <div class={styles.art}>
         <CodeTerminal />

@@ -50,6 +50,9 @@
 .comment {
   color: var(--color-muted);
 }
+.identity { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.35rem 0.65rem; }
+.identity > span { white-space: nowrap; }
+.comment::before { content: '/ '; }
 .title {
   margin: 0;
   font-size: clamp(3.2rem, 6.8vw, 7rem);
@@ -106,10 +109,14 @@
   color: var(--color-sage);
 }
 .stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.85rem;
   margin: 2rem 0 0;
   font-size: 0.65rem;
   color: var(--color-lavender);
 }
+.stack > span { white-space: nowrap; }
 .art {
   align-self: stretch;
   min-width: 0;
@@ -251,8 +258,7 @@
     gap: 0.7rem;
   }
   .comment {
-    display: block;
-    margin-top: 0.35rem;
+    margin-top: 0;
   }
   .art {
     display: none;
@@ -274,7 +280,7 @@
     font-size: 0.7rem;
     line-height: 1.8;
     margin-top: 1.25rem;
-    max-width: 36ch;
+    max-width: none;
   }
   .statusRight {
     font-size: 0.55rem;
@@ -307,4 +313,8 @@
   .workLink {
     text-align: center;
   }
+}
+@media (max-width: 26rem) {
+  .identity { flex-direction: column; }
+  .comment::before { content: none; }
 }

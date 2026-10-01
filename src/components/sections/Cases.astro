@@ -13,7 +13,7 @@ const workTree = formatWorkTree(cases);
     <div class={styles.heading}>
       <div>
         <p class="section-label">Избранные работы / work.md</p>
-        <h2 class="section-title" id="cases-title">Проекты.<br />По делу.</h2>
+        <h2 class={`section-title ${styles.title}`} id="cases-title">Проекты.<br /> По делу.</h2>
         <p class={styles.lede}>Коммерческий проект и три собственных продукта.<br />Откройте проект, чтобы посмотреть задачу и реализацию.</p>
       </div>
       <pre class={styles.tree} aria-hidden="true">{workTree}</pre>

@@ -209,6 +209,8 @@
 }
 
 @media (max-width: 44rem) {
+  .title { font-size: clamp(1.5rem, 5.8vw, 2.5rem); white-space: nowrap; }
+  .title br { display: none; }
   .heading {
     grid-template-columns: 1fr;
     gap: var(--space-lg);
