@@ -30,12 +30,13 @@ export const caseStudySchema = z.object({
   headline: publishableString,
   problem: publishableString,
   solution: publishableString,
-  role: publishableString,
+  role: publishableString.optional(),
   result: publishableString,
   surfaceRoute: publishableString,
   systemRoute: publishableString,
   siteUrl: z.url(),
   isDemo: z.boolean().optional(),
+  isCommercial: z.boolean().optional(),
 });
 
 export const siteSchema = z.object({

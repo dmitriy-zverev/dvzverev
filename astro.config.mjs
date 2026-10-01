@@ -5,6 +5,7 @@ import sitemap from '@astrojs/sitemap';
 export default defineConfig({
   output: 'static',
   compressHTML: true,
+  devToolbar: { enabled: false },
   site: 'https://www.dvzverev.ru',
   integrations: [sitemap()],
   build: {

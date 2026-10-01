@@ -4,7 +4,7 @@
   z-index: 20;
   height: calc(var(--header-height) + var(--safe-top));
   padding-top: var(--safe-top);
-  background: rgb(9 12 16 / 92%);
+  background: var(--color-bg);
   border-bottom: 1px solid var(--color-line);
 }
 
@@ -33,12 +33,23 @@
   width: max-content;
   min-height: 2.75rem;
   font-size: 0.82rem;
+  font-weight: 800;
   transition: color var(--duration-fast) var(--ease-out);
 }
 
 .brand:hover,
 .brand:focus-visible {
   color: var(--color-sage);
+}
+
+.wordmark {
+  position: relative;
+  letter-spacing: -0.045em;
+  padding-block: 0.3rem;
+}
+
+.domain {
+  color: var(--color-muted);
 }
 
 .nav {
@@ -96,7 +107,7 @@
 .telegram:focus-visible {
   color: var(--color-text);
   border-color: var(--color-line);
-  background: rgb(139 198 164 / 6%);
+  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
 }
 
 .mobileNav {
@@ -128,12 +139,13 @@
   .mobileNav a {
     display: grid;
     place-items: center;
-    width: 2.75rem;
+    width: auto;
+    padding-inline: 0.5rem;
     height: 2.75rem;
     font-size: 0.68rem;
     color: var(--color-muted);
     text-decoration: none;
-    border: 1px solid var(--color-line);
+    border: 0;
     transition:
       color var(--duration-fast) var(--ease-out),
       border-color var(--duration-fast) var(--ease-out);
@@ -155,6 +167,13 @@
     padding: 0.35rem 0.5rem;
     font-size: 0.72rem;
   }
+  .telegram {
+    font-size: 0;
+  }
+  .telegram span:first-child {
+    font-size: 0.9rem;
+    margin: 0;
+  }
 
   .telegram span:last-child {
     display: none;
@@ -162,7 +181,14 @@
 }
 
 @media (max-width: 22rem) {
-  .mobileNav {
-    display: none;
+  .inner {
+    gap: 0.25rem;
+  }
+  .mobileNav a {
+    padding-inline: 0.25rem;
+    font-size: 0.62rem;
+  }
+  .actions {
+    gap: 0.1rem;
   }
 }

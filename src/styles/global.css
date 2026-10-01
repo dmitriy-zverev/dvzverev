@@ -66,7 +66,7 @@ a {
 
 .container {
   width: min(
-    100% - clamp(1rem, 4vw, 4rem) - var(--safe-left) - var(--safe-right),
+    100% - 2 * var(--page-gutter) - var(--safe-left) - var(--safe-right),
     var(--container-max)
   );
   margin-inline: auto;
@@ -79,7 +79,7 @@ a {
 }
 
 .section {
-  padding-block: clamp(3.5rem, 8vw, 7.5rem);
+  padding-block: clamp(3rem, 5vw, 5rem);
 }
 
 .section-panel {

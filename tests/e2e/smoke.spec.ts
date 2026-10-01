@@ -12,13 +12,29 @@ test('hero to telegram CTA', async ({ page }) => {
     .toBe(true);
 
   for (const font of ['Regular', 'ExtraBold']) {
-    const response = await page.request.get(`/fonts/DVZMonoNerd-${font}-v1.woff2`);
+    const response = await page.request.get(`/fonts/DVZMonoNerd-${font}-v2.woff2`);
     expect(response.ok()).toBe(true);
   }
 
-  const cta = page.getByRole('link', { name: /написать/i }).first();
+  const cta = page.getByRole('link', { name: /обсудить проект/i }).first();
   await expect(cta).toHaveAttribute('href', 'https://t.me/zverev_dmitry');
   await expect(cta).toHaveAttribute('rel', /noopener/);
+});
+
+test('task opens the specific Telegram chat with the entered draft', async ({ page }) => {
+  const message = 'Нужен бот: запись & оплата + CRM? Привет 👋';
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'Описание вашей задачи' }).fill(message);
+  await page.context().route('https://t.me/**', (route) => route.fulfill({ body: 'Telegram' }));
+  const popupPromise = page.waitForEvent('popup');
+  await page.getByRole('button', { name: /написать в Telegram/i }).click();
+  const popup = await popupPromise;
+  await popup.waitForLoadState();
+  const url = new URL(popup.url());
+  expect(url.hostname).toBe('t.me');
+  expect(url.pathname).toBe('/zverev_dmitry');
+  expect(url.searchParams.get('text')).toBe(message);
+  await popup.close();
 });
 
 test('nav to projects section', async ({ page }) => {

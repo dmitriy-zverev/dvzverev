@@ -7,13 +7,13 @@ export const site: SiteContent = {
   headerBrand: 'dmitriy-zverev',
   headerRole: 'PYTHON / PRODUCT ENGINEER',
   fullName: 'Дмитрий Зверев',
-  title: 'Дмитрий Зверев — product engineer',
+  title: 'Дмитрий Зверев — разработка сайтов, ботов и Python backend',
   description:
     'Сайты, Telegram/MAX-боты и backend-системы — от идеи до запуска. Python backend и полный цифровой продукт.',
   heroHeadline: 'Собираю сайты, ботов и backend, которые работают.',
   heroSubline: 'Сайты, Telegram/MAX-боты и backend-системы — от идеи до запуска.',
   heroCtaLabel: 'Написать',
-  heroCtaMicro: 'Отвечу лично и помогу Вам определить первый релиз.',
+  heroCtaMicro: 'Отвечу лично и помогу вам определить первый релиз.',
   heroSecondaryLabel: 'Проекты',
   xrayToggleLabel: 'Показать изнутри',
   nav: [

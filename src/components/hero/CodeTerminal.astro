@@ -1,0 +1,26 @@
+---
+import { apiFixed, tokenize } from './terminal-scenes';
+import './CodeTerminal.css';
+---
+<div class="code-terminal" data-code-terminal>
+  <div class="terminal-title">
+    <span class="terminal-file" data-terminal-file>api.py</span>
+    <span class="terminal-demo">Демо разработки</span>
+    <button class="terminal-pause" type="button" data-terminal-pause hidden aria-label="Приостановить анимацию кода" aria-pressed="false">Пауза</button>
+  </div>
+  <div class="terminal-editor" aria-hidden="true">
+    <pre class="terminal-code" data-terminal-code>{apiFixed.split('\n').map((line, index) => <span class="terminal-line" data-line={index + 1}>{tokenize(line).map(token => <span class={`token-${token.kind}`}>{token.text}</span>)}</span>)}</pre>
+  </div>
+  <div class="terminal-console" aria-hidden="true">
+    <div class="terminal-console-title">TERMINAL <span data-terminal-status>API готов</span></div>
+    <div class="terminal-logs" data-terminal-logs>
+      <div data-tone="command">$ uv run pytest -q</div>
+      <div data-tone="success">... 3 passed in 0.24s</div>
+      <div data-tone="success">HTTP/1.1 201 Created</div>
+    </div>
+  </div>
+</div>
+<script>
+  import './code-terminal';
+</script>
+

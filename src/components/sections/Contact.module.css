@@ -5,8 +5,8 @@
 
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(17rem, 22rem);
-  gap: clamp(2rem, 6vw, 5rem);
+  grid-template-columns: minmax(0, 1.5fr) minmax(20rem, 1fr);
+  gap: clamp(2rem, 5vw, 4rem);
   align-items: start;
 }
 
@@ -37,6 +37,42 @@
   display: grid;
   gap: 1rem;
 }
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(1.5rem, 3vw, 3rem);
+  margin: 3rem 0 0;
+  padding: 2rem 0 0;
+  border-top: 1px solid var(--color-line);
+  list-style: none;
+  counter-reset: step;
+}
+.steps li {
+  position: relative;
+  padding-top: 2rem;
+  counter-increment: step;
+}
+.steps li::before {
+  content: '0' counter(step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--color-sage);
+  font-size: 0.75rem;
+}
+.steps strong {
+  display: block;
+  font-weight: 400;
+  font-size: 0.95rem;
+}
+.steps span {
+  display: block;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  line-height: 1.7;
+  margin-top: 0.3rem;
+  max-width: 55ch;
+}
 
 .cta {
   display: grid;
@@ -53,7 +89,7 @@
 .cta:hover,
 .cta:focus-visible {
   border-color: var(--color-sage);
-  background: rgb(139 198 164 / 4%);
+  background: color-mix(in srgb, var(--color-accent) 4%, var(--color-bg));
 }
 
 .ctaMain {
@@ -99,7 +135,7 @@
   margin: 0.85rem 0 0;
   padding-top: 0.85rem;
   border-top: 1px solid var(--color-line);
-  font-size: 0.78rem;
+  font-size: 0.85rem;
   line-height: 1.5;
   color: var(--color-muted);
 }
@@ -112,6 +148,14 @@
   list-style: none;
   font-size: 0.78rem;
   line-height: 1.45;
+  color: var(--color-muted);
+}
+.startNote {
+  margin: 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-line);
+  font-size: 0.8rem;
+  line-height: 1.7;
   color: var(--color-muted);
 }
 
@@ -136,6 +180,9 @@
   .lede {
     max-width: none;
   }
+  .steps { grid-template-columns: 1fr; margin-top: 2rem; gap: 1.5rem; }
+  .steps li { padding-top: 0; padding-left: 2.5rem; }
+  .steps strong { font-size: 0.9rem; }
 }
 
 @media (max-width: 35rem) {

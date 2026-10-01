@@ -44,7 +44,7 @@ const structuredData = {
     <link rel="canonical" href={canonical} />
     <link
       rel="preload"
-      href="/fonts/DVZMonoNerd-ExtraBold-v1.woff2"
+      href="/fonts/DVZMonoNerd-ExtraBold-v2.woff2"
       as="font"
       type="font/woff2"
       crossorigin
@@ -71,5 +71,9 @@ const structuredData = {
       <slot />
     </main>
     <Footer />
+    {import.meta.env.PROD && <>
+      <script is:inline src="/metrika.js" defer></script>
+      <noscript><div><img src="https://mc.yandex.ru/watch/113254290" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+    </>}
   </body>
 </html>

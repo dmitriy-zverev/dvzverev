@@ -7,14 +7,14 @@
   grid-template-columns: 1fr auto;
   gap: var(--space-xl);
   align-items: end;
-  margin-bottom: clamp(2.5rem, 6vw, 5rem);
+  margin-bottom: 2rem;
 }
 
 .tree {
   margin: 0;
   padding: 0.75rem 1rem;
-  border: 1px solid var(--color-line);
-  background: var(--color-panel);
+  border: 0;
+  background: transparent;
   font: 0.78rem/1.7 var(--font-mono);
   color: var(--color-muted);
 }
@@ -52,11 +52,11 @@
 }
 
 .case:hover {
-  background: rgb(115 169 194 / 2.5%);
+  background: color-mix(in srgb, var(--color-accent) 3%, transparent);
 }
 
 .case[open] {
-  background: rgb(139 198 164 / 3%);
+  background: color-mix(in srgb, var(--color-accent) 5%, transparent);
   border-left-color: var(--color-sage);
 }
 
@@ -92,14 +92,24 @@
 }
 
 .headline {
-  font-size: clamp(0.78rem, 1.4vw, 0.9rem);
+  font-size: clamp(0.9rem, 1.4vw, 1rem);
   line-height: 1.45;
   color: var(--color-muted);
   text-wrap: pretty;
 }
 
-.case[open] .headline {
-  display: none;
+.kind {
+  color: var(--color-peach);
+  font-size: 0.65rem;
+  line-height: 1.5;
+  margin-top: 0.35rem;
+}
+
+.lede {
+  margin: 1.25rem 0 0;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+  line-height: 1.7;
 }
 
 .siteHint {
@@ -148,24 +158,23 @@
 .meta {
   display: grid;
   gap: 0.65rem;
-  margin: 1.25rem 0 0;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--color-line);
+  margin: 0;
+  padding-top: 0.5rem;
 }
 
 .meta > div {
   display: grid;
-  grid-template-columns: 4.25rem minmax(0, 1fr);
+  grid-template-columns: 7.5rem minmax(0, 1fr);
   gap: 0.75rem 1rem;
   align-items: baseline;
-  font-size: 0.78rem;
-  line-height: 1.5;
-  color: var(--color-muted);
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: var(--color-text);
 }
 
 .meta dt {
   margin: 0;
-  font-size: 0.66rem;
+  font-size: 0.75rem;
   letter-spacing: 0.04em;
   color: var(--color-lavender);
 }
@@ -223,7 +232,9 @@
   }
 
   .headline {
-    font-size: 0.82rem;
+    font-size: 0.9rem;
+    line-height: 1.65;
+    margin-top: 0.35rem;
   }
 
   .toggle {
@@ -232,11 +243,15 @@
   }
 
   .body {
-    padding: 0 0.75rem 1.75rem calc(0.75rem + 2rem + 0.75rem);
+    padding: 0.5rem 1rem 1.75rem;
   }
 
   .meta > div {
-    grid-template-columns: 3.5rem minmax(0, 1fr);
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+  .meta {
+    gap: 1.25rem;
   }
 }
 
@@ -246,6 +261,6 @@
   }
 
   .body {
-    padding-left: calc(0.65rem + 2rem + 0.65rem);
+    padding-left: 1rem;
   }
 }

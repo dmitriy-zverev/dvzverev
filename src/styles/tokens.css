@@ -1,6 +1,6 @@
 @font-face {
   font-family: 'DVZ Mono Nerd';
-  src: url('/fonts/DVZMonoNerd-Regular-v1.woff2') format('woff2');
+  src: url('/fonts/DVZMonoNerd-Regular-v2.woff2') format('woff2');
   font-style: normal;
   font-weight: 400;
   font-display: swap;
@@ -8,7 +8,7 @@
 
 @font-face {
   font-family: 'DVZ Mono Nerd';
-  src: url('/fonts/DVZMonoNerd-ExtraBold-v1.woff2') format('woff2');
+  src: url('/fonts/DVZMonoNerd-ExtraBold-v2.woff2') format('woff2');
   font-style: normal;
   font-weight: 800;
   font-display: swap;
@@ -16,16 +16,18 @@
 
 :root {
   color-scheme: dark;
-  --color-bg: #090c10;
-  --color-panel: #0f141b;
-  --color-text: #d9e2dc;
-  --color-muted: #7e8b84;
-  --color-line: #26313a;
-  --color-sage: #8bc6a4;
-  --color-steel: #73a9c2;
-  --color-lavender: #b8a4d9;
-  --color-peach: #d99b7c;
-  --color-selection: #1d3440;
+  --color-bg: #101722;
+  --color-panel: #17212e;
+  --color-text: #edf1f6;
+  --color-muted: #a5b3c3;
+  --color-line: #344356;
+  --color-accent: #a1c5f4;
+  --color-sage: var(--color-accent);
+  --color-steel: #b0c7df;
+  --color-lavender: #b8c1d0;
+  --color-peach: #d6bd91;
+  --color-selection: #304b6c;
+  --color-status: #223247;
   --font-mono:
     'DVZ Mono Nerd', 'SFMono-Regular', 'Cascadia Code', 'Roboto Mono', 'Liberation Mono', monospace;
   --font-body: var(--font-mono);
@@ -35,7 +37,8 @@
   --space-lg: 1.5rem;
   --space-xl: 2.5rem;
   --space-2xl: 4rem;
-  --container-max: 90rem;
+  --container-max: 80rem;
+  --page-gutter: 1rem;
   --header-height: 3.25rem;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
@@ -44,4 +47,10 @@
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --duration-fast: 140ms;
   --duration-normal: 220ms;
+}
+
+@media (min-width: 48rem) {
+  :root {
+    --page-gutter: clamp(2.5rem, 5vw, 6rem);
+  }
 }

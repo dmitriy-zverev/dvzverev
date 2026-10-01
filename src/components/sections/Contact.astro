@@ -4,9 +4,9 @@ import styles from './Contact.module.css';
 import { externalLink } from '../../lib/links';
 ---
 
-<section class={`section defer-paint ${styles.contact}`} id="contact" aria-labelledby="contact-title">
+<section class={`section ${styles.contact}`} id="contact" aria-labelledby="contact-title">
   <div class="container">
-    <p class="section-label">command / contact.sh</p>
+    <p class="section-label">Обсудим вашу задачу / contact.sh</p>
     <div class={styles.layout}>
       <header class={styles.header}>
         <h2 class={`section-title ${styles.title}`} id="contact-title">
@@ -22,7 +22,7 @@ import { externalLink } from '../../lib/links';
             <span class={styles.ctaValue}>@zverev_dmitry</span>
             <span class={styles.ctaArrow} aria-hidden="true">↗</span>
           </div>
-          <p class={styles.ctaNote}>{site.heroCtaMicro}</p>
+          <p class={styles.ctaNote}>Напишите, что хотите сделать. Можно без готового ТЗ — начнём с задачи.</p>
         </a>
 
         <ul class={styles.facts}>
@@ -32,7 +32,13 @@ import { externalLink } from '../../lib/links';
             <a href={site.githubUrl} {...externalLink}>GitHub ↗</a>
           </li>
         </ul>
+        <p class={styles.startNote}>Для начала достаточно описать задачу, что уже готово и желаемый срок. Если есть ссылка или макет — приложите их в чате.</p>
       </aside>
     </div>
+    <ol class={styles.steps} aria-label="Как проходит работа">
+      <li><strong>Разбираем задачу</strong><span>Что нужно пользователям, что уже есть и какой результат нужен бизнесу.</span></li>
+      <li><strong>Согласуем первый этап</strong><span>Объём, стоимость, сроки и критерии готовности — до начала разработки.</span></li>
+      <li><strong>Разрабатываем и запускаем</strong><span>Показываю результат по ходу работы. Поддержку и следующие этапы обсуждаем отдельно.</span></li>
+    </ol>
   </div>
 </section>

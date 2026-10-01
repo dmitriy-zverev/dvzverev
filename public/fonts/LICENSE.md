@@ -1,6 +1,6 @@
 # DVZ Mono Nerd web subsets
 
-The WOFF2 files in this directory are modified, subsetted versions of JetBrainsMono Nerd Font 3.5.1. The modified font family is named `DVZ Mono Nerd`.
+The WOFF2 files in this directory are modified, subsetted versions of JetBrainsMono Nerd Font Mono 3.5.1 (JetBrains Mono 2.304). Both weights include Latin, Cyrillic, box drawing and the Nerd Font glyphs used by the site. The modified font family is named `DVZ Mono Nerd`.
 
 JetBrains Mono is Copyright 2020 The JetBrains Mono Project Authors. Nerd Fonts is Copyright 2014 Ryan L McIntyre. The fonts are distributed under the SIL Open Font License, Version 1.1.
 

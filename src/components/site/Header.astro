@@ -7,7 +7,7 @@ import { externalLink } from '../../lib/links';
 <header class={styles.header}>
   <div class={`container ${styles.inner}`}>
     <a class={styles.brand} href="/" aria-label={`${site.fullName}, главная`}>
-      {site.headerBrand}
+      <span class={styles.wordmark}>dvzverev<span class={styles.domain}>.ru</span></span>
     </a>
     <nav class={styles.nav} aria-label="Основная навигация">
       <a href="#cases"><span>01</span> Проекты</a>
@@ -15,8 +15,8 @@ import { externalLink } from '../../lib/links';
     </nav>
     <div class={styles.actions}>
       <nav class={styles.mobileNav} aria-label="Быстрая навигация">
-        <a href="#cases" aria-label="Проекты">01</a>
-        <a href="#contact" aria-label="Контакт">02</a>
+        <a href="#cases">Проекты</a>
+        <a href="#contact">Контакт</a>
       </nav>
       <a class={styles.telegram} href={site.telegramUrl} {...externalLink}>
         <span aria-hidden="true"></span> telegram<span aria-hidden="true"></span>
