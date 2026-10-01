@@ -128,12 +128,13 @@
   min-height: 0;
   font-size: min(0.65rem, 2cqw);
   line-height: 1.75;
-  white-space: pre-wrap;
+  white-space: normal;
   overflow-wrap: anywhere;
 }
 .terminal-logs [data-tone='command'] {
   color: var(--color-steel);
 }
+.terminal-logs > div { white-space: pre-wrap; }
 .terminal-logs [data-tone='error'] {
   color: #f3a9a9;
 }
