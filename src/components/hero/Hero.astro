@@ -2,6 +2,7 @@
 import { site } from '../../content/site';
 import styles from './Hero.module.css';
 import { externalLink } from '../../lib/links';
+import Arrow from '../site/Arrow.astro';
 import CodeTerminal from './CodeTerminal.astro';
 ---
 
@@ -21,16 +22,11 @@ import CodeTerminal from './CodeTerminal.astro';
           <span>Боты.</span>
           <span class={styles.accent}>Backend.</span>
         </h1>
-        <p class={styles.description}>Помогаю запустить новый сервис или доработать существующий: от базы данных и API до интерфейса и запуска на сервере.</p>
-        <p class={styles.experience}>Дмитрий Зверев — более 3 лет коммерческой разработки. Основная специализация — Python backend. Для полного продукта разрабатываю интерфейс на React и подключаю интеграции.</p>
-        <ul class={styles.offer} aria-label="С чем могу помочь">
-          <li><span>Сайты</span> Лендинги, веб-приложения и личные кабинеты</li>
-          <li><span>Боты</span> Telegram и MAX: заявки и автоматизация</li>
-          <li><span>Backend</span> API, базы данных и интеграции сервисов</li>
-        </ul>
+        <p class={styles.description}>Сайты и личные кабинеты, Telegram/MAX-боты, API и интеграции — с нуля или в вашем проекте.</p>
+        <p class={styles.experience}>Более 3 лет коммерческой разработки. Python backend, интерфейсы на React и запуск на сервере.</p>
         <div class={styles.actions}>
-          <a class="button button-primary" href={site.telegramUrl} {...externalLink}>Обсудить проект <svg class={styles.ctaArrow} aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 12 12 4M4 4h8v8" stroke="currentColor" stroke-width="1.75" stroke-linecap="square" /></svg></a>
-          <a class={styles.workLink} href="#cases">Смотреть проекты <span aria-hidden="true">↓</span></a>
+          <a class="button button-primary" href={site.telegramUrl} {...externalLink}>Обсудить проект <Arrow /></a>
+          <a class={styles.workLink} href="#cases">Смотреть проекты <Arrow direction="down" /></a>
         </div>
         <p class={styles.stack}>Python · FastAPI · Go · Rust · React · TypeScript · Docker</p>
       </div>
@@ -42,7 +38,7 @@ import CodeTerminal from './CodeTerminal.astro';
     <form class={styles.command} action={site.telegramUrl} method="get" target="_blank" aria-label="Обсудить задачу в Telegram">
       <span class={styles.prompt} aria-hidden="true">:</span>
       <input
-        class={styles.message}
+        class={`${styles.message} ym-disable-keys`}
         type="text"
         name="text"
         aria-label="Описание вашей задачи"
@@ -50,8 +46,8 @@ import CodeTerminal from './CodeTerminal.astro';
         maxlength="4000"
         autocomplete="off"
       />
-      <button class={styles.send} type="submit">Написать в Telegram <span aria-hidden="true">↗</span></button>
+      <button class={styles.send} type="submit">Написать в Telegram <Arrow /></button>
     </form>
-    <p class={styles.draftNote}>Текст откроется в Telegram как черновик — отправку подтверждаете вы.</p>
+    <p class={styles.draftNote}>Откроется черновик в Telegram. Отправка — только по вашему подтверждению.</p>
   </div>
 </section>

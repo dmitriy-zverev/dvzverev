@@ -2,6 +2,7 @@
 import { cases } from '../../content/cases';
 import styles from './Cases.module.css';
 import { externalLink } from '../../lib/links';
+import Arrow from '../site/Arrow.astro';
 import { formatWorkTree, siteHostname } from '../../lib/siteHost';
 
 const workTree = formatWorkTree(cases);
@@ -53,7 +54,7 @@ const workTree = formatWorkTree(cases);
                 <dt>Сайт</dt>
                 <dd>
                   <a href={item.siteUrl} {...externalLink}>
-                    {siteHostname(item.siteUrl)}<span aria-hidden="true"> </span>
+                    {siteHostname(item.siteUrl)}<Arrow />
                   </a>
                 </dd>
               </div>

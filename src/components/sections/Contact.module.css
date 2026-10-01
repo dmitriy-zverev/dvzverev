@@ -2,6 +2,17 @@
   border-top: 1px solid var(--color-line);
   background: var(--color-panel);
 }
+.terms { margin-top: 2rem; border: 1px solid var(--color-line); background: var(--color-bg); font-size: 0.85rem; line-height: 1.7; }
+.terms summary { display: flex; align-items: center; gap: 1rem; padding: 1.25rem 1.5rem; cursor: pointer; color: var(--color-text); list-style: none; }
+.terms summary::-webkit-details-marker { display: none; }
+.termsHint { margin-left: auto; color: var(--color-muted); font-size: 0.7rem; }
+.termsToggle::before { content: '+'; color: var(--color-accent); font-size: 1.1rem; }
+.terms[open] .termsToggle::before { content: '−'; }
+.terms summary:hover { background: var(--color-panel); }
+.terms dl { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem 2rem; margin: 0; padding: 1.5rem; border-top: 1px solid var(--color-line); }
+.terms dt { color: var(--color-accent); }
+.terms dd { margin: 0; color: var(--color-muted); max-width: 80ch; }
+.facts a { overflow-wrap: anywhere; }
 
 .layout {
   display: grid;
@@ -37,6 +48,11 @@
   display: grid;
   gap: 1rem;
 }
+.email { display: grid; grid-template-columns: auto minmax(0,1fr) auto; gap: 0.75rem; align-items: center; padding: 1rem 1.35rem; border: 1px solid var(--color-line); text-decoration: none; font-size: 0.8rem; }
+.email span:first-child { font-size: 0.65rem; color: var(--color-muted); letter-spacing: 0.08em; }
+.email span:nth-child(2) { overflow-wrap: anywhere; }
+.emailArrow { display: block; align-self: center; justify-self: center; color: var(--color-accent); }
+.email:hover { border-color: var(--color-accent); }
 .steps {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -99,6 +115,8 @@
   gap: 0.85rem 1rem;
   min-height: 2.5rem;
 }
+.ctaMain :global(.link-arrow), .email :global(.link-arrow) { display: block; align-self: center; justify-self: center; color: var(--color-accent); }
+.facts a { display: inline-flex; align-items: center; gap: 0.4rem; }
 
 .ctaLabel {
   font-size: 0.72rem;
@@ -141,7 +159,8 @@
 }
 
 .facts {
-  display: grid;
+  display: flex;
+  justify-content: space-between;
   gap: 0.5rem;
   margin: 0;
   padding: 0;
@@ -152,11 +171,12 @@
 }
 .startNote {
   margin: 0;
-  padding-top: 1rem;
+  padding-top: 1.25rem;
   border-top: 1px solid var(--color-line);
   font-size: 0.8rem;
   line-height: 1.7;
   color: var(--color-muted);
+  max-width: 46ch;
 }
 
 .facts a {
@@ -171,6 +191,10 @@
 }
 
 @media (max-width: 52rem) {
+  .termsHint { display: none; }
+  .termsToggle { margin-left: auto; }
+  .terms dl { grid-template-columns: 1fr; }
+  .email { padding-inline: 1rem; font-size: 0.72rem; }
   .layout {
     grid-template-columns: 1fr;
     gap: clamp(1.75rem, 5vw, 2.5rem);

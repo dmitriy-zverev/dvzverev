@@ -2,6 +2,7 @@
 import { site } from '../../content/site';
 import styles from './Header.module.css';
 import { externalLink } from '../../lib/links';
+import Arrow from './Arrow.astro';
 ---
 
 <header class={styles.header}>
@@ -19,7 +20,7 @@ import { externalLink } from '../../lib/links';
         <a href="#contact">Контакт</a>
       </nav>
       <a class={styles.telegram} href={site.telegramUrl} {...externalLink}>
-        <span aria-hidden="true"></span> telegram<span aria-hidden="true"></span>
+        <span aria-hidden="true"></span> telegram<Arrow />
       </a>
     </div>
   </div>

@@ -21,3 +21,15 @@ window.ym(113254290, 'init', {
   accurateTrackBounce: true,
   trackLinks: true,
 });
+
+document.addEventListener('click', function (event) {
+  const link = event.target.closest?.('a[href]');
+  if (!link) return;
+  if (link.href.startsWith('https://t.me/')) window.ym(113254290, 'reachGoal', 'telegram_click');
+  if (link.href.startsWith('mailto:')) window.ym(113254290, 'reachGoal', 'email_click');
+});
+document.addEventListener('submit', function (event) {
+  if (event.target.matches('form[action^="https://t.me/"]')) {
+    window.ym(113254290, 'reachGoal', 'telegram_draft');
+  }
+});

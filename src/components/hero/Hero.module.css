@@ -93,6 +93,10 @@
   align-self: center;
 }
 .workLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
   font-size: 0.75rem;
   text-decoration: none;
   color: var(--color-text);
@@ -131,8 +135,8 @@
 }
 .draftNote {
   margin: 0;
-  padding: 0.5rem 1rem 0.75rem;
-  font-size: 0.65rem;
+  padding: 0.25rem 1rem 0.5rem;
+  font-size: 0.6rem;
   line-height: 1.6;
   color: var(--color-muted);
 }
@@ -175,6 +179,10 @@
 }
 .message,
 .send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
   height: 2.75rem;
   box-sizing: border-box;
   line-height: 1.4;

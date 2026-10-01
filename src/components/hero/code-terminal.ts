@@ -60,6 +60,11 @@ if (terminal) {
     }
     const currentScene = terminalScenes[sceneIndex];
     const progress = Math.min(1, elapsed / step.duration);
+    const lastStep = stepIndex === currentScene.steps.length - 1;
+    const fade = lastStep ? Math.min(1, (step.duration - elapsed) / 400)
+      : stepIndex === 0 ? Math.min(1, elapsed / 400) : 1;
+    code.style.transform = `translateY(${(1 - fade) * 6}px)`;
+    logs.style.transform = `translateY(${(1 - fade) * 6}px)`;
     file.textContent = currentScene.file;
     status.textContent = step.status;
     let source = step.source;
@@ -67,7 +72,7 @@ if (terminal) {
     if (step.mode === 'type') source = source.slice(0, Math.floor(source.length * progress));
     if (step.mode === 'import') {
       const addition = 'from uuid import uuid4\n';
-      source = addition.slice(0, Math.floor(addition.length * progress)) + apiBroken;
+      source = addition.trimEnd().slice(0, Math.floor((addition.length - 1) * progress)) + '\n' + apiBroken;
       activeLine = 0;
     }
     if (step.mode === 'await') {
@@ -100,6 +105,8 @@ if (terminal) {
       timer = window.setTimeout(tick, 16);
     }
     if (motion.matches) {
+      code.style.transform = 'none';
+      logs.style.transform = 'none';
       const final = terminalScenes[0].steps.at(-1)!;
       renderCode(final.source, false);
       file.textContent = 'api.py';

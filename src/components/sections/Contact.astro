@@ -2,6 +2,7 @@
 import { site } from '../../content/site';
 import styles from './Contact.module.css';
 import { externalLink } from '../../lib/links';
+import Arrow from '../site/Arrow.astro';
 ---
 
 <section class={`section ${styles.contact}`} id="contact" aria-labelledby="contact-title">
@@ -13,6 +14,7 @@ import { externalLink } from '../../lib/links';
           {site.contactHeadline}<br /><span class={styles.accent}>{site.contactAccent}</span>
         </h2>
         <p class={styles.lede}>{site.contactSubline}</p>
+        <p class={styles.startNote}>Можно без готового ТЗ. Расскажите, что хотите сделать, что уже есть и когда нужен результат.</p>
       </header>
 
       <aside class={styles.aside} aria-label="Контакты">
@@ -20,19 +22,18 @@ import { externalLink } from '../../lib/links';
           <div class={styles.ctaMain}>
             <span class={styles.ctaLabel}>Telegram</span>
             <span class={styles.ctaValue}>@zverev_dmitry</span>
-            <span class={styles.ctaArrow} aria-hidden="true">↗</span>
+            <Arrow />
           </div>
-          <p class={styles.ctaNote}>Напишите, что хотите сделать. Можно без готового ТЗ — начнём с задачи.</p>
+          <p class={styles.ctaNote}>Обсудить проект напрямую со мной</p>
         </a>
+        <a class={styles.email} href={`mailto:${site.email}`}><span>EMAIL</span><span>{site.email}</span><Arrow /></a>
 
         <ul class={styles.facts}>
           <li>Москва / remote</li>
-          <li>{site.footerTagline}</li>
           <li>
-            <a href={site.githubUrl} {...externalLink}>GitHub ↗</a>
+            <a href={site.githubUrl} {...externalLink}>GitHub <Arrow /></a>
           </li>
         </ul>
-        <p class={styles.startNote}>Для начала достаточно описать задачу, что уже готово и желаемый срок. Если есть ссылка или макет — приложите их в чате.</p>
       </aside>
     </div>
     <ol class={styles.steps} aria-label="Как проходит работа">
@@ -40,5 +41,14 @@ import { externalLink } from '../../lib/links';
       <li><strong>Согласуем первый этап</strong><span>Объём, стоимость, сроки и критерии готовности — до начала разработки.</span></li>
       <li><strong>Разрабатываем и запускаем</strong><span>Показываю результат по ходу работы. Поддержку и следующие этапы обсуждаем отдельно.</span></li>
     </ol>
+    <details class={styles.terms}>
+      <summary><span>Условия работы</span><span class={styles.termsHint}>Оценка · оплата · код · поддержка</span><span class={styles.termsToggle} aria-hidden="true"></span></summary>
+      <dl>
+        <div><dt>Оценка</dt><dd>После обсуждения задачи фиксируем объём, стоимость, сроки и критерии приёмки в договорённостях по проекту.</dd></div>
+        <div><dt>Оплата</dt><dd>По этапам: аванс перед началом этапа, остаток после его приёмки. Размер аванса согласуем до старта.</dd></div>
+        <div><dt>Передача</dt><dd>Исходный код и инструкция по запуску — после оплаты согласованного объёма. Права на результат и сторонние лицензии фиксируем отдельно.</dd></div>
+        <div><dt>После запуска</dt><dd>Период исправления ошибок согласуем до начала работ. Новые функции, сопровождение и расходы на сервер или AI-сервисы — отдельно.</dd></div>
+      </dl>
+    </details>
   </div>
 </section>

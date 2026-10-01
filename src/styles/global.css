@@ -138,6 +138,13 @@ a {
     border-color var(--duration-fast) var(--ease-out),
     box-shadow var(--duration-fast) var(--ease-out);
 }
+.link-arrow {
+  display: inline-block;
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: 0 0 auto;
+  vertical-align: -0.1em;
+}
 
 .button::before {
   content: ':\00a0';

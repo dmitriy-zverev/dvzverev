@@ -79,6 +79,7 @@
 }
 
 .telegram {
+  gap: 0.4rem;
   justify-self: end;
   display: inline-flex;
   align-items: center;
@@ -159,6 +160,7 @@
 }
 
 @media (max-width: 35rem) {
+  .telegram :global(.link-arrow) { display: none; }
   .brand {
     font-size: 0.75rem;
   }

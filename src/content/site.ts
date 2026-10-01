@@ -4,6 +4,7 @@ export const site: SiteContent = {
   canonicalBase: 'https://www.dvzverev.ru',
   telegramUrl: 'https://t.me/zverev_dmitry',
   githubUrl: 'https://github.com/dmitriy-zverev',
+  email: 'dmitriy.v.zverev@yandex.ru',
   headerBrand: 'dmitriy-zverev',
   headerRole: 'PYTHON / PRODUCT ENGINEER',
   fullName: 'Дмитрий Зверев',

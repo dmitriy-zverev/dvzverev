@@ -185,6 +185,9 @@
 }
 
 .meta a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   color: var(--color-steel);
   text-decoration: none;
   transition: color var(--duration-fast) var(--ease-out);
