@@ -1,6 +1,8 @@
 # Isolated VPS deployment
 
 Run `bash deploy/vps.sh cloudru` locally with pnpm, SSH and SCP installed.
+The first-time prerequisite is an owned `/opt/dvzverev/releases` directory:
+`sudo install -d -o zverev -g zverev -m 755 /opt/dvzverev /opt/dvzverev/releases`.
 The script builds and checks the static site, uploads a new directory under
 `/opt/dvzverev/releases`, builds an Nginx image on the VPS, checks a candidate
 container, and replaces only the labelled `dvzverev-web` container.
