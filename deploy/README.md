@@ -10,13 +10,21 @@ On failed startup it attempts to restore the previous image. Images and release
 directories are retained; there is no global Docker cleanup.
 
 The endpoint is **127.0.0.1:18082**, not a public port. Shared Caddy, databases,
-networks and other applications are not modified. No server-side Node is needed.
+and other applications are not modified. The script creates/uses the isolated
+`dvzverev_edge` network. No server-side Node is needed.
 Nginx serves gzip precompressed assets; the stock image does not support Brotli.
 
-Initial publication still requires a separately reviewed Caddy route for
-`www.dvzverev.ru` and an apex redirect, DNS and TLS. A Caddy container cannot
-reach the host using its own `127.0.0.1`; routing needs a verified host gateway
-or a dedicated shared network. Do not blindly paste a localhost upstream.
+Production Caddy routes were installed on 2026-10-01 (see `Caddyfile.snippet`).
+`mayak-caddy-1` and `dvzverev-web` are connected to `dvzverev_edge`.
+The original Caddy configuration is backed up on the VPS at
+`/opt/mayak/deploy/Caddyfile.before-dvzverev-20261001`.
+The www hostname serves the landing; the apex redirects to www once its DNS
+resolves. TLS is managed by Caddy.
+
+Important: the Caddy network attachment survives restart, but not container
+recreation. Before redeploying Mayak, preserve these routes in its source
+Caddyfile and declare `dvzverev_edge` as an external network attached to its
+Caddy service. This landing deployment does not edit the Mayak project.
 
 Updates have a brief interruption for this landing only while its container is
 replaced. A lock prevents overlapping deployments. Deploy from a clean checkout

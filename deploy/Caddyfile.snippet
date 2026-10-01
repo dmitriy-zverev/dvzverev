@@ -1,0 +1,8 @@
+# Append to the shared Caddyfile. Both containers must use dvzverev_edge.
+www.dvzverev.ru {
+    reverse_proxy dvzverev-web:8080
+}
+
+dvzverev.ru {
+    redir https://www.dvzverev.ru{uri} permanent
+}

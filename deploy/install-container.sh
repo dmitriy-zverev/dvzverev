@@ -31,7 +31,9 @@ healthy() {
 }
 healthy "$CANDIDATE" || { echo 'Candidate failed; current release untouched'; exit 1; }
 start() {
+  docker network inspect dvzverev_edge >/dev/null 2>&1 || docker network create dvzverev_edge >/dev/null
   docker run -d --name "$NAME" --label app=dvzverev --restart unless-stopped \
+    --network dvzverev_edge \
     --memory 128m --cpus 0.5 --security-opt no-new-privileges:true \
     --log-opt max-size=5m --log-opt max-file=2 \
     -p 127.0.0.1:18082:8080 "$1"
