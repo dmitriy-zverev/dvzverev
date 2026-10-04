@@ -21,6 +21,7 @@
     "precompress": "node scripts/precompress.mjs",
     "size-budget": "node scripts/size-budget.mjs",
     "check-bundle": "node scripts/check-bundle.mjs",
+    "favicon": "node scripts/generate-favicon.mjs",
     "lighthouse": "lhci autorun",
     "verify": "pnpm lint && pnpm typecheck && pnpm test:unit && pnpm build && pnpm precompress && pnpm size-budget && pnpm check-bundle && pnpm test:e2e"
   },
