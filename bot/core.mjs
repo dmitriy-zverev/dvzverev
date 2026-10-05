@@ -13,6 +13,7 @@ import {
   ImageFailure,
   DEFAULT_IMAGE_MODEL,
 } from './images.mjs';
+import { noteVkPhotosAuthFailure } from './vk-photos-inbox.mjs';
 
 export function configFromEnv(env = process.env) {
   const times = (env.BOT_TIMES || '10:00').split(',').map((time) => time.trim());
@@ -293,6 +294,7 @@ async function prepareImages(config, state, entry, { generateImage, uploadImage,
     (entry.errors ||= []).push(event);
     await saveState(config, state);
     await alert(config, state, event, notify);
+    if (target === 'vk') await noteVkPhotosAuthFailure(config, code, reason);
   };
   if (image.status === 'generating') {
     const cached = await cachedCover(config, entry.postId);

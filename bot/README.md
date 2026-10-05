@@ -392,11 +392,60 @@ VK по умолчанию публикует только текст (`VK_IMAGE
 сбое загрузки VK получает текст без фото. Ошибки картинок отправляются только в
 `BOT_ALERT_CHAT_ID` и не останавливают публикации остальных площадок.
 
+### Обновление VK-токена через Telegram
+
+Если пользовательский токен истёк или VK вернул ошибку авторизации (код 5 / 27),
+бот (в режиме планировщика) отправит в `BOT_ALERT_CHAT_ID` ссылку OAuth и попросит
+прислать полный URL после входа (`oauth.vk.ru/blank.html#access_token=...`).
+
+Настройки:
+
+```dotenv
+VK_OAUTH_CLIENT_ID=54805806
+BOT_OPERATOR_USER_ID=123456789
+BOT_ALERT_CHAT_ID=...
+```
+
+`BOT_OPERATOR_USER_ID` — твой числовой Telegram user id (только этот аккаунт может
+прислать ссылку). Токен сохраняется в `bot/data/vk-photos.token` (volume в Docker)
+и при возможности обновляется `VK_PHOTOS_ACCESS_TOKEN` в `bot/.env`. Перезапуск
+контейнера после обновления не обязателен.
+
+Получить OAuth-ссылку нужно **с того же исходящего IP**, с которого бот ходит в VK
+(для Docker — после входа сразу проверь из контейнера). Повторный запрос в Telegram
+не чаще раза в час.
+
 После изменения `.env` пересоздайте локальный контейнер:
 
 ```sh
 docker compose -f bot/compose.yaml up -d --build --force-recreate
 ```
+
+## Несколько проектов (этап 1, частично)
+
+Декларативный конфиг в JSON: провайдеры, получатели, редакционные проекты.
+Пример: `bot/service.example.json`. Секреты остаются в `.env`, в файле только
+`*Env`-ссылки. Промпты — только внутри каталога конфига (обычно корень `bot/`).
+
+```sh
+# Проверить схему и ссылки
+node bot/run.mjs --validate-config --config bot/service.example.json
+
+# Список проектов и получателей
+node bot/run.mjs --list --config bot/service.example.json
+
+# Предпросмотр / публикация / статус для одного проекта
+node --env-file=bot/.env bot/run.mjs --config bot/service.json --project coding-reading --dry-run
+node --env-file=bot/.env bot/run.mjs --config bot/service.json --project coding-reading --generate-preview
+node --env-file=bot/.env bot/run.mjs --config bot/service.json --project coding-reading --publish-next
+```
+
+В `.env` можно задать `BOT_CONFIG_PATH`. Старые переменные `TELEGRAM_*`, `VK_*`,
+`BOT_TIMES` и т.д. продолжают работать без конфига. Если заданы и конфиг, и legacy-
+переменные, CLI выведет предупреждение: приоритет у `BOT_CONFIG_PATH`.
+
+Планировщик в multi-режиме обходит все включённые проекты; у каждого свой
+`statePath` (см. поле в конфиге).
 
 ## План развития
 

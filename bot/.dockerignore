@@ -14,3 +14,8 @@
 !check-telegram.mjs
 !lock.mjs
 !lock.py
+!app-config.mjs
+!vk-photos-token.mjs
+!vk-photos-inbox.mjs
+!config/
+!config/*.mjs

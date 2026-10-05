@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "service": {
+    "alertChatIdEnv": "BOT_ALERT_CHAT_ID",
+    "minDestinationIntervalMinutes": 30
+  },
+  "providers": {
+    "budget-editor": {
+      "adapter": "openrouter",
+      "modelEnv": "OPENROUTER_MODEL",
+      "credentialEnv": "OPENROUTER_API_KEY"
+    }
+  },
+  "destinations": {
+    "coding-telegram": {
+      "platform": "telegram",
+      "chatIdEnv": "TELEGRAM_CHAT_ID",
+      "credentialEnv": "TELEGRAM_BOT_TOKEN",
+      "media": { "enabled": true, "width": 1280, "height": 720 }
+    },
+    "coding-vk": {
+      "platform": "vk",
+      "groupIdEnv": "VK_GROUP_ID",
+      "credentialEnv": "VK_ACCESS_TOKEN",
+      "media": { "enabled": false }
+    }
+  },
+  "projects": {
+    "coding-reading": {
+      "enabled": true,
+      "format": "digest",
+      "language": "ru",
+      "postSource": "openrouter",
+      "prompts": {
+        "editor": "prompts/digest.md",
+        "cover": "prompts/cover.md"
+      },
+      "generation": {
+        "provider": "budget-editor"
+      },
+      "schedule": {
+        "timezone": "Europe/Moscow",
+        "times": ["10:00", "18:00"],
+        "missedSlots": "skip"
+      },
+      "delivery": {
+        "policy": "ordered-independent",
+        "destinations": ["coding-telegram", "coding-vk"]
+      },
+      "budget": { "dailyUsd": 2, "monthlyUsd": 30 },
+      "statePath": "data/projects/coding-reading/state.json",
+      "queuePath": "content/posts.json"
+    }
+  }
+}
