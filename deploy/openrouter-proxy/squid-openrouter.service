@@ -1,0 +1,15 @@
+[Unit]
+Description=OpenRouter forward proxy for dvzverev
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/usr/sbin/squid -k parse -f /etc/squid/openrouter.conf
+ExecStart=/usr/sbin/squid -N -f /etc/squid/openrouter.conf
+ExecReload=/usr/sbin/squid -k reconfigure -f /etc/squid/openrouter.conf
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,22 @@
+[Unit]
+Description=dvzverev Telegram reading poster
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=zverev
+WorkingDirectory=/opt/dvzverev-bot
+ExecStart=/usr/bin/node --env-file=bot/.env bot/run.mjs
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=60
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/dvzverev-bot/bot/data
+
+[Install]
+WantedBy=multi-user.target

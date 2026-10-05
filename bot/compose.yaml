@@ -1,0 +1,28 @@
+name: dvzverev-poster
+services:
+  poster:
+    build: .
+    image: dvzverev-poster:local
+    container_name: dvzverev-poster
+    labels:
+      app: dvzverev-poster
+    env_file: .env
+    environment:
+      BOT_QUEUE_PATH: /app/content/posts.json
+      BOT_STATE_PATH: /app/data/state.json
+    volumes:
+      - ./content:/app/content:ro
+      - ./data:/app/data
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+    stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: '3'

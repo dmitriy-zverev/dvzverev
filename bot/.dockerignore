@@ -1,0 +1,8 @@
+# Allowlist: credentials, queues and delivery history never enter the image.
+*
+!Dockerfile
+!core.mjs
+!run.mjs
+!check-telegram.mjs
+!lock.mjs
+!lock.py

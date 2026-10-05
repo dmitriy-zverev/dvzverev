@@ -40,3 +40,7 @@ Thumbs.db
 
 # misc
 .cache/
+bot/data/
+bot/posts.json
+bot/content/
+bot/.deploy.lock

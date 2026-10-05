@@ -19,6 +19,7 @@ npx pnpm@10 verify
 
 ## Docs
 
+- [Telegram-постер](bot/README.md)
 - [implementation-plan.md](docs/implementation-plan.md)
 - [creative-direction.md](docs/creative-direction.md)
 - [landing-plan.md](docs/landing-plan.md)
