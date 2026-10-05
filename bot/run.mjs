@@ -10,6 +10,9 @@ import {
   reportRuntimeFailure,
   clearRuntimeFailure,
 } from './core.mjs';
+import { generatePost, GenerationFailure } from './openrouter.mjs';
+import { formatVkPost } from './content.mjs';
+import { randomUUID } from 'node:crypto';
 
 const args = process.argv.slice(2);
 const allowed = [
@@ -20,6 +23,8 @@ const allowed = [
   '--resume-telegram',
   '--resume-vk',
   '--resume-queue',
+  '--resume-openrouter',
+  '--generate-preview',
   '--status',
 ];
 const resolution =
@@ -27,7 +32,7 @@ const resolution =
   (args[0] === '--mark-sent' && args.length === 3);
 if (!resolution && (args.length > 1 || args.some((arg) => !allowed.includes(arg)))) {
   console.error(
-    'Usage: node bot/run.mjs [--dry-run | --once | --publish-next | --status | --resume | --resume-telegram | --resume-vk | --resume-queue | --retry-post ID | --mark-sent ID MESSAGE_ID]',
+    'Usage: node bot/run.mjs [--dry-run | --generate-preview | --once | --publish-next | --status | --resume | --resume-telegram | --resume-vk | --resume-queue | --resume-openrouter | --retry-post ID | --mark-sent ID MESSAGE_ID]',
   );
   process.exit(1);
 }
@@ -41,10 +46,28 @@ try {
         await resolvePost(config, args[1], args[0] === '--mark-sent' ? Number(args[2]) : null),
       ),
     );
+  } else if (args[0] === '--generate-preview') {
+    const post = await generatePost(config, { id: `preview-${randomUUID()}` });
+    console.log(formatVkPost(post));
+    console.log(JSON.stringify(post.generation));
   } else if (args[0] === '--dry-run') {
-    const state = await readState(config);
-    const post = await nextQueuedPost(config, state.entries);
-    console.log(post ? formatPost(post) : 'Queue is empty: add posts to bot/content/posts.json');
+    if (config.postSource === 'openrouter') {
+      console.log(
+        JSON.stringify({
+          source: 'openrouter',
+          mode: config.contentMode,
+          times: config.times,
+          timezone: config.timezone,
+          model: config.openrouterModel,
+          prompt: config.openrouterPrompt,
+          note: 'Use --generate-preview for a paid generation without publishing.',
+        }),
+      );
+    } else {
+      const state = await readState(config);
+      const post = await nextQueuedPost(config, state.entries);
+      console.log(post ? formatPost(post) : 'Queue is empty: add posts to bot/content/posts.json');
+    }
   } else if (args[0]?.startsWith('--resume')) {
     console.log(
       JSON.stringify(await resume(config, args[0] === '--resume' ? null : args[0].slice(9))),
@@ -56,6 +79,7 @@ try {
         {
           pauses: state.pauses,
           cooldowns: state.cooldowns,
+          generation: state.pendingGeneration,
           entries: state.entries.map(({ html, vkText, ...entry }) => {
             void html;
             void vkText;
@@ -105,7 +129,7 @@ try {
       if (!stopping) await sleep(15_000);
     }
   }
-} catch {
+} catch (error) {
   await reportRuntimeFailure(
     config || {
       token: process.env.TELEGRAM_BOT_TOKEN || '',
@@ -113,10 +137,16 @@ try {
       chatId: process.env.TELEGRAM_CHAT_ID || '',
       statePath: process.env.BOT_STATE_PATH || 'bot/data/state.json',
     },
+    undefined,
+    error instanceof GenerationFailure
+      ? { platform: 'openrouter', reason: error.reason, errorCode: error.code, status: 'failed' }
+      : null,
   );
   // Do not print arbitrary exception messages: credentials may appear in them.
   console.error(
-    'Bot stopped: check environment, queue, state and file permissions. Run bot tests for validation.',
+    error instanceof GenerationFailure
+      ? `OpenRouter: ${error.reason} (code ${error.code || '—'})`
+      : 'Bot stopped: check environment, queue, state and file permissions. Run bot tests for validation.',
   );
   process.exitCode = 1;
 }

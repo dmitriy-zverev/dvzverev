@@ -1,7 +1,18 @@
+import { escapeHtml, formatPost, formatVkPost, visibleTextLength } from './content.mjs';
+import { generatePost, GenerationFailure, DEFAULT_MODEL, DEFAULT_PROMPT } from './openrouter.mjs';
+export { formatPost, formatVkPost } from './content.mjs';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { acquireLock } from './lock.mjs';
+import {
+  generateCover,
+  cachedCover,
+  coverPath,
+  uploadVkCover,
+  ImageFailure,
+  DEFAULT_IMAGE_MODEL,
+} from './images.mjs';
 
 export function configFromEnv(env = process.env) {
   const times = (env.BOT_TIMES || '10:00').split(',').map((time) => time.trim());
@@ -12,75 +23,33 @@ export function configFromEnv(env = process.env) {
   new Intl.DateTimeFormat('en', { timeZone: timezone }).format();
   const vkToken = env.VK_ACCESS_TOKEN || '';
   const vkGroupId = env.VK_GROUP_ID || '';
+  const postSource = env.BOT_POST_SOURCE || 'queue';
+  const contentMode = env.BOT_CONTENT_MODE || 'tip';
+  if (!['tip', 'digest'].includes(contentMode)) throw new Error('Invalid BOT_CONTENT_MODE');
+  if (!['queue', 'openrouter'].includes(postSource)) throw new Error('Invalid BOT_POST_SOURCE');
   return {
     token: env.TELEGRAM_BOT_TOKEN || '',
     chatId: env.TELEGRAM_CHAT_ID || '',
     alertChatId: env.BOT_ALERT_CHAT_ID || '',
     vkToken,
     vkGroupId,
+    vkPhotosToken: env.VK_PHOTOS_ACCESS_TOKEN || '',
+    imagesEnabled: env.BOT_IMAGES_ENABLED === 'true',
+    vkImagesEnabled: env.VK_IMAGES_ENABLED === 'true',
+    imageModel: env.OPENROUTER_IMAGE_MODEL || DEFAULT_IMAGE_MODEL,
     vkEnabled: Boolean(vkToken || vkGroupId),
     vkConfigError: Boolean(vkToken || vkGroupId) && (!vkToken || !/^[1-9]\d*$/.test(vkGroupId)),
     maxAttempts: 3,
+    postSource,
+    contentMode,
+    openrouterKey: env.OPENROUTER_API_KEY || '',
+    openrouterModel: env.OPENROUTER_MODEL || DEFAULT_MODEL,
+    openrouterPrompt: env.BOT_PROMPT || DEFAULT_PROMPT,
     times: [...new Set(times)].sort(),
     timezone,
     queuePath: resolve(env.BOT_QUEUE_PATH || 'bot/content/posts.json'),
     statePath: resolve(env.BOT_STATE_PATH || 'bot/data/state.json'),
   };
-}
-
-const escapeHtml = (value) =>
-  value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-
-export function formatPost(post) {
-  for (const field of ['id', 'title', 'summary', 'why', 'url']) {
-    if (typeof post?.[field] !== 'string' || !post[field].trim()) {
-      throw new Error(`Post requires a nonempty ${field}`);
-    }
-  }
-  const url = new URL(post.url);
-  if (url.protocol !== 'https:' || url.username || url.password) {
-    throw new Error('Post URL must be HTTPS without credentials');
-  }
-  if (post.action !== undefined && typeof post.action !== 'string') {
-    throw new Error('Post action must be a string');
-  }
-  const blocks = [
-    '📚 <b>Что почитать вайбкодерам</b>',
-    `<b>${escapeHtml(post.title)}</b>`,
-    escapeHtml(post.summary),
-    `<b>Зачем читать:</b> ${escapeHtml(post.why)}`,
-  ];
-  if (post.action?.trim()) blocks.push(`<b>Что попробовать:</b> ${escapeHtml(post.action)}`);
-  blocks.push(`<a href="${escapeHtml(url.href)}">Читать оригинал ↗</a>`);
-  const html = blocks.join('\n\n');
-  // Count visible text in UTF-16 units, conservatively including surrogate pairs.
-  const visible = [
-    '📚 Что почитать вайбкодерам',
-    post.title,
-    post.summary,
-    `Зачем читать: ${post.why}`,
-    ...(post.action?.trim() ? [`Что попробовать: ${post.action}`] : []),
-    'Читать оригинал ↗',
-  ].join('\n\n');
-  if (visible.length > 4096)
-    throw new Error(`Post ${post.id} exceeds Telegram's 4096-character limit`);
-  return html;
-}
-
-export function formatVkPost(post) {
-  formatPost(post);
-  return [
-    '📚 Что почитать вайбкодерам',
-    post.title,
-    post.summary,
-    `Зачем читать: ${post.why}`,
-    ...(post.action?.trim() ? [`Что попробовать: ${post.action}`] : []),
-    `Читать оригинал ↗ ${new URL(post.url).href}`,
-  ].join('\n\n');
 }
 
 export async function readQueue(path) {
@@ -153,6 +122,15 @@ export async function readState(config) {
       (entry) =>
         !entry ||
         typeof entry.slot !== 'string' ||
+        (entry.image &&
+          (!['pending', 'generating', 'ready', 'failed'].includes(entry.image.status) ||
+            typeof entry.image.text !== 'string' ||
+            (entry.image.telegram &&
+              !['sending', 'sent', 'failed', 'uncertain'].includes(entry.image.telegram.status)) ||
+            (entry.image.vk &&
+              (!['uploading', 'ready', 'failed'].includes(entry.image.vk.status) ||
+                (entry.image.vk.attachment !== undefined &&
+                  !/^photo-?\d+_\d+(?:_[A-Za-z0-9_-]+)?$/.test(entry.image.vk.attachment)))))) ||
         (entry.platform !== undefined && !['telegram', 'vk'].includes(entry.platform)) ||
         (entry.platform === 'vk' &&
           (!Number.isInteger(entry.messageId) ||
@@ -185,7 +163,7 @@ export async function readState(config) {
       Array.isArray(state.pauses) ||
       Object.entries(state.pauses).some(
         ([platform, pause]) =>
-          !['telegram', 'vk', 'queue'].includes(platform) ||
+          !['telegram', 'vk', 'queue', 'openrouter'].includes(platform) ||
           !pause ||
           typeof pause.reason !== 'string',
       ))
@@ -198,6 +176,16 @@ export async function readState(config) {
     throw new Error('Invalid cooldown');
   state.pauses ||= {};
   state.cooldowns ||= {};
+  if (
+    state.pendingGeneration &&
+    (typeof state.pendingGeneration.id !== 'string' ||
+      typeof state.pendingGeneration.slot !== 'string' ||
+      !Number.isInteger(state.pendingGeneration.attempts) ||
+      !['generating', 'retry_wait', 'failed'].includes(state.pendingGeneration.status) ||
+      (state.pendingGeneration.status === 'retry_wait' &&
+        !Number.isFinite(Date.parse(state.pendingGeneration.retryAt))))
+  )
+    throw new Error('Invalid generation state');
   if (state.paused) {
     const platform =
       state.paused.reason === 'invalid_queue' ? 'queue' : state.paused.platform || 'telegram';
@@ -261,6 +249,92 @@ export async function sendTelegram(config, html, fetchImpl = fetch) {
   }
 }
 
+export async function sendTelegramPhoto(config, entry, caption = '', fetchImpl = fetch) {
+  if (visibleTextLength(caption) > 1024) throw new TelegramRejection(400);
+  const photo = await readFile(coverPath(config, entry.postId));
+  const form = new FormData();
+  form.set('chat_id', config.chatId);
+  form.set('photo', new Blob([photo], { type: 'image/png' }), 'cover.png');
+  if (caption) {
+    form.set('caption', caption);
+    form.set('parse_mode', 'HTML');
+  }
+  try {
+    const response = await fetchImpl(`https://api.telegram.org/bot${config.token}/sendPhoto`, {
+      method: 'POST',
+      redirect: 'error',
+      signal: AbortSignal.timeout(30000),
+      body: form,
+    });
+    const body = await response.json();
+    if (body.ok === false && Number.isInteger(body.error_code))
+      throw new TelegramRejection(body.error_code, body.parameters?.retry_after);
+    if (!response.ok || body.ok !== true || !Number.isInteger(body.result?.message_id))
+      throw new Error('Unconfirmed photo response');
+    return body.result.message_id;
+  } catch (error) {
+    if (error instanceof TelegramRejection) throw error;
+    // eslint-disable-next-line preserve-caught-error
+    throw new Error('Telegram photo delivery is uncertain; inspect the channel');
+  }
+}
+
+async function prepareImages(config, state, entry, { generateImage, uploadImage, notify }) {
+  if (!entry.image) return;
+  const image = entry.image;
+  const failure = async (target, reason, code = null) => {
+    const event = {
+      platform: target,
+      postId: entry.postId,
+      status: 'failed',
+      reason,
+      errorCode: code,
+    };
+    (entry.errors ||= []).push(event);
+    await saveState(config, state);
+    await alert(config, state, event, notify);
+  };
+  if (image.status === 'generating') {
+    const cached = await cachedCover(config, entry.postId);
+    image.status = cached ? 'ready' : 'failed';
+    if (!cached) await failure('openrouter', 'interrupted_image_generation');
+  }
+  if (image.status === 'pending') {
+    image.status = 'generating';
+    await saveState(config, state);
+    try {
+      Object.assign(image, await generateImage(config, entry));
+      image.status = 'ready';
+    } catch (error) {
+      if (!(error instanceof ImageFailure)) throw error;
+      image.status = 'failed';
+      await failure('openrouter', error.reason, error.code);
+    }
+    await saveState(config, state);
+  }
+  if (image.status !== 'ready') return;
+  // Preserve old interrupted releases without re-sending their separate cover.
+  if (image.telegram?.status === 'sending') {
+    image.telegram.status = 'uncertain';
+    await failure('telegram', 'interrupted_photo_delivery');
+  }
+  if (config.vkImagesEnabled && entry.platform === 'vk' && !image.vk) {
+    image.vk = { status: 'uploading' };
+    await saveState(config, state);
+  }
+  if (config.vkImagesEnabled && entry.platform === 'vk' && image.vk.status === 'uploading') {
+    try {
+      image.vk.attachment = await uploadImage(config, entry);
+      image.vk.status = 'ready';
+    } catch (error) {
+      if (!(error instanceof ImageFailure)) throw error;
+      image.vk.status = 'failed';
+      await failure('vk', error.reason, error.code);
+    }
+    await saveState(config, state);
+  }
+}
+
 export class VkRejection extends Error {
   constructor(code) {
     super(`VK rejected request (${code})`);
@@ -293,6 +367,9 @@ export async function sendVk(config, entry, fetchImpl = fetch) {
         from_group: '1',
         message: entry.vkText,
         guid: entry.slot,
+        ...(config.vkImagesEnabled && entry.image?.vk?.attachment
+          ? { attachments: entry.image.vk.attachment }
+          : {}),
       }),
     });
     const body = await response.json();
@@ -346,6 +423,78 @@ async function alert(config, state, event, notify) {
   await saveState(config, state);
 }
 
+async function generateForSlot(config, state, slot, now, generate, notify) {
+  const job = (state.pendingGeneration ||= {
+    id: `llm-${randomUUID()}`,
+    slot,
+    attempts: 0,
+    errors: [],
+  });
+  const limitReached = job.attempts >= config.maxAttempts;
+  job.status = 'generating';
+  if (!limitReached) job.attempts++;
+  await saveState(config, state);
+  const started = Date.now();
+  let post;
+  let failure;
+  if (limitReached) failure = new GenerationFailure('interrupted_generation_limit');
+  else {
+    try {
+      post = await generate(config, {
+        id: job.id,
+        history: state.entries
+          .filter((entry) => entry.generation)
+          .map((entry) => entry.generation.title),
+        feedback: job.reason,
+        excludeUrls: state.entries.slice(-28).flatMap((entry) => entry.generation?.urls || []),
+      });
+    } catch (error) {
+      if (!(error instanceof GenerationFailure)) throw error;
+      failure = error;
+    }
+  }
+  if (post) return post;
+  const event = {
+    platform: 'openrouter',
+    postId: job.id,
+    reason: failure.reason,
+    errorCode: failure.code,
+    attempts: job.attempts,
+    status: 'retry_wait',
+  };
+  job.reason = failure.reason;
+  job.errors.push(event);
+  if (failure.kind === 'configuration') {
+    job.status = 'failed';
+    event.status = 'paused';
+    state.pauses.openrouter = event;
+  } else if (job.attempts >= config.maxAttempts) {
+    event.status = 'exhausted';
+    state.entries.push({
+      slot: job.slot,
+      postId: job.id,
+      platform: 'telegram',
+      status: 'exhausted',
+      reason: 'generation_exhausted',
+      attempts: 0,
+      alertStatus: 'covered_by_generation',
+      errors: job.errors,
+    });
+    delete state.pendingGeneration;
+  } else {
+    job.status = 'retry_wait';
+    job.retryAt = new Date(
+      now.getTime() +
+        Date.now() -
+        started +
+        Math.max(failure.retryAfter, 15 * 2 ** (job.attempts - 1)) * 1000,
+    ).toISOString();
+  }
+  await saveState(config, state);
+  await alert(config, state, event, notify);
+  return null;
+}
+
 export async function publish(
   config,
   {
@@ -355,6 +504,10 @@ export async function publish(
     send = sendTelegram,
     sendVK = sendVk,
     notify = sendTelegram,
+    generate = generatePost,
+    generateImage = generateCover,
+    sendPhoto = sendTelegramPhoto,
+    uploadImage = uploadVkCover,
   } = {},
 ) {
   await mkdir(dirname(config.statePath), { recursive: true });
@@ -396,6 +549,8 @@ export async function publish(
     for (const entry of state.entries) {
       for (const event of entry.errors || []) await alert(config, state, event, notify);
     }
+    for (const event of state.pendingGeneration?.errors || [])
+      await alert(config, state, event, notify);
     for (const pause of Object.values(state.pauses)) await alert(config, state, pause, notify);
     const available = (platform) =>
       !state.pauses[platform] && !(Date.parse(state.cooldowns[platform]) > now.getTime());
@@ -407,13 +562,31 @@ export async function publish(
       available(entry.platform || 'telegram') && !(Date.parse(entry.retryAt) > now.getTime());
     const telegramPending = pending.find((entry) => entry.platform !== 'vk');
     let entry = telegramPending && ready(telegramPending) ? telegramPending : null;
-    if (!entry && !telegramPending && available('telegram') && !state.pauses.queue) {
-      const slot = manual ? `manual:${randomUUID()}` : dueSlot(config, now);
+    let sourceFailure = null;
+    const useLlm = config.postSource === 'openrouter' && provider === nextQueuedPost;
+    const job = useLlm ? state.pendingGeneration : null;
+    const sourceAvailable = useLlm
+      ? available('openrouter') && (!job || !(Date.parse(job.retryAt) > now.getTime()))
+      : !state.pauses.queue;
+    if (!entry && !telegramPending && available('telegram') && sourceAvailable) {
+      const slot = job?.slot || (manual ? `manual:${randomUUID()}` : dueSlot(config, now));
       if (slot && !state.entries.some((entry) => entry.slot === slot)) {
         let post;
         try {
-          post = await provider(config, state.entries);
+          post = useLlm
+            ? await generateForSlot(config, state, slot, now, generate, notify)
+            : await provider(config, state.entries);
+          if (useLlm && !post)
+            sourceFailure = state.pendingGeneration
+              ? {
+                  status: state.pendingGeneration.status === 'failed' ? 'paused' : 'retry_wait',
+                  platform: 'openrouter',
+                  reason: state.pendingGeneration.reason,
+                  retryAt: state.pendingGeneration.retryAt,
+                }
+              : { status: 'exhausted', platform: 'openrouter', reason: 'generation_exhausted' };
         } catch {
+          if (useLlm) throw new Error('Generation state could not be persisted');
           state.pauses.queue = {
             platform: 'queue',
             reason: 'invalid_queue',
@@ -422,18 +595,30 @@ export async function publish(
           await saveState(config, state);
           await alert(config, state, state.pauses.queue, notify);
         }
-        if (!state.pauses.queue) {
+        if ((useLlm && post) || (!useLlm && !state.pauses.queue)) {
           entry = {
             slot,
-            status: post ? 'sending' : 'empty',
+            status: post ? (useLlm || config.imagesEnabled ? 'retry_wait' : 'sending') : 'empty',
             createdAt: now.toISOString(),
             attempts: 0,
             platform: 'telegram',
           };
           if (post) {
             entry.postId = post.id;
+            if (post.generation) entry.generation = post.generation;
+            if (useLlm) {
+              entry.retryAt = now.toISOString();
+              entry.errors = state.pendingGeneration.errors;
+              entry.generation = post.generation;
+              delete state.pendingGeneration;
+            }
             try {
               entry.html = formatPost(post);
+              if (config.imagesEnabled) {
+                if (visibleTextLength(entry.html) > 1024) throw new Error('Photo caption too long');
+                entry.retryAt = now.toISOString();
+                entry.image = { status: 'pending', text: formatVkPost(post) };
+              }
               if (config.vkEnabled || config.vkToken) {
                 entry.vkText = formatVkPost(post);
                 entry.vkGroupId = config.vkGroupId;
@@ -456,6 +641,7 @@ export async function publish(
     // VK's delayed or paused backlog never prevents a new Telegram slot.
     if (!entry) entry = pending.find((entry) => entry.platform === 'vk' && ready(entry));
     if (!entry) {
+      if (sourceFailure) return sourceFailure;
       const waiting = pending.find((entry) => !state.pauses[entry.platform || 'telegram']);
       if (waiting)
         return {
@@ -463,7 +649,14 @@ export async function publish(
           platform: waiting.platform || 'telegram',
           retryAt: waiting.retryAt || state.cooldowns[waiting.platform],
         };
-      const pause = state.pauses.telegram || state.pauses.queue || state.pauses.vk;
+      if (state.pendingGeneration?.status === 'retry_wait')
+        return {
+          status: 'retry_wait',
+          platform: 'openrouter',
+          retryAt: state.pendingGeneration.retryAt,
+        };
+      const pause =
+        state.pauses.telegram || state.pauses.queue || state.pauses.vk || state.pauses.openrouter;
       if (pause) return { status: 'paused', platform: pause.platform, reason: pause.reason };
       const slot = manual ? null : dueSlot(config, now);
       return {
@@ -484,6 +677,14 @@ export async function publish(
           platform: 'vk',
           retryAt: state.cooldowns.vk,
         };
+      await prepareImages(config, state, entry, { generateImage, uploadImage, notify });
+      if (entry.platform !== 'vk' && !available('telegram'))
+        return {
+          status: 'retry_wait',
+          platform: 'telegram',
+          postId: entry.postId,
+          retryAt: entry.retryAt || state.cooldowns.telegram,
+        };
       entry.status = 'sending';
       entry.attempts = (entry.attempts || 0) + 1;
       delete entry.retryAt;
@@ -494,7 +695,10 @@ export async function publish(
           entry.vkPostId = await sendVK(config, entry);
           entry.vkSentAt = new Date().toISOString();
         } else {
-          entry.messageId = await send(config, entry.html);
+          entry.messageId =
+            entry.image?.status === 'ready' && !entry.image.telegram
+              ? await sendPhoto(config, entry, entry.html)
+              : await send(config, entry.html);
           entry.telegramSentAt = new Date().toISOString();
           if (entry.vkText) {
             entry.telegramAttempts = entry.attempts;
@@ -597,7 +801,7 @@ export async function publish(
 }
 
 export async function resume(config, platform = null) {
-  if (platform !== null && !['telegram', 'vk', 'queue'].includes(platform))
+  if (platform !== null && !['telegram', 'vk', 'queue', 'openrouter'].includes(platform))
     throw new Error('Invalid platform');
   await mkdir(dirname(config.statePath), { recursive: true });
   const release = await acquireLock(`${config.statePath}.lock`);
@@ -615,9 +819,14 @@ export async function resume(config, platform = null) {
       entry.attempts = 0;
       delete entry.alertStatus;
     }
-    for (const target of platform ? [platform] : ['telegram', 'vk', 'queue']) {
+    for (const target of platform ? [platform] : ['telegram', 'vk', 'queue', 'openrouter']) {
       delete state.pauses[target];
       delete state.cooldowns[target];
+    }
+    if ((!platform || platform === 'openrouter') && state.pendingGeneration?.status === 'failed') {
+      state.pendingGeneration.status = 'retry_wait';
+      state.pendingGeneration.attempts = 0;
+      state.pendingGeneration.retryAt = new Date().toISOString();
     }
     if ((!platform || platform === 'vk') && /^[1-9]\d*$/.test(config.vkGroupId)) {
       for (const entry of state.entries.filter(
@@ -634,9 +843,13 @@ export async function resume(config, platform = null) {
 }
 
 // A separate incident file remains usable even if delivery history is corrupt.
-export async function reportRuntimeFailure(config, notify = sendTelegram) {
+export async function reportRuntimeFailure(config, notify = sendTelegram, failureEvent = null) {
   const incidentConfig = { ...config, statePath: `${config.statePath}.errors.json` };
-  const event = { reason: 'runtime_or_state_failure', platform: 'system', status: 'paused' };
+  const event = failureEvent || {
+    reason: 'runtime_or_state_failure',
+    platform: 'system',
+    status: 'paused',
+  };
   let release;
   try {
     await mkdir(dirname(config.statePath), { recursive: true });

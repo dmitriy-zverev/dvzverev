@@ -2,6 +2,14 @@
 *
 !Dockerfile
 !core.mjs
+!content.mjs
+!openrouter.mjs
+!digest.mjs
+!images.mjs
+!resize-image.py
+!prompts/
+!prompts/digest.md
+!prompts/cover.md
 !run.mjs
 !check-telegram.mjs
 !lock.mjs
