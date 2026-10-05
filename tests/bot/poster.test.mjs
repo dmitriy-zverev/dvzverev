@@ -18,6 +18,11 @@ import {
   TelegramRejection,
   resume,
   resolvePost,
+  sendVk,
+  formatVkPost,
+  VkRejection,
+  reportRuntimeFailure,
+  clearRuntimeFailure,
 } from '../../bot/core.mjs';
 
 const post = {
@@ -380,4 +385,580 @@ test('operator can release a corrected post after the channel was checked', asyn
   });
   await resolvePost(config, post.id);
   assert.equal((await publish(config, { manual: true, send: async () => 201 })).status, 'sent');
+});
+
+const withVk = (config) => ({
+  ...config,
+  vkToken: 'vk-secret',
+  vkGroupId: '242034586',
+  alertChatId: 'owner',
+});
+
+test('publishes Telegram before VK and persists its receipt before VK I/O', async (t) => {
+  const config = withVk(await setup(t));
+  const calls = [];
+  const result = await publish(config, {
+    manual: true,
+    send: async () => {
+      calls.push('telegram');
+      return 301;
+    },
+    sendVK: async (_, entry) => {
+      calls.push('vk');
+      const saved = (await readState(config)).entries[0];
+      assert.equal(saved.messageId, 301);
+      assert.equal(saved.platform, 'vk');
+      assert.equal(saved.status, 'sending');
+      assert.match(entry.vkText, /Code <review>/);
+      return 10;
+    },
+  });
+  assert.deepEqual(calls, ['telegram', 'vk']);
+  assert.equal(result.status, 'sent');
+  assert.equal(result.messageId, 301);
+  assert.equal(result.vkPostId, 10);
+  assert.equal((await publish(config, { manual: true })).status, 'empty');
+});
+
+test('VK retry after restart never republishes Telegram and reports each failed attempt only in Telegram', async (t) => {
+  const config = withVk(await setup(t));
+  let alerts = 0;
+  const notify = async (cfg, html) => {
+    assert.equal(cfg.chatId, 'owner');
+    assert.match(html, /Площадка: vk/);
+    alerts++;
+  };
+  const first = await publish(config, {
+    manual: true,
+    send: async () => 302,
+    sendVK: async () => {
+      throw new VkRejection(6);
+    },
+    notify,
+  });
+  assert.equal(first.status, 'retry_wait');
+  await publish(config, { now: new Date(Date.parse(first.retryAt) - 1000), notify });
+  assert.equal(alerts, 1);
+  const result = await publish(config, {
+    now: new Date(first.retryAt),
+    send: async () => assert.fail('Telegram already sent'),
+    sendVK: async () => 11,
+    notify,
+  });
+  assert.equal(result.status, 'sent');
+  assert.equal(result.messageId, 302);
+  assert.equal(result.vkPostId, 11);
+});
+
+test('Telegram rejection prevents any VK publication and alerts temporary errors', async (t) => {
+  const config = withVk(await setup(t));
+  let alerts = 0;
+  assert.equal(
+    (
+      await publish(config, {
+        manual: true,
+        send: async () => {
+          throw new TelegramRejection(429, 60);
+        },
+        sendVK: async () => assert.fail('VK must wait'),
+        notify: async () => {
+          alerts++;
+        },
+      })
+    ).status,
+    'retry_wait',
+  );
+  assert.equal(alerts, 1);
+});
+
+test('VK permission failure pauses and resumes only VK', async (t) => {
+  const config = withVk(await setup(t));
+  const first = await publish(config, {
+    manual: true,
+    send: async () => 303,
+    sendVK: async () => {
+      throw new VkRejection(27);
+    },
+    notify: async () => {},
+  });
+  assert.equal(first.status, 'failed');
+  assert.equal((await publish(config)).status, 'paused');
+  await resume(config);
+  const result = await publish(config, {
+    send: async () => assert.fail('No Telegram repeat'),
+    sendVK: async () => 12,
+  });
+  assert.equal(result.status, 'sent');
+});
+
+test('uncertain VK delivery requires operator review; retry and mark-sent affect only VK', async (t) => {
+  const config = withVk(await setup(t));
+  await publish(config, {
+    manual: true,
+    send: async () => 304,
+    sendVK: async () => {
+      throw new Error('timeout');
+    },
+    notify: async () => {},
+  });
+  assert.equal((await readState(config)).entries[0].status, 'uncertain');
+  await resolvePost(config, post.id);
+  await publish(config, {
+    send: async () => assert.fail('No Telegram repeat'),
+    sendVK: async () => {
+      throw new Error('timeout');
+    },
+    notify: async () => {},
+  });
+  await resolvePost(config, post.id, 13);
+  const entry = (await readState(config)).entries[0];
+  assert.equal(entry.messageId, 304);
+  assert.equal(entry.vkPostId, 13);
+  assert.equal(entry.status, 'sent');
+});
+
+test('restart between Telegram and VK continues saved content without calling the provider', async (t) => {
+  const config = withVk(await setup(t));
+  await mkdir(join(config.statePath, '..'), { recursive: true });
+  await writeFile(
+    config.statePath,
+    JSON.stringify({
+      version: 1,
+      chatId: config.chatId,
+      entries: [
+        {
+          slot: 'old',
+          postId: post.id,
+          status: 'rejected',
+          platform: 'vk',
+          messageId: 305,
+          vkText: formatVkPost(post),
+          html: formatPost(post),
+          vkGroupId: config.vkGroupId,
+          attempts: 0,
+        },
+      ],
+    }),
+  );
+  const result = await publish(config, {
+    provider: async () => assert.fail('Use saved content'),
+    send: async () => assert.fail('No Telegram repeat'),
+    sendVK: async () => 14,
+  });
+  assert.equal(result.status, 'sent');
+  assert.equal(result.messageId, 305);
+});
+
+test('VK transport sends plain text and credentials in POST body, sanitizes unknown responses', async () => {
+  const config = withVk(configFromEnv());
+  const entry = { vkGroupId: config.vkGroupId, vkText: formatVkPost(post), slot: 'slot-1' };
+  assert.equal(
+    await sendVk(config, entry, async (url, options) => {
+      assert.equal(url, 'https://api.vk.com/method/wall.post');
+      assert.equal(options.body.get('access_token'), 'vk-secret');
+      assert.equal(options.body.get('owner_id'), '-242034586');
+      assert.equal(options.body.get('from_group'), '1');
+      assert.match(options.body.get('message'), /https:\/\/example.com/);
+      return { ok: true, json: async () => ({ response: { post_id: 15 } }) };
+    }),
+    15,
+  );
+  await assert.rejects(
+    sendVk(config, entry, async () => ({
+      ok: true,
+      json: async () => ({ error: { error_code: 6, request_params: ['vk-secret'] } }),
+    })),
+    VkRejection,
+  );
+  await assert.rejects(
+    sendVk(config, entry, async () => {
+      throw new Error('vk-secret');
+    }),
+    (error) => /uncertain/.test(error.message) && !error.message.includes('vk-secret'),
+  );
+  await assert.rejects(
+    sendVk(config, entry, async () => ({ ok: false, json: async () => ({}) })),
+    /uncertain/,
+  );
+});
+
+test('old Telegram-only sent history does not cross-post retrospectively', async (t) => {
+  const config = await setup(t);
+  await publish(config, { manual: true, send: async () => 306 });
+  assert.equal(
+    (
+      await publish(withVk(config), {
+        manual: true,
+        sendVK: async () => assert.fail('Do not cross-post history'),
+      })
+    ).status,
+    'empty',
+  );
+});
+
+test('corrupt delivery history produces one Telegram incident alert until recovery', async (t) => {
+  const config = withVk(await setup(t));
+  let alerts = 0;
+  const notify = async (cfg) => {
+    assert.equal(cfg.chatId, 'owner');
+    alerts++;
+  };
+  await reportRuntimeFailure(config, notify);
+  await reportRuntimeFailure(config, notify);
+  assert.equal(alerts, 1);
+  await clearRuntimeFailure(config);
+  await reportRuntimeFailure(config, notify);
+  assert.equal(alerts, 2);
+});
+
+test('crash during VK delivery never resends automatically', async (t) => {
+  const config = withVk(await setup(t));
+  await mkdir(join(config.statePath, '..'), { recursive: true });
+  await writeFile(
+    config.statePath,
+    JSON.stringify({
+      version: 1,
+      chatId: config.chatId,
+      entries: [
+        {
+          slot: 'old',
+          postId: post.id,
+          status: 'sending',
+          platform: 'vk',
+          messageId: 307,
+          vkText: formatVkPost(post),
+          html: formatPost(post),
+          vkGroupId: config.vkGroupId,
+          attempts: 1,
+        },
+      ],
+    }),
+  );
+  assert.equal(
+    (
+      await publish(config, {
+        manual: true,
+        notify: async () => {},
+        sendVK: async () => assert.fail('Must review VK first'),
+      })
+    ).status,
+    'empty',
+  );
+  assert.equal((await readState(config)).entries[0].status, 'uncertain');
+});
+
+test('confirming uncertain Telegram receipt allows only the VK stage next', async (t) => {
+  const config = withVk(await setup(t));
+  await publish(config, {
+    manual: true,
+    send: async () => {
+      throw new Error('timeout');
+    },
+    notify: async () => {},
+  });
+  await resolvePost(config, post.id, 308);
+  const result = await publish(config, {
+    send: async () => assert.fail('Confirmed Telegram'),
+    sendVK: async () => 16,
+  });
+  assert.equal(result.messageId, 308);
+  assert.equal(result.vkPostId, 16);
+});
+
+test('VK retries exhaust after three attempts without repeating Telegram', async (t) => {
+  const config = withVk(await setup(t));
+  let result = await publish(config, {
+    manual: true,
+    send: async () => 309,
+    sendVK: async () => {
+      throw new VkRejection(29);
+    },
+    notify: async () => {},
+  });
+  for (let i = 0; i < 2; i++)
+    result = await publish(config, {
+      now: new Date(result.retryAt),
+      send: async () => assert.fail('No Telegram repeat'),
+      sendVK: async () => {
+        throw new VkRejection(29);
+      },
+      notify: async () => {},
+    });
+  assert.equal(result.status, 'exhausted');
+  assert.equal(result.attempts, 3);
+  assert.equal(result.messageId, 309);
+});
+
+test('VK authorization pause does not block new Telegram posts or duplicate pending IDs', async (t) => {
+  const config = withVk(await setup(t, [post, { ...post, id: 'second' }]));
+  const telegram = [];
+  let vkCalls = 0;
+  const send = async (_, html) => {
+    telegram.push(html);
+    return 400 + telegram.length;
+  };
+  await publish(config, {
+    manual: true,
+    send,
+    sendVK: async () => {
+      vkCalls++;
+      throw new VkRejection(27);
+    },
+    notify: async () => {},
+  });
+  const second = await publish(config, {
+    manual: true,
+    send,
+    sendVK: async () => assert.fail('VK paused'),
+    notify: async () => {},
+  });
+  assert.equal(second.status, 'pending_vk');
+  assert.equal(second.postId, 'second');
+  assert.equal(telegram.length, 2);
+  assert.equal(vkCalls, 1);
+  assert.equal(
+    (await publish(config, { manual: true, send, notify: async () => {} })).status,
+    'empty',
+  );
+  assert.equal(telegram.length, 2);
+  await resume(config, 'vk');
+  const resumed = await publish(config, {
+    send: async () => assert.fail('Do not duplicate Telegram'),
+    sendVK: async () => 20,
+  });
+  assert.equal(resumed.postId, post.id);
+  assert.equal(resumed.status, 'sent');
+  assert.equal((await publish(config, { sendVK: async () => 21 })).postId, 'second');
+});
+
+test('VK cooldown permits Telegram and maintains oldest-first VK backlog', async (t) => {
+  const config = withVk(await setup(t, [post, { ...post, id: 'second' }]));
+  const now = new Date('2026-10-05T07:00:00Z');
+  const first = await publish(config, {
+    now,
+    send: async () => 410,
+    sendVK: async () => {
+      throw new VkRejection(29);
+    },
+    notify: async () => {},
+  });
+  const second = await publish(config, {
+    manual: true,
+    now: new Date(now.getTime() + 1000),
+    send: async () => 411,
+    sendVK: async () => assert.fail('Honor VK cooldown'),
+    notify: async () => {},
+  });
+  assert.equal(second.status, 'pending_vk');
+  assert.equal(second.postId, 'second');
+  const delivered = [];
+  for (let i = 0; i < 2; i++)
+    await publish(config, {
+      now: new Date(first.retryAt),
+      send: async () => assert.fail('Already sent Telegram'),
+      sendVK: async (_, entry) => {
+        delivered.push(entry.postId);
+        return 22 + i;
+      },
+    });
+  assert.deepEqual(delivered, [post.id, 'second']);
+});
+
+test('scheduled Telegram release proceeds while VK retry is pending', async (t) => {
+  const config = withVk(await setup(t, [post, { ...post, id: 'second' }]));
+  await publish(config, {
+    now: new Date('2026-10-05T07:00:00Z'),
+    send: async () => 420,
+    sendVK: async () => {
+      throw new VkRejection(6);
+    },
+    notify: async () => {},
+  });
+  const result = await publish(config, {
+    now: new Date('2026-10-06T07:00:00Z'),
+    send: async () => 421,
+    sendVK: async () => assert.fail('Older VK release must go first'),
+    notify: async () => {},
+  });
+  assert.equal(result.postId, 'second');
+  assert.equal(result.status, 'pending_vk');
+});
+
+test('Telegram permission failure still permits previously confirmed VK backlog', async (t) => {
+  const config = withVk(await setup(t, [post, { ...post, id: 'second' }]));
+  const first = await publish(config, {
+    manual: true,
+    send: async () => 430,
+    sendVK: async () => {
+      throw new VkRejection(6);
+    },
+    notify: async () => {},
+  });
+  await publish(config, {
+    manual: true,
+    send: async () => {
+      throw new TelegramRejection(403);
+    },
+    sendVK: async () => assert.fail('Second post lacks Telegram confirmation'),
+    notify: async () => {},
+  });
+  const result = await publish(config, {
+    now: new Date(first.retryAt),
+    send: async () => assert.fail('Telegram paused'),
+    sendVK: async () => 24,
+    notify: async () => {},
+  });
+  assert.equal(result.status, 'sent');
+  assert.equal(result.postId, post.id);
+  assert.ok((await readState(config)).pauses.telegram);
+  await resume(config, 'vk');
+  assert.ok(
+    (await readState(config)).pauses.telegram,
+    'Targeted resume must not clear Telegram pause',
+  );
+});
+
+test('invalid source queue does not block saved VK delivery', async (t) => {
+  const config = withVk(await setup(t));
+  const first = await publish(config, {
+    manual: true,
+    send: async () => 440,
+    sendVK: async () => {
+      throw new VkRejection(6);
+    },
+    notify: async () => {},
+  });
+  await writeFile(config.queuePath, '{');
+  const result = await publish(config, {
+    manual: true,
+    now: new Date(first.retryAt),
+    send: async () => assert.fail('Invalid queue'),
+    sendVK: async () => 25,
+    notify: async () => {},
+  });
+  assert.equal(result.status, 'sent');
+  assert.ok((await readState(config)).pauses.queue);
+});
+
+test('partial VK configuration pauses only VK; correction resumes saved delivery', async (t) => {
+  const base = await setup(t);
+  const config = {
+    ...base,
+    ...configFromEnv({
+      TELEGRAM_BOT_TOKEN: base.token,
+      TELEGRAM_CHAT_ID: base.chatId,
+      BOT_QUEUE_PATH: base.queuePath,
+      BOT_STATE_PATH: base.statePath,
+      VK_ACCESS_TOKEN: 'vk-secret',
+    }),
+    alertChatId: 'owner',
+  };
+  const first = await publish(config, {
+    manual: true,
+    send: async () => 450,
+    sendVK: async () => assert.fail('VK invalid'),
+    notify: async () => {},
+  });
+  assert.equal(first.status, 'pending_vk');
+  assert.equal((await readState(config)).pauses.telegram, undefined);
+  const corrected = { ...config, vkGroupId: '242034586', vkConfigError: false };
+  await resume(corrected, 'vk');
+  assert.equal(
+    (
+      await publish(corrected, {
+        send: async () => assert.fail('Already Telegram'),
+        sendVK: async () => 26,
+      })
+    ).status,
+    'sent',
+  );
+});
+
+test('VK destination mismatch is rejected without redirecting history or blocking Telegram', async (t) => {
+  const config = withVk(await setup(t, [post, { ...post, id: 'second' }]));
+  const first = await publish(config, {
+    manual: true,
+    send: async () => 460,
+    sendVK: async () => {
+      throw new VkRejection(6);
+    },
+    notify: async () => {},
+  });
+  const changed = { ...config, vkGroupId: '999' };
+  const second = await publish(changed, {
+    manual: true,
+    send: async () => 461,
+    sendVK: async () => assert.fail('Old VK stage first'),
+    notify: async () => {},
+  });
+  assert.equal(second.status, 'pending_vk');
+  const failed = await publish(changed, { now: new Date(first.retryAt), notify: async () => {} });
+  assert.equal(failed.errorCode, 27);
+  assert.equal((await readState(changed)).pauses.telegram, undefined);
+});
+
+test('an operator can resolve a failed second Telegram attempt despite old rejected history', async (t) => {
+  const config = await setup(t);
+  const send = async () => {
+    throw new Error('timeout');
+  };
+  await publish(config, { manual: true, send });
+  await resolvePost(config, post.id);
+  await publish(config, { manual: true, send });
+  await resolvePost(config, post.id, 470);
+  assert.equal((await readState(config)).entries.at(-1).messageId, 470);
+});
+
+test('notification rate limit retries safely without resending posts or blocking VK', async (t) => {
+  const config = withVk(await setup(t, [post, { ...post, id: 'second' }]));
+  let calls = 0;
+  const notify = async () => {
+    calls++;
+    if (calls === 1) throw new TelegramRejection(429, 60);
+  };
+  await publish(config, {
+    manual: true,
+    send: async () => 480,
+    sendVK: async () => {
+      throw new VkRejection(100);
+    },
+    notify,
+  });
+  const second = await publish(config, {
+    manual: true,
+    send: async () => 481,
+    sendVK: async () => 27,
+    notify,
+  });
+  assert.equal(second.status, 'sent');
+  assert.equal(calls, 1);
+  const state = await readState(config);
+  state.entries[0].alertRetryAt = '2000-01-01T00:00:00Z';
+  await writeFile(config.statePath, JSON.stringify(state));
+  await publish(config, { notify });
+  assert.equal(calls, 2);
+  assert.equal((await readState(config)).entries[0].alertStatus, 'sent');
+});
+
+test('legacy global VK pause migrates without blocking Telegram', async (t) => {
+  const config = withVk(await setup(t));
+  await mkdir(join(config.statePath, '..'), { recursive: true });
+  await writeFile(
+    config.statePath,
+    JSON.stringify({
+      version: 1,
+      chatId: config.chatId,
+      entries: [],
+      paused: { platform: 'vk', reason: 'token_or_permissions', alertStatus: 'sent' },
+    }),
+  );
+  const result = await publish(config, {
+    manual: true,
+    send: async () => 490,
+    sendVK: async () => assert.fail('VK paused'),
+  });
+  assert.equal(result.status, 'pending_vk');
+  const state = await readState(config);
+  assert.ok(state.pauses.vk);
+  assert.equal(state.pauses.telegram, undefined);
 });
