@@ -13,6 +13,7 @@ import {
 import { openCabinetDb } from '../../bot/cabinet/db.mjs';
 import { refreshServiceSnapshot } from '../../bot/cabinet/projects.mjs';
 import { startCabinetServer } from '../../bot/cabinet/server.mjs';
+import { schedulerHeartbeatStatus } from '../../bot/health.mjs';
 import { materializeScheduleSlots, syncProjectState } from '../../bot/cabinet/sync.mjs';
 import { buildOverview, patchPlan } from '../../bot/cabinet/overview.mjs';
 import { aggregateEditionStatus, classifyReleaseSource, projectTitle, summaryBucket } from '../../bot/cabinet/status.mjs';
@@ -270,6 +271,13 @@ test('resync does not inflate open incident count', async (t) => {
     .get();
   assert.equal(row?.count, 1);
   db.close();
+});
+
+test('schedulerHeartbeatStatus ignores foreign PID when file is fresh', () => {
+  const now = Date.now();
+  const status = schedulerHeartbeatStatus({ pid: 999999, updatedAt: now - 3000 }, now);
+  assert.equal(status.ok, true);
+  assert.equal(status.ageSeconds, 3);
 });
 
 test('partial delivery counts as sent bucket not full failure', async (t) => {

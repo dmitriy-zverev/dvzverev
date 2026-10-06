@@ -16,7 +16,7 @@ import {
   operatorLabel,
   weekDates,
 } from './time.mjs';
-import { heartbeatPath } from '../health.mjs';
+import { heartbeatPath, schedulerHeartbeatStatus } from '../health.mjs';
 
 export async function buildOverview(db, { week, projectFilter, statusFilter }, env = process.env) {
   const snapshot = withTransaction(db, () =>
@@ -278,15 +278,10 @@ function todayYmd(timeZone) {
 }
 
 async function readServiceState(db, env) {
-  const heartbeat = { ok: false, updatedAt: null, ageSeconds: null };
+  let heartbeat = { ok: false, updatedAt: null, ageSeconds: null };
   try {
     const raw = JSON.parse(await readFile(heartbeatPath(env), 'utf8'));
-    heartbeat.updatedAt = new Date(raw.updatedAt).toISOString();
-    heartbeat.ageSeconds = Math.round((Date.now() - raw.updatedAt) / 1000);
-    if (heartbeat.ageSeconds <= 600) {
-      process.kill(raw.pid, 0);
-      heartbeat.ok = true;
-    }
+    heartbeat = { ...heartbeat, ...schedulerHeartbeatStatus(raw) };
   } catch {
     heartbeat.ok = false;
   }
@@ -294,7 +289,7 @@ async function readServiceState(db, env) {
     heartbeat,
     pauses: JSON.parse(getMeta(db, 'scheduler_pauses_json') || '{}'),
     cooldowns: JSON.parse(getMeta(db, 'scheduler_cooldowns_json') || '[]'),
-    stale: !heartbeat.ok || heartbeat.ageSeconds > 120,
+    stale: !heartbeat.ok || (heartbeat.ageSeconds != null && heartbeat.ageSeconds > 120),
   };
 }
 
