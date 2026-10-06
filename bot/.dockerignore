@@ -19,6 +19,8 @@
 !vk-photos-inbox.mjs
 !config/
 !config/*.mjs
+!cabinet/
+!cabinet/*.mjs
 !upload-vk-document.py
 
 !literary.mjs

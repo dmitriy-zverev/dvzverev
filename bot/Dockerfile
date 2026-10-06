@@ -32,6 +32,7 @@ COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=media-build /output/bin/ffmpeg /output/bin/ffprobe /usr/local/bin/
 COPY --chown=node:node lifestyle.mjs metrics.mjs costs.mjs programming.mjs videos.mjs video-to-gif.py literary.mjs literary-quotes.mjs core.mjs content.mjs openrouter.mjs digest.mjs images.mjs resize-image.py upload-vk-document.py run.mjs check-telegram.mjs lock.mjs lock.py app-config.mjs logging.mjs storage.mjs health.mjs notifications.mjs maintenance.mjs ./bot/
 COPY --chown=node:node config ./bot/config/
+COPY --chown=node:node cabinet ./bot/cabinet/
 COPY --chown=node:node prompts ./bot/prompts/
 USER node
 HEALTHCHECK --interval=60s --timeout=5s --start-period=120s --retries=3 CMD ["node", "bot/health.mjs"]

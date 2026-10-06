@@ -5,6 +5,7 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEPLOY_HOST="${1:-cloudru}"
 RELEASE_ID="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD)-$(date -u +%Y%m%d%H%M%S)"
 cd "$PROJECT_ROOT"
+export PUBLIC_BOT_API_BASE=https://www.dvzverev.ru
 pnpm build
 pnpm precompress
 pnpm size-budget

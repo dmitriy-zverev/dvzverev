@@ -11,8 +11,9 @@
 .moment-card {
   padding: var(--space-lg);
   border-radius: var(--radius-lg);
-  background: rgb(255 255 255 / 72%);
+  background: var(--color-panel);
   box-shadow: var(--shadow-soft);
+  border: 1px solid var(--color-line);
 }
 
 .moment-card h3 {
@@ -22,7 +23,7 @@
 
 .moment-card p {
   margin: 0;
-  color: rgb(20 21 26 / 68%);
+  color: var(--color-muted);
 }
 
 .moment-card[data-route] {
@@ -32,7 +33,7 @@
 .moment-card:hover,
 .moment-card:focus-within {
   transform: translateY(-2px);
-  box-shadow: 0 1rem 2rem rgb(48 75 255 / 12%);
+  box-shadow: 0 1rem 2rem rgb(47 95 149 / 12%);
 }
 
 .route-hint {

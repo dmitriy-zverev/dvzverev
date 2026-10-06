@@ -1,0 +1,27 @@
+---
+interface Props {
+  title?: string;
+}
+
+const { title = 'Редакционный кабинет' } = Astro.props;
+const apiBase = import.meta.env.PUBLIC_BOT_API_BASE ?? '';
+---
+
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#f3f5f8" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>{title}</title>
+    <link rel="stylesheet" href="/bot/dashboard.css" />
+  </head>
+  <body>
+    <div id="app" class="cabinet" data-api-base={apiBase}>
+      <noscript>Для кабинета нужен JavaScript.</noscript>
+    </div>
+    <script type="module" src="/bot/dashboard.js"></script>
+  </body>
+</html>

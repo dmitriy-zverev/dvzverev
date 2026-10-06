@@ -1,5 +1,6 @@
 import { maintainMedia } from './maintenance.mjs';
 import { heartbeat } from './health.mjs';
+import { queueCabinetSync, cabinetEnabled } from './cabinet/hook.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import {
   nextQueuedPost,
@@ -90,6 +91,7 @@ async function runMultiProjectScheduler(app, stoppingRef) {
   lastProgressAt = Date.now();
   await heartbeat();
   while (!stoppingRef.stopping) {
+    if (cabinetEnabled()) await queueCabinetSync();
     for (const id of app.enabledProjectIds()) {
       let projectConfig;
       try {

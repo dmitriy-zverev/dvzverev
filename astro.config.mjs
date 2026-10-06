@@ -7,7 +7,7 @@ export default defineConfig({
   compressHTML: true,
   devToolbar: { enabled: false },
   site: 'https://www.dvzverev.ru',
-  integrations: [sitemap()],
+  integrations: [sitemap({ filter: (page) => !page.includes('/bot') })],
   build: {
     inlineStylesheets: 'always',
   },

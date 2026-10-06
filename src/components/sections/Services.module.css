@@ -6,8 +6,9 @@
 .card {
   padding: var(--space-lg);
   border-radius: var(--radius-lg);
-  background: #fff;
+  background: var(--color-panel);
   box-shadow: var(--shadow-soft);
+  border: 1px solid var(--color-line);
 }
 
 .card h3 {
@@ -17,7 +18,7 @@
 .meta {
   margin: 0;
   font-size: 0.92rem;
-  color: rgb(20 21 26 / 68%);
+  color: var(--color-muted);
 }
 
 .examples {

@@ -1,5 +1,9 @@
 # Append to the shared Caddyfile. Both containers must use dvzverev_edge.
+# Cabinet API: dvzverev-cabinet joins dvzverev_edge (see compose.production.yaml).
 www.dvzverev.ru {
+    handle /bot/api/* {
+        reverse_proxy dvzverev-cabinet:8787
+    }
     reverse_proxy dvzverev-web:8080
 }
 

@@ -33,3 +33,42 @@ services:
       options:
         max-size: 5m
         max-file: '3'
+  cabinet:
+    image: ${BOT_IMAGE:?Set BOT_IMAGE to a verified release tag}
+    container_name: dvzverev-cabinet
+    labels:
+      app: dvzverev-cabinet
+    command: ['node', 'bot/cabinet/server.mjs']
+    env_file: .env
+    environment:
+      BOT_CABINET_HOST: 0.0.0.0
+      BOT_CABINET_PORT: '8787'
+      BOT_CABINET_DB_PATH: /app/data/cabinet.sqlite
+      BOT_CONFIG_PATH: /app/service.json
+      BOT_CABINET_SECURE_COOKIES: 'true'
+      BOT_CABINET_ALLOWED_ORIGINS: https://www.dvzverev.ru,https://dvzverev.ru
+    volumes:
+      - ./data:/app/data
+      - ./service.json:/app/service.json:ro
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 32
+    mem_limit: 128m
+    cpus: 0.25
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid
+    networks:
+      - default
+      - dvzverev_edge
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: '3'
+
+networks:
+  dvzverev_edge:
+    external: true

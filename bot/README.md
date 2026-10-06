@@ -8,12 +8,63 @@
 Production на cloudru: [эксплуатация и откат](../deploy/POSTER.md),
 [результаты ревью](RELIABILITY_REVIEW.md). Текущий production ведёт три
 VK-сообщества и использует Telegram только для уведомлений владельцу.
-Третий проект — [«Вещи Кстати»](THINGS.md): редакционные lifestyle-посты,
+Третий проект — [«Вещи — кстати»](THINGS.md): редакционные lifestyle-посты,
 утром текст, вечером GIF, без товарных ссылок до подключения источника товаров.
 
-Новые планы: [недельный кабинет, Telegram-сводки и аналитика 30 дней](../docs/bot-plans/README.md).
+Новые планы: [недельный кабинет, Telegram-сводки, аналитика 30 дней и редакционный цикл](../docs/bot-plans/README.md).
 
-## Подготовка
+## Локальный кабинет `/bot/`
+
+Без деплоя на cloudru:
+
+```bash
+# в bot/.env: BOT_CABINET_ENABLED=true, BOT_CABINET_PASSWORD=…, BOT_CONFIG_PATH=bot/service.json
+pnpm cabinet:migrate   # SQLite + импорт state
+pnpm cabinet:api       # API 127.0.0.1:8787
+
+# в другом терминале
+PUBLIC_BOT_API_BASE=http://127.0.0.1:8787 pnpm dev
+# открыть http://127.0.0.1:4321/bot/ (тот же host, что API — иначе cookie не уйдёт с localhost на 127.0.0.1)
+```
+
+Планировщик для локальной проверки — только dry-run:
+
+```bash
+node --env-file=bot/.env bot/run.mjs --dry-run --once
+# или цикл без отправок, если в .env нет рабочих VK-токенов
+```
+
+Кабинет читает SQLite; бот при `BOT_CABINET_ENABLED=true` синхронизирует state после каждого сохранения.
+
+Защита от перебора пароля: в API считаются **неудачные** попытки входа с IP (`BOT_CABINET_LOGIN_MAX_ATTEMPTS` за окно `BOT_CABINET_LOGIN_WINDOW_SEC`), затем блокировка на `BOT_CABINET_LOGIN_LOCKOUT_SEC` с экспоненциальным увеличением при повторных блокировках. Ответ `429` с заголовком `Retry-After`. Неудачи пишутся в `audit_log` и в stderr как `cabinet_auth_fail ip=…` (для fail2ban). Пока IP заблокирован, scrypt не вызывается.
+
+**Смена пароля:** после первого запуска в SQLite сохраняется `password_hash`; одного изменения `BOT_CABINET_PASSWORD` в `.env` недостаточно — задайте новый `BOT_CABINET_PASSWORD_HASH` (scrypt) или удалите ключ `password_hash` в `cabinet_meta` и перезапустите API. При смене hash через env все сессии сбрасываются.
+
+Пример jail на хосте с systemd/journal (фильтр stderr процесса `cabinet:api`):
+
+```ini
+[cabinet-auth]
+enabled = true
+filter = cabinet-auth
+port = http,https
+logpath = /var/log/journal/*/system.journal
+backend = systemd
+journalmatch = _SYSTEMD_UNIT=your-cabinet.service
+maxretry = 10
+findtime = 600
+bantime = 3600
+```
+
+`filter.d/cabinet-auth.conf`:
+
+```ini
+[Definition]
+failregex = ^cabinet_auth_fail ip=<ADDR>
+ignoreregex =
+```
+
+Если перед кабинетом nginx — можно банить по `POST /bot/api/v1/auth/login` с кодом 401/429 в access log (отдельный `limit_req` не заменяет in-app lockout при прямом доступе к `:8787`).
+
 
 Для запуска без Docker нужны Node.js >= 22.12 и Python 3 (системная файловая блокировка). Создай бота в [BotFather](https://t.me/BotFather), добавь
 его администратором канала с правом публикации. Токен запиши в `bot/.env` на машине,

@@ -4,7 +4,7 @@ import { generatePost, GenerationFailure } from '../../bot/openrouter.mjs';
 import { formatPost, formatVkPost } from '../../bot/content.mjs';
 
 const cfg = { contentMode: 'lifestyle', openrouterKey: 'test', openrouterModel: 'test-model',
-  openrouterPrompt: 'Редакция Вещи Кстати.' };
+  openrouterPrompt: 'Редакция Вещи — кстати.' };
 const content = { theme: 'Провода на столе', paragraphs: [
   'Кабель снова оказался под столом, хотя ещё минуту назад лежал рядом.',
   'Для таких мелочей можно выделить небольшой лоток. Меньше поисков — спокойнее утро.',

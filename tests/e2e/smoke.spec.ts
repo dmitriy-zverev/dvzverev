@@ -71,3 +71,12 @@ test('reduced motion keeps content and contact', async ({ page }) => {
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   await expect(page.getByRole('link', { name: /telegram @zverev_dmitry/i })).toBeVisible();
 });
+
+test('bot cabinet shell is static and not indexed', async ({ page }) => {
+  await page.goto('/bot/');
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/);
+  await expect(page.locator('#app.cabinet')).toBeVisible();
+  await expect
+    .poll(() => page.getByRole('heading', { name: /редакционный кабинет/i }).count())
+    .toBeGreaterThan(0);
+});

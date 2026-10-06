@@ -1,4 +1,4 @@
-# Вещи Кстати
+# Вещи — кстати
 
 Сообщество: https://vk.ru/veshi_kstati_tut, ID 242058626, проект `things`.
 Только ключ сообщества, env `VK_THINGS_ACCESS_TOKEN` и `VK_THINGS_GROUP_ID`.

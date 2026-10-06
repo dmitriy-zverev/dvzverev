@@ -15,19 +15,25 @@
 }
 
 :root {
-  color-scheme: dark;
-  --color-bg: #101722;
-  --color-panel: #17212e;
-  --color-text: #edf1f6;
-  --color-muted: #a5b3c3;
-  --color-line: #344356;
-  --color-accent: #a1c5f4;
+  color-scheme: light;
+  --color-bg: #f3f5f8;
+  --color-panel: #ffffff;
+  --color-porcelain: #e8edf3;
+  --color-text: #14151a;
+  --color-muted: rgb(20 21 26 / 68%);
+  --color-line: rgb(20 21 26 / 12%);
+  --color-accent: #2f5f95;
   --color-sage: var(--color-accent);
-  --color-steel: #b0c7df;
-  --color-lavender: #b8c1d0;
-  --color-peach: #d6bd91;
-  --color-selection: #304b6c;
-  --color-status: #223247;
+  --color-scanner-blue: #2439d6;
+  --color-steel: #4a6178;
+  --color-lavender: #5c6472;
+  --color-peach: #9a6b2e;
+  --color-selection: rgb(47 95 149 / 22%);
+  --color-status: #e7eef6;
+  --color-on-accent: #ffffff;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --shadow-soft: 0 0.75rem 2rem rgb(20 21 26 / 6%);
   --font-mono:
     'DVZ Mono Nerd', 'SFMono-Regular', 'Cascadia Code', 'Roboto Mono', 'Liberation Mono', monospace;
   --font-body: var(--font-mono);

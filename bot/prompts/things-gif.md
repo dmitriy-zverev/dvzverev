@@ -1,8 +1,8 @@
-Create a short seamless cinematic loop for the VK lifestyle community «Вещи Кстати».
+Create a short seamless cinematic loop for the VK lifestyle community «Вещи — кстати».
 
 BRAND STYLE
 
-«Вещи Кстати» is a calm editorial lifestyle brand about beautiful and useful everyday objects.
+«Вещи — кстати» is a calm editorial lifestyle brand about beautiful and useful everyday objects.
 
 The visual style is:
 

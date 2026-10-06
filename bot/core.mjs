@@ -1,3 +1,4 @@
+import { queueCabinetSync } from './cabinet/hook.mjs';
 import { sendNotification } from './notifications.mjs';
 import { writeAtomic } from './storage.mjs';
 import { logError } from './logging.mjs';
@@ -245,6 +246,7 @@ export async function readState(config) {
 
 async function saveState(config, state) {
   await writeAtomic(config.statePath, state);
+  queueCabinetSync();
 }
 
 // Positive jitter never shortens a server-provided minimum. This is publication
