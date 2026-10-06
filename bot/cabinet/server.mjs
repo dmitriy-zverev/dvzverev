@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { openCabinetDb } from './db.mjs';
 import { randomUUID } from 'node:crypto';
+import { bumpDataVersion, openCabinetDb, withTransaction } from './db.mjs';
 import {
   allowedOrigins,
   assertOrigin,
@@ -27,6 +27,9 @@ import {
 } from './overview.mjs';
 import { loadServiceForCabinet, refreshServiceSnapshot } from './projects.mjs';
 import { cabinetTick } from './sync.mjs';
+import { getRedis, redisConfigured } from '../redis/client.mjs';
+import { createAdHocTask, discardTask } from '../redis/schedule.mjs';
+import { upsertPlanFromRedisTask } from '../redis/sqlite-bridge.mjs';
 
 const API_PREFIX = '/bot/api/v1';
 
@@ -246,12 +249,79 @@ async function handleRequest(request, response, env) {
         return;
       }
       const body = parseJson(await readBody(request));
-      const result = patchPlan(db, planId, body);
+      const result = await patchPlan(db, planId, body, 'owner', env);
       if (result.error) {
         json(response, result.status, { error: result.error }, cors);
         return;
       }
       json(response, 200, result, cors);
+      return;
+    }
+
+    if (route === '/tasks/ad-hoc' && request.method === 'POST') {
+      assertOrigin(request, env);
+      if (!redisConfigured(env)) {
+        json(response, 503, { error: 'redis_required' }, cors);
+        return;
+      }
+      const body = parseJson(await readBody(request));
+      if (
+        typeof body.projectId !== 'string' ||
+        !body.projectId.trim() ||
+        typeof body.destinationId !== 'string' ||
+        !body.destinationId.trim() ||
+        typeof body.slotUtc !== 'string' ||
+        !Number.isFinite(Date.parse(body.slotUtc))
+      ) {
+        json(response, 400, { error: 'invalid_body' }, cors);
+        return;
+      }
+      const { document } = await loadServiceForCabinet(env);
+      const redis = await getRedis(env);
+      const result = await createAdHocTask(redis, document, {
+        projectId: body.projectId,
+        destinationId: body.destinationId,
+        slotUtc: body.slotUtc,
+        topic: body.topic,
+        brief: body.brief,
+      });
+      if (result.error) {
+        json(
+          response,
+          result.status,
+          {
+            error: result.error,
+            suggestedSlotUtc: result.suggestedSlotUtc || undefined,
+          },
+          cors,
+        );
+        return;
+      }
+      const now = new Date().toISOString();
+      try {
+        withTransaction(db, () => {
+          upsertPlanFromRedisTask(db, result.task, now);
+          db.prepare(
+            'INSERT INTO audit_log (audit_id, actor, action, plan_id, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+          ).run(
+            randomUUID(),
+            'owner',
+            'create_ad_hoc_task',
+            result.task.id,
+            JSON.stringify({
+              projectId: result.task.projectId,
+              destinationId: result.task.destinationId,
+              slotUtc: result.task.slotUtc,
+            }),
+            now,
+          );
+          bumpDataVersion(db);
+        });
+      } catch (error) {
+        await discardTask(redis, result.task.id);
+        throw error;
+      }
+      json(response, 201, { task: result.task }, cors);
       return;
     }
 

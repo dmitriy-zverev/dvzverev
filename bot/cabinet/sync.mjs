@@ -12,6 +12,7 @@ import {
   zonedParts,
 } from './time.mjs';
 import { resolveRelativeConfigPath } from '../config/paths.mjs';
+import { bootstrapRedisSchedule } from '../redis/bootstrap.mjs';
 
 const MATERIALIZE_DAYS_FORWARD = 14;
 const MATERIALIZE_DAYS_BACK = 7;
@@ -411,6 +412,13 @@ function recordIncident(db, projectId, editionId, destinationId, event, now) {
 
 export async function cabinetTick(db, service, env, now = new Date()) {
   materializeScheduleSlots(db, service, env, now);
+  if (env.BOT_REDIS_URL) {
+    try {
+      await bootstrapRedisSchedule(service, { db, env, now });
+    } catch (error) {
+      console.error(`Redis schedule bootstrap failed: ${error.message}`);
+    }
+  }
   const results = {};
   for (const projectId of Object.keys(service.projects || {})) {
     if (!service.projects[projectId].enabled) continue;

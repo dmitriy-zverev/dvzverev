@@ -1,4 +1,5 @@
 import { queueCabinetSync } from './cabinet/hook.mjs';
+import { redisConfigured } from './redis/client.mjs';
 import { sendNotification } from './notifications.mjs';
 import { writeAtomic } from './storage.mjs';
 import { logError } from './logging.mjs';
@@ -556,7 +557,7 @@ async function alert(config, state, event, notify) {
   await saveState(config, state);
 }
 
-async function generateForSlot(config, state, slot, now, generate, notify) {
+async function generateForSlot(config, state, slot, now, generate, notify, scheduledTask = null) {
   const job = (state.pendingGeneration ||= {
     id: `llm-${randomUUID()}`,
     slot,
@@ -602,7 +603,13 @@ async function generateForSlot(config, state, slot, now, generate, notify) {
             .slice(-20)
             .map((entry) => entry.generation?.quoteId)
             .filter(Boolean),
-          feedback: job.reason,
+          feedback: [
+            job.reason,
+            scheduledTask?.topic ? `Тема от редактора: ${scheduledTask.topic}` : '',
+            scheduledTask?.brief ? `Бриф редактора: ${scheduledTask.brief}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
           excludeUrls: state.entries.slice(-28).flatMap((entry) => entry.generation?.urls || []),
         },
       );
@@ -668,6 +675,7 @@ export async function publish(
     generateImage = generateCover,
     sendPhoto = sendTelegramAnimation,
     uploadImage = uploadVkCover,
+    scheduledTask = null,
   } = {},
 ) {
   await mkdir(dirname(config.statePath), { recursive: true });
@@ -732,13 +740,17 @@ export async function publish(
     const sourceAvailable = useLlm
       ? available('openrouter') && (!job || !(Date.parse(job.retryAt) > now.getTime()))
       : !state.pauses.queue;
+    const redisMode = redisConfigured() && !manual && !scheduledTask;
     if (!entry && !primaryPending && available(primaryPlatform) && sourceAvailable) {
-      const slot = job?.slot || (manual ? `manual:${randomUUID()}` : dueSlot(config, now));
+      const slot =
+        scheduledTask?.slotKey ||
+        job?.slot ||
+        (manual ? `manual:${randomUUID()}` : redisMode ? null : dueSlot(config, now));
       if (slot && !state.entries.some((entry) => entry.slot === slot)) {
         let post;
         try {
           post = useLlm
-            ? await generateForSlot(config, state, slot, now, generate, notify)
+            ? await generateForSlot(config, state, slot, now, generate, notify, scheduledTask)
             : await provider(config, state.entries);
           if (useLlm && !post)
             sourceFailure = state.pendingGeneration

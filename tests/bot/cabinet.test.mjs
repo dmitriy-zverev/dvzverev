@@ -427,9 +427,9 @@ test('patch plan rejects stale version', async (t) => {
   refreshServiceSnapshot(db, service);
   materializeScheduleSlots(db, service, env, new Date('2026-10-06T08:00:00Z'));
   const plan = db.prepare('SELECT plan_id, version FROM schedule_slots LIMIT 1').get();
-  const ok = patchPlan(db, plan.plan_id, { topic: 't1', expectedVersion: plan.version });
+  const ok = await patchPlan(db, plan.plan_id, { topic: 't1', expectedVersion: plan.version });
   assert.ok(ok.plan);
-  const conflict = patchPlan(db, plan.plan_id, { topic: 't2', expectedVersion: plan.version });
+  const conflict = await patchPlan(db, plan.plan_id, { topic: 't2', expectedVersion: plan.version });
   assert.equal(conflict.error, 'version_conflict');
   db.close();
 });

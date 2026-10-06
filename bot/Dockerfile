@@ -20,6 +20,11 @@ RUN make install > /dev/null
 
 FROM node:22.23.2-alpine3.24 AS node-runtime
 
+FROM node:22.23.2-alpine3.24 AS deps
+WORKDIR /build
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable pnpm && pnpm install --prod --frozen-lockfile
+
 FROM alpine:3.24
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 NODE_OPTIONS=--max-old-space-size=96
@@ -29,11 +34,13 @@ RUN apk add --no-cache python3 py3-pillow libstdc++ zlib ca-certificates \
     && chown -R node:node /app \
     && find /usr/lib/python3.14 -type d \( -name __pycache__ -o -name tests -o -name test -o -name idlelib -o -name tkinter -o -name ensurepip -o -name turtledemo \) -prune -exec rm -rf '{}' +
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=deps /build/node_modules /app/node_modules
 COPY --from=media-build /output/bin/ffmpeg /output/bin/ffprobe /usr/local/bin/
-COPY --chown=node:node lifestyle.mjs metrics.mjs costs.mjs programming.mjs videos.mjs video-to-gif.py literary.mjs literary-quotes.mjs core.mjs content.mjs openrouter.mjs digest.mjs images.mjs resize-image.py upload-vk-document.py run.mjs check-telegram.mjs lock.mjs lock.py app-config.mjs logging.mjs storage.mjs health.mjs notifications.mjs maintenance.mjs ./bot/
-COPY --chown=node:node config ./bot/config/
-COPY --chown=node:node cabinet ./bot/cabinet/
-COPY --chown=node:node prompts ./bot/prompts/
+COPY --chown=node:node bot/lifestyle.mjs bot/metrics.mjs bot/costs.mjs bot/programming.mjs bot/videos.mjs bot/video-to-gif.py bot/literary.mjs bot/literary-quotes.mjs bot/core.mjs bot/content.mjs bot/openrouter.mjs bot/digest.mjs bot/images.mjs bot/resize-image.py bot/upload-vk-document.py bot/run.mjs bot/check-telegram.mjs bot/lock.mjs bot/lock.py bot/app-config.mjs bot/logging.mjs bot/storage.mjs bot/health.mjs bot/notifications.mjs bot/maintenance.mjs ./bot/
+COPY --chown=node:node bot/config ./bot/config/
+COPY --chown=node:node bot/cabinet ./bot/cabinet/
+COPY --chown=node:node bot/redis ./bot/redis/
+COPY --chown=node:node bot/prompts ./bot/prompts/
 USER node
 HEALTHCHECK --interval=60s --timeout=5s --start-period=120s --retries=3 CMD ["node", "bot/health.mjs"]
 CMD ["node", "bot/run.mjs"]

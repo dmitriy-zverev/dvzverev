@@ -16,6 +16,11 @@ import {
   operatorLabel,
   weekDates,
 } from './time.mjs';
+import { redisConfigured, getRedis } from '../redis/client.mjs';
+import { getTask } from '../redis/schedule.mjs';
+import { encodeTask } from '../redis/codec.mjs';
+import { taskKey } from '../redis/keys.mjs';
+import { upsertPlanFromRedisTask } from '../redis/sqlite-bridge.mjs';
 import { heartbeatPath, schedulerHeartbeatStatus } from '../health.mjs';
 
 export async function buildOverview(db, { week, projectFilter, statusFilter }, env = process.env) {
@@ -407,13 +412,68 @@ export function listProjects(db) {
     }));
 }
 
-export function patchPlan(db, planId, { topic, brief, expectedVersion }, actor = 'owner') {
+export async function patchPlan(db, planId, { topic, brief, expectedVersion }, actor = 'owner', env = process.env) {
+  if (expectedVersion == null) return { error: 'version_required', status: 400 };
+
+  const sqlitePlan = db.prepare('SELECT edition_id, plan_status FROM schedule_slots WHERE plan_id = ?').get(planId);
+  if (sqlitePlan?.edition_id) return { error: 'already_started', status: 409 };
+
+  if (redisConfigured(env)) {
+    const redis = await getRedis(env);
+    const task = await getTask(redis, planId);
+    if (!task) return { error: 'not_found', status: 404 };
+    if (!['planned', 'missed'].includes(task.status)) return { error: 'not_editable', status: 409 };
+    const version = Number(expectedVersion);
+    if (!Number.isFinite(version) || version !== task.version) {
+      return { error: 'version_conflict', status: 409 };
+    }
+    const now = new Date().toISOString();
+    const nextTopic = topic !== undefined ? String(topic).slice(0, 500) : task.topic;
+    const nextBrief = brief !== undefined ? String(brief).slice(0, 4000) : task.brief;
+    const nextTask = {
+      ...task,
+      topic: nextTopic,
+      brief: nextBrief,
+      version: task.version + 1,
+    };
+    const planPayload = {
+      id: planId,
+      topic: nextTopic,
+      brief: nextBrief,
+      topicState: nextTopic?.trim() ? 'manual' : 'unknown',
+      version: nextTask.version,
+    };
+    const previousRaw = await redis.get(taskKey(planId));
+    withTransaction(db, () => {
+      upsertPlanFromRedisTask(db, nextTask, now);
+      db.prepare(
+        'INSERT INTO audit_log (audit_id, actor, action, plan_id, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      ).run(
+        randomUUID(),
+        actor,
+        'patch_plan',
+        planId,
+        JSON.stringify({ topic: nextTopic, brief: nextBrief, source: 'redis' }),
+        now,
+      );
+      bumpDataVersion(db);
+    });
+    try {
+      await redis.set(taskKey(planId), encodeTask(nextTask));
+    } catch (error) {
+      if (previousRaw != null) {
+        await redis.set(taskKey(planId), previousRaw);
+      }
+      throw error;
+    }
+    return { plan: planPayload, task: nextTask };
+  }
+
   const plan = db.prepare('SELECT * FROM schedule_slots WHERE plan_id = ?').get(planId);
   if (!plan) return { error: 'not_found', status: 404 };
   if (plan.edition_id) return { error: 'already_started', status: 409 };
   if (!['planned', 'missed'].includes(plan.plan_status))
     return { error: 'not_editable', status: 409 };
-  if (expectedVersion == null) return { error: 'version_required', status: 400 };
   const version = Number(expectedVersion);
   if (!Number.isFinite(version) || version !== plan.version)
     return { error: 'version_conflict', status: 409 };

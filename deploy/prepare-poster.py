@@ -2,7 +2,9 @@
 import argparse
 import json
 import os
+import secrets
 from pathlib import Path
+from urllib.parse import quote
 import shutil
 import tarfile
 
@@ -32,6 +34,18 @@ for line in (bot / '.env').read_text().splitlines():
 lines += ['BOT_IMAGE=' + args.image, 'HTTP_PROXY=' + args.proxy, 'HTTPS_PROXY=' + args.proxy,
           'NO_PROXY=localhost,127.0.0.1,api.vk.com,api.vk.ru,.vk.com,.vk.ru,.vkuserphoto.ru,.vkuserphoto.net',
           'NODE_USE_ENV_PROXY=1']
+redis_password = os.environ.get('BOT_REDIS_PASSWORD', '').strip()
+if not any(line.startswith('BOT_REDIS_PASSWORD=') for line in lines):
+    if not redis_password:
+        redis_password = secrets.token_urlsafe(32)
+    lines.append('BOT_REDIS_PASSWORD=' + redis_password)
+else:
+    for line in lines:
+        if line.startswith('BOT_REDIS_PASSWORD='):
+            redis_password = line.split('=', 1)[1].strip()
+            break
+if not any(line.startswith('BOT_REDIS_URL=') for line in lines):
+    lines.append('BOT_REDIS_URL=redis://:' + quote(redis_password, safe='') + '@redis:6379')
 (output / '.env').write_text('\n'.join(lines) + '\n')
 os.chmod(output / '.env', 0o600)
 with tarfile.open(output / 'configuration.tar.gz', 'w:gz') as archive:

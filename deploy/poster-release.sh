@@ -8,8 +8,12 @@ TAG="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD)-$(date -u +%Y%m%d%H%M%S)"
 IMAGE="dvzverev-poster:${TAG}"
 
 cd "$PROJECT_ROOT"
-node --test tests/bot/cabinet.test.mjs
-docker buildx build --platform linux/amd64 -t "$IMAGE" -f bot/Dockerfile bot/
+node --test tests/bot/cabinet.test.mjs tests/bot/redis.test.mjs
+docker buildx build --platform linux/amd64 -t "$IMAGE" -f bot/Dockerfile .
+
+REMOTE="/opt/dvzverev-poster"
+EXISTING_REDIS_PASSWORD="$(ssh -o BatchMode=yes "$DEPLOY_HOST" "grep '^BOT_REDIS_PASSWORD=' '$REMOTE/.env' 2>/dev/null | cut -d= -f2- | tr -d '\r'" || true)"
+export BOT_REDIS_PASSWORD="${BOT_REDIS_PASSWORD:-$EXISTING_REDIS_PASSWORD}"
 
 STAGING="$(mktemp -d /tmp/dvzverev-poster.XXXXXX)"
 trap 'rm -rf "$STAGING"' EXIT
@@ -19,7 +23,7 @@ echo "Loading image on ${DEPLOY_HOST}..."
 docker save "$IMAGE" | gzip | ssh -o BatchMode=yes "$DEPLOY_HOST" 'gunzip | docker load'
 
 REMOTE="/opt/dvzverev-poster"
-ssh -o BatchMode=yes "$DEPLOY_HOST" "mkdir -p '$REMOTE/backups' && cd '$REMOTE' && docker compose stop poster cabinet 2>/dev/null || docker compose stop poster || true"
+ssh -o BatchMode=yes "$DEPLOY_HOST" "mkdir -p '$REMOTE/backups' && cd '$REMOTE' && docker compose stop redis poster cabinet 2>/dev/null || docker compose stop poster cabinet 2>/dev/null || docker compose stop poster || true"
 BACKUP="$REMOTE/backups/pre-${TAG}.tgz"
 ssh -o BatchMode=yes "$DEPLOY_HOST" "cd '$REMOTE' && tar -czf '$BACKUP' .env compose.yaml service.json data 2>/dev/null || true"
 
@@ -30,7 +34,7 @@ ssh -o BatchMode=yes "$DEPLOY_HOST" "cd '$REMOTE' && tar -xzf /tmp/dvzverev-post
 echo "Migrating cabinet DB..."
 ssh -o BatchMode=yes "$DEPLOY_HOST" "cd '$REMOTE' && docker compose run --rm --no-deps cabinet node bot/cabinet/migrate.mjs"
 
-ssh -o BatchMode=yes "$DEPLOY_HOST" "cd '$REMOTE' && docker compose up -d --no-deps poster cabinet"
+ssh -o BatchMode=yes "$DEPLOY_HOST" "cd '$REMOTE' && docker compose up -d --no-deps redis poster cabinet"
 ssh -o BatchMode=yes "$DEPLOY_HOST" "cd '$REMOTE' && docker compose ps && docker compose exec -T poster node bot/run.mjs --project dark-academia --status"
 
 echo "Poster release $IMAGE deployed. Rollback: set BOT_IMAGE to previous tag in $REMOTE/.env and compose up -d."

@@ -1,6 +1,12 @@
 import { maintainMedia } from './maintenance.mjs';
 import { heartbeat } from './health.mjs';
 import { queueCabinetSync, cabinetEnabled } from './cabinet/hook.mjs';
+import { openCabinetDb } from './cabinet/db.mjs';
+import { loadServiceForCabinet } from './cabinet/projects.mjs';
+import { bootstrapRedisSchedule } from './redis/bootstrap.mjs';
+import { dueTasksForProject, abandonRedisTask } from './redis/runner.mjs';
+import { getRedis, redisConfigured } from './redis/client.mjs';
+import { markTaskStatus } from './redis/schedule.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import {
   nextQueuedPost,
@@ -86,16 +92,61 @@ function canScheduleProject(config) {
   );
 }
 
+function redisTaskStatusAfterPublish(taskResult) {
+  if (taskResult.status === 'sent') return 'sent';
+  if (
+    taskResult.status === 'already_processed' ||
+    taskResult.postId ||
+    taskResult.status === 'retry_wait' ||
+    taskResult.status === 'pending_vk'
+  ) {
+    return 'generating';
+  }
+  return null;
+}
+
 async function runMultiProjectScheduler(app, stoppingRef) {
   console.log(`Multi-project schedule: ${app.enabledProjectIds().join(', ')} (${app.configPath})`);
   lastProgressAt = Date.now();
   await heartbeat();
+  let serviceDocument;
   while (!stoppingRef.stopping) {
     if (cabinetEnabled()) await queueCabinetSync();
+    if (redisConfigured()) {
+      if (!serviceDocument) {
+        ({ document: serviceDocument } = await loadServiceForCabinet());
+      }
+      const db = openCabinetDb();
+      try {
+        await bootstrapRedisSchedule(serviceDocument, { db });
+      } catch (error) {
+        console.error(`Redis schedule bootstrap failed: ${error.message}`);
+      } finally {
+        db.close();
+      }
+    }
     for (const id of app.enabledProjectIds()) {
       let projectConfig;
       try {
         projectConfig = await app.resolveProjectConfig(id);
+        if (redisConfigured()) {
+          const tasks = await dueTasksForProject(id);
+          for (const task of tasks) {
+            try {
+              const taskResult = await publish(projectConfig, { scheduledTask: task });
+              const redis = await getRedis();
+              const nextStatus = redisTaskStatusAfterPublish(taskResult);
+              if (nextStatus) {
+                await markTaskStatus(redis, task.id, nextStatus);
+              }
+              if (taskResult.status !== 'locked') {
+                console.log(JSON.stringify({ projectId: id, redisTaskId: task.id, ...taskResult }));
+              }
+            } finally {
+              await abandonRedisTask(task.id);
+            }
+          }
+        }
         const result = await publish(projectConfig);
         if (result.status !== 'locked') await clearRuntimeFailure(projectConfig);
         if (!['not_due', 'already_processed'].includes(result.status)) {

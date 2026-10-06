@@ -1,8 +1,33 @@
 name: dvzverev-poster
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: dvzverev-redis
+    env_file: .env
+    command:
+      - sh
+      - -ec
+      - |
+        test -n "$$BOT_REDIS_PASSWORD" || { echo "BOT_REDIS_PASSWORD is required" >&2; exit 1; }
+        exec redis-server \
+          --requirepass "$$BOT_REDIS_PASSWORD" \
+          --save "" \
+          --appendonly no \
+          --maxmemory 48mb \
+          --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+    mem_limit: 64m
+    cpus: 0.1
+    logging:
+      driver: json-file
+      options:
+        max-size: 2m
+        max-file: '2'
   poster:
     image: ${BOT_IMAGE:?Set BOT_IMAGE to a verified release tag}
     container_name: dvzverev-poster
+    depends_on:
+      - redis
     labels:
       app: dvzverev-poster
     env_file: .env
@@ -11,6 +36,7 @@ services:
       BOT_QUEUE_PATH: /app/content/posts.json
       BOT_STATE_PATH: /app/data/state.json
       BOT_LOG_DIR: /app/data/logs
+      BOT_REDIS_URL: redis://:${BOT_REDIS_PASSWORD}@redis:6379
       NODE_USE_ENV_PROXY: '1'
     volumes:
       - ./content:/app/content:ro
@@ -36,6 +62,8 @@ services:
   cabinet:
     image: ${BOT_IMAGE:?Set BOT_IMAGE to a verified release tag}
     container_name: dvzverev-cabinet
+    depends_on:
+      - redis
     labels:
       app: dvzverev-cabinet
     command: ['node', 'bot/cabinet/server.mjs']
@@ -47,6 +75,7 @@ services:
       BOT_CONFIG_PATH: /app/service.json
       BOT_CABINET_SECURE_COOKIES: 'true'
       BOT_CABINET_ALLOWED_ORIGINS: https://www.dvzverev.ru,https://dvzverev.ru
+      BOT_REDIS_URL: redis://:${BOT_REDIS_PASSWORD}@redis:6379
     volumes:
       - ./data:/app/data
       - ./service.json:/app/service.json:ro
