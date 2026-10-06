@@ -99,11 +99,13 @@ function buildTaskRecord({
   const slotAgeMs = now.getTime() - Date.parse(slotUtc);
   let status = 'planned';
   if (
-    slotAgeMs > SLOT_WINDOW_MS &&
+    slotAgeMs >= SLOT_CATCHUP_MS &&
     !existing?.editionId &&
     (existing?.missedSlotsPolicy || 'skip') === 'skip'
   ) {
     status = 'missed';
+  } else if (existing?.status === 'missed' && slotAgeMs < SLOT_CATCHUP_MS && !existing?.editionId) {
+    status = 'planned';
   } else if (existing?.status === 'missed' && slotAgeMs <= SLOT_WINDOW_MS) {
     status = 'planned';
   } else if (existing?.status) {
@@ -389,6 +391,12 @@ export async function reconcileDueQueue(redis, now = new Date()) {
         continue;
       }
       if (task.status !== 'planned') {
+        if (task.status === 'missed' && taskAgeMs(task, nowMs) < SLOT_CATCHUP_MS) {
+          task.status = 'planned';
+          await persistTask(redis, task);
+          await syncDueMembership(redis, task);
+          continue;
+        }
         await removeFromDue(redis, id);
         pruned += 1;
         continue;

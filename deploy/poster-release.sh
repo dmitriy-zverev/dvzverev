@@ -35,9 +35,9 @@ scp "$STAGING/.env" "$DEPLOY_HOST:/tmp/dvzverev-poster.env"
 ssh -o BatchMode=yes "$DEPLOY_HOST" "cd '$REMOTE' && tar -xzf /tmp/dvzverev-poster-config.tgz && rm /tmp/dvzverev-poster-config.tgz && install -m 600 /tmp/dvzverev-poster.env .env && rm /tmp/dvzverev-poster.env"
 
 echo "Migrating cabinet DB..."
-ssh -o BatchMode=yes "$DEPLOY_HOST" "cd '$REMOTE' && docker compose run --rm --no-deps cabinet node bot/cabinet/migrate.mjs"
+ssh -o BatchMode=yes "$DEPLOY_HOST" "cd '$REMOTE' && docker compose up -d redis && docker compose run --rm cabinet node bot/cabinet/migrate.mjs"
 
-ssh -o BatchMode=yes "$DEPLOY_HOST" "cd '$REMOTE' && docker compose up -d --no-deps redis poster cabinet"
+ssh -o BatchMode=yes "$DEPLOY_HOST" "cd '$REMOTE' && docker compose up -d poster cabinet"
 ssh -o BatchMode=yes "$DEPLOY_HOST" "cd '$REMOTE' && docker compose ps && docker compose exec -T poster node bot/run.mjs --project dark-academia --status"
 
 echo "Poster release $IMAGE deployed. Rollback: set BOT_IMAGE to previous tag in $REMOTE/.env and compose up -d."
