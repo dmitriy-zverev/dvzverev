@@ -376,7 +376,50 @@ function renderWeekStatCell(label, value, tone) {
   </div>`;
 }
 
-let modalEscapeBound = false;
+let cachedClassicScrollbarWidth;
+
+function measureClassicScrollbarWidth() {
+  if (cachedClassicScrollbarWidth != null) return cachedClassicScrollbarWidth;
+  const outer = document.createElement('div');
+  outer.style.cssText = 'visibility:hidden;overflow:scroll;width:100px;height:100px;position:absolute;top:-9999px';
+  document.documentElement.appendChild(outer);
+  const inner = document.createElement('div');
+  inner.style.width = '100%';
+  outer.appendChild(inner);
+  cachedClassicScrollbarWidth = Math.max(0, outer.offsetWidth - inner.offsetWidth);
+  outer.remove();
+  return cachedClassicScrollbarWidth;
+}
+
+function pageHasVerticalScroll() {
+  const doc = document.documentElement;
+  return doc.scrollHeight > doc.clientHeight + 1;
+}
+
+function liveScrollbarWidth() {
+  return Math.max(0, window.innerWidth - document.documentElement.clientWidth);
+}
+
+function syncPageScrollbarPadding() {
+  if (!state.authenticated || document.body.classList.contains('modal-open')) return;
+  const doc = document.documentElement;
+  if (!pageHasVerticalScroll()) {
+    doc.style.paddingRight = `${measureClassicScrollbarWidth()}px`;
+  } else {
+    doc.style.paddingRight = '';
+  }
+}
+
+let scrollbarSyncBound = false;
+
+function ensureScrollbarSync() {
+  if (scrollbarSyncBound) return;
+  scrollbarSyncBound = true;
+  window.addEventListener('resize', () => {
+    cachedClassicScrollbarWidth = undefined;
+    syncPageScrollbarPadding();
+  });
+}
 
 function closeModal() {
   const modal = document.getElementById('modal');
@@ -384,6 +427,8 @@ function closeModal() {
   modal.classList.add('hidden');
   modal.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('modal-open');
+  document.body.style.paddingRight = '';
+  syncPageScrollbarPadding();
   const body = document.getElementById('modal-body');
   if (body) body.innerHTML = '';
 }
@@ -391,10 +436,16 @@ function closeModal() {
 function openModal() {
   const modal = document.getElementById('modal');
   if (!modal) return;
+  const scrollbarCompensation = pageHasVerticalScroll() ? liveScrollbarWidth() : 0;
+  if (scrollbarCompensation > 0) {
+    document.body.style.paddingRight = `${scrollbarCompensation}px`;
+  }
   modal.classList.remove('hidden');
   modal.setAttribute('aria-hidden', 'false');
   document.body.classList.add('modal-open');
 }
+
+let modalEscapeBound = false;
 
 function ensureModalEscape() {
   if (modalEscapeBound) return;
@@ -506,14 +557,14 @@ function renderOverview(data, incidents, errorMessage = '') {
     </section>
     <section class="toolbar toolbar--week-nav" aria-label="Навигация недели">
       <div class="toolbar-title">
-        <h1 title="${escapeText(weekRangeIsoTitle(week.start, week.end))}">${escapeText(formatWeekRange(week.start, week.end))}</h1>
-      </div>
-      <div class="toolbar-controls">
         <div class="toolbar-group toolbar-nav" role="group" aria-label="Переключение недели">
           <button type="button" id="prev-week" aria-label="Предыдущая неделя">←</button>
           <button type="button" id="today-week">Сегодня</button>
           <button type="button" id="next-week" aria-label="Следующая неделя">→</button>
         </div>
+        <h1 title="${escapeText(weekRangeIsoTitle(week.start, week.end))}">${escapeText(formatWeekRange(week.start, week.end))}</h1>
+      </div>
+      <div class="toolbar-controls">
         <div class="toolbar-group toolbar-filters">
           <select id="project-filter" aria-label="Проект">
             <option value="">Все проекты</option>
@@ -612,6 +663,9 @@ function renderOverview(data, incidents, errorMessage = '') {
   } else {
     document.getElementById('refresh').onclick = () => loadOverview(true);
   }
+
+  ensureScrollbarSync();
+  requestAnimationFrame(() => syncPageScrollbarPadding());
 }
 
 function renderCard(card) {

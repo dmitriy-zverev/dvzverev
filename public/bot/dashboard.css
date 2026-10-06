@@ -291,8 +291,6 @@ body:has(.cabinet:not(.cabinet--gate)) {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem 0.75rem;
-  padding-top: 0.4rem;
-  border-top: 1px solid var(--border);
 }
 
 .week-stats-panel {
@@ -721,8 +719,9 @@ body:has(.cabinet:not(.cabinet--gate)) {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.35rem 0.6rem;
+  gap: 0.35rem 0.65rem;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .toolbar h1 {
@@ -746,7 +745,8 @@ body:has(.cabinet:not(.cabinet--gate)) {
   align-items: center;
   justify-content: flex-end;
   gap: 0.4rem;
-  flex: 1 1 16rem;
+  flex: 0 1 auto;
+  margin-left: auto;
 }
 
 .toolbar-group {
@@ -1295,11 +1295,11 @@ body.modal-open {
   overflow: auto;
   overscroll-behavior: contain;
   padding: 1.25rem 1.35rem 1.4rem;
-  padding-right: 2.75rem;
 }
 
 .modal-head {
   margin: 0;
+  padding-right: 1.4rem;
 }
 
 .modal-title {
@@ -1533,10 +1533,12 @@ body.modal-open {
   }
 
   .modal-body {
-    padding: 0.85rem max(1rem, env(safe-area-inset-right)) max(1.25rem, env(safe-area-inset-bottom))
+    padding: 0.35rem max(1rem, env(safe-area-inset-right)) max(1.25rem, env(safe-area-inset-bottom))
       max(1rem, env(safe-area-inset-left));
-    padding-top: 0.35rem;
-    padding-right: max(2.75rem, calc(1rem + env(safe-area-inset-right)));
+  }
+
+  .modal-head {
+    padding-right: 1.75rem;
   }
 
   .modal-title-time {
