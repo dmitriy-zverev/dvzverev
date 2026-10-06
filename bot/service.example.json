@@ -22,7 +22,7 @@
       "platform": "vk",
       "groupIdEnv": "VK_GROUP_ID",
       "credentialEnv": "VK_ACCESS_TOKEN",
-      "media": { "enabled": false }
+      "media": { "enabled": true }
     }
   },
   "projects": {

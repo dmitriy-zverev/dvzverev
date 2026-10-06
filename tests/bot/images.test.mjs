@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm, mkdir } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -9,10 +11,16 @@ import {
   readState,
   TelegramRejection,
   VkRejection,
-  sendTelegramPhoto,
+  sendTelegramAnimation,
   sendVk,
 } from '../../bot/core.mjs';
-import { generateCover, coverPath, uploadVkCover, ImageFailure } from '../../bot/images.mjs';
+import {
+  generateCover,
+  coverPath,
+  uploadVkCover,
+  ImageFailure,
+  cachedCover,
+} from '../../bot/images.mjs';
 
 const post = {
   id: 'cover-test',
@@ -22,10 +30,10 @@ const post = {
   why: 'Проверяем поведение',
   action: 'Добавьте тест',
 };
-const png = Buffer.alloc(24);
-png.write('89504e470d0a1a0a', 'hex');
-png.writeUInt32BE(1280, 16);
-png.writeUInt32BE(720, 20);
+const png = Buffer.alloc(10);
+png.write('GIF89a');
+png.writeUInt16LE(1280, 6);
+png.writeUInt16LE(720, 8);
 async function setup(t) {
   const dir = await mkdtemp(join(tmpdir(), 'bot-images-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -161,10 +169,10 @@ test('image failures and missing VK photo rights alert only in Telegram and pres
         provider: async () => next,
         generateImage: async () => ({ status: 'ready' }),
         sendPhoto: async () => 10,
-        uploadImage: uploadVkCover,
+        uploadImage: (cfg, entry) => uploadVkCover({ ...cfg, vkToken: '' }, entry),
         notify: async (_, html) => {
           alerts++;
-          assert.match(html, /vk_photo_token_required/);
+          assert.match(html, /vk_community_token_required/);
         },
       })
     ).status,
@@ -298,14 +306,14 @@ test('short posts use one captioned photo; VK transport includes the saved attac
   assert.equal(texts, 0);
 });
 
-test('VK photo upload validates destination before upload and uses a separate token', async (t) => {
+test('VK GIF upload rejects untrusted servers and uses only the community token', async (t) => {
   const config = await setup(t);
   config.vkPhotosToken = 'photos-token';
   let calls = 0;
   await assert.rejects(
     uploadVkCover(config, { postId: post.id, vkGroupId: '42' }, async (_, init) => {
       calls++;
-      assert.equal(init.body.get('access_token'), 'photos-token');
+      assert.equal(init.body.get('access_token'), 'wall-token');
       return {
         ok: true,
         json: async () => ({ response: { upload_url: 'http://127.0.0.1/admin' } }),
@@ -316,7 +324,7 @@ test('VK photo upload validates destination before upload and uses a separate to
   assert.equal(calls, 1);
 });
 
-test('Telegram photo transport uploads binary data and sanitizes unknown responses', async (t) => {
+test('Telegram animation transport uploads GIF data and sanitizes unknown responses', async (t) => {
   const config = await setup(t);
   await generateCover(
     { ...config, openrouterKey: 'key' },
@@ -331,16 +339,21 @@ test('Telegram photo transport uploads binary data and sanitizes unknown respons
   );
   assert.equal((await readFile(coverPath(config, post.id))).length, png.length);
   assert.equal(
-    await sendTelegramPhoto(config, { postId: post.id }, '<b>Заголовок</b>', async (url, init) => {
-      assert.ok(url.endsWith('/sendPhoto'));
-      assert.equal(init.body.get('caption'), '<b>Заголовок</b>');
-      assert.equal(init.body.get('photo').type, 'image/png');
-      return { ok: true, json: async () => ({ ok: true, result: { message_id: 15 } }) };
-    }),
+    await sendTelegramAnimation(
+      config,
+      { postId: post.id },
+      '<b>Заголовок</b>',
+      async (url, init) => {
+        assert.ok(url.endsWith('/sendAnimation'));
+        assert.equal(init.body.get('caption'), '<b>Заголовок</b>');
+        assert.equal(init.body.get('animation').type, 'image/gif');
+        return { ok: true, json: async () => ({ ok: true, result: { message_id: 15 } }) };
+      },
+    ),
     15,
   );
   await assert.rejects(
-    sendTelegramPhoto(config, { postId: post.id }, '', async () => {
+    sendTelegramAnimation(config, { postId: post.id }, '', async () => {
       throw new Error('secret');
     }),
     (e) => !e.message.includes('secret'),
@@ -396,7 +409,7 @@ test('restart after an unconfirmed separate photo never sends that photo again',
   assert.equal((await readState(config)).entries[0].image.telegram.status, 'uncertain');
 });
 
-test('VK upload saves a photo with the photos token and returns a reusable attachment', async (t) => {
+test('VK upload saves a GIF document using the community token and returns its attachment', async (t) => {
   const config = await setup(t);
   config.vkPhotosToken = 'photos-token';
   const entry = { postId: post.id, vkGroupId: '42', image: { text: 'Topic' } };
@@ -408,24 +421,32 @@ test('VK upload saves a photo with the photos token and returns a reusable attac
     normalize: async (_, output) => writeFile(output, png),
   });
   const urls = [];
-  const attachment = await uploadVkCover(config, entry, async (url, init) => {
-    urls.push(url);
-    let response;
-    if (url.endsWith('/photos.getWallUploadServer')) {
-      assert.equal(init.body.get('access_token'), 'photos-token');
-      response = { upload_url: 'https://pu.vk.com/upload' };
-    } else if (url.endsWith('/photos.saveWallPhoto')) {
-      assert.equal(init.body.get('access_token'), 'photos-token');
-      assert.equal(init.body.get('group_id'), '42');
-      assert.equal(init.body.get('photo'), '[photo]');
-      response = [{ owner_id: -42, id: 99 }];
-    } else {
-      assert.equal(init.body.get('photo').type, 'image/png');
-      return { ok: true, json: async () => ({ photo: '[photo]', hash: 'hash', server: 123 }) };
-    }
-    return { ok: true, json: async () => ({ response }) };
-  });
-  assert.equal(attachment, 'photo-42_99');
+  const attachment = await uploadVkCover(
+    config,
+    entry,
+    async (url, init) => {
+      urls.push(url);
+      let response;
+      if (url.endsWith('/docs.getWallUploadServer')) {
+        assert.equal(init.body.get('access_token'), 'wall-token');
+        response = { upload_url: 'https://pu.vk.com/upload' };
+      } else if (url.endsWith('/docs.save')) {
+        assert.equal(init.body.get('access_token'), 'wall-token');
+        assert.equal(init.body.get('file'), '[file]');
+        response = { type: 'doc', doc: { owner_id: -42, id: 99, type: 3 } };
+      } else {
+        assert.fail('Unexpected API endpoint');
+      }
+      return { ok: true, json: async () => ({ response }) };
+    },
+    async (url, path) => {
+      urls.push(url);
+      assert.equal(url, 'https://pu.vk.com/upload');
+      assert.match(path, /\.gif$/);
+      return { file: '[file]' };
+    },
+  );
+  assert.equal(attachment, 'doc-42_99');
   assert.equal(urls.length, 3);
 });
 
@@ -497,4 +518,27 @@ test('VK text-only mode skips photo upload and alerts while Telegram keeps its c
       return { ok: true, json: async () => ({ response: { post_id: 21 } }) };
     },
   );
+});
+
+test('legacy PNG cache becomes a real two-frame 1280x720 GIF without regenerating the image', async (t) => {
+  const config = await setup(t);
+  const path = coverPath(config, 'legacy');
+  await mkdir(join(path, '..'), { recursive: true });
+  const exec = promisify(execFile);
+  const python = process.env.BOT_PYTHON || 'python3';
+  await exec(python, [
+    '-c',
+    'from PIL import Image; import sys; Image.new("RGB", (640, 360), "#123456").save(sys.argv[1])',
+    path.replace(/\.gif$/, '.png'),
+  ]);
+  assert.equal((await cachedCover(config, 'legacy')).status, 'ready');
+  const { stdout } = await exec(python, [
+    '-c',
+    'from PIL import Image; import sys,json; im=Image.open(sys.argv[1]); print(json.dumps([im.format,im.size,im.n_frames]))',
+    path,
+  ]);
+  assert.deepEqual(JSON.parse(stdout), ['GIF', [1280, 720], 2]);
+  // The converted cache remains usable after removing the legacy PNG.
+  await rm(path.replace(/\.gif$/, '.png'));
+  assert.equal((await cachedCover(config, 'legacy')).status, 'ready');
 });

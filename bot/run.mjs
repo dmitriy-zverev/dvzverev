@@ -14,7 +14,7 @@ import { formatVkPost } from './content.mjs';
 import { loadAppConfig, validateConfigFile, failureAlertConfig } from './app-config.mjs';
 import { formatCliError } from './config/errors.mjs';
 import { attachVkPhotosToken } from './vk-photos-token.mjs';
-import { processVkPhotosInbox, sendVkPhotosTokenRefreshRequest } from './vk-photos-inbox.mjs';
+import { sendVkPhotosTokenRefreshRequest } from './vk-photos-inbox.mjs';
 import { randomUUID } from 'node:crypto';
 
 function parseArgs(argv) {
@@ -87,15 +87,13 @@ function canScheduleProject(projectConfig) {
 }
 
 async function runMultiProjectScheduler(app, stoppingRef) {
-  console.log(
-    `Multi-project schedule: ${app.enabledProjectIds().join(', ')} (${app.configPath})`,
-  );
+  console.log(`Multi-project schedule: ${app.enabledProjectIds().join(', ')} (${app.configPath})`);
   while (!stoppingRef.stopping) {
     const inboxIds = app.enabledProjectIds();
     if (inboxIds.length) {
       const inboxConfig = await app.resolveProjectConfig(inboxIds[0]);
       await attachVkPhotosToken(inboxConfig);
-      await processVkPhotosInbox(inboxConfig);
+      // GIF uploads use the community key; no user-token inbox polling.
     }
     for (const id of app.enabledProjectIds()) {
       let projectConfig;
@@ -209,7 +207,9 @@ try {
         } else {
           const state = await readState(config);
           const post = await nextQueuedPost(config, state.entries);
-          console.log(post ? formatPost(post) : 'Queue is empty: add posts to bot/content/posts.json');
+          console.log(
+            post ? formatPost(post) : 'Queue is empty: add posts to bot/content/posts.json',
+          );
         }
       } else if (args[0]?.startsWith('--resume')) {
         console.log(
@@ -257,9 +257,10 @@ try {
         while (!stopping) {
           try {
             await attachVkPhotosToken(config);
-            await processVkPhotosInbox(config);
+            // GIF uploads use the community key; no user-token inbox polling.
             const result = config.chatId.trim() ? await publish(config) : { status: 'not_due' };
-            if (config.chatId.trim() && result.status !== 'locked') await clearRuntimeFailure(config);
+            if (config.chatId.trim() && result.status !== 'locked')
+              await clearRuntimeFailure(config);
             if (!['not_due', 'already_processed'].includes(result.status))
               console.log(JSON.stringify(result));
           } catch {

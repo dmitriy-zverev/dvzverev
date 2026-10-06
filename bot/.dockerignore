@@ -19,3 +19,4 @@
 !vk-photos-inbox.mjs
 !config/
 !config/*.mjs
+!upload-vk-document.py

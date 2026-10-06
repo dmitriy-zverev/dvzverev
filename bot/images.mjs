@@ -18,7 +18,7 @@ export function coverPath(config, id) {
   return join(
     dirname(config.statePath),
     'images',
-    `${createHash('sha256').update(id).digest('hex')}.png`,
+    `${createHash('sha256').update(id).digest('hex')}.gif`,
   );
 }
 export async function cachedCover(config, id) {
@@ -26,15 +26,31 @@ export async function cachedCover(config, id) {
   try {
     const data = await readFile(path);
     if (
-      data.length < 24 ||
-      data.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a' ||
-      data.readUInt32BE(16) !== 1280 ||
-      data.readUInt32BE(20) !== 720
+      data.length < 10 ||
+      !['GIF87a', 'GIF89a'].includes(data.subarray(0, 6).toString()) ||
+      data.readUInt16LE(6) !== 1280 ||
+      data.readUInt16LE(8) !== 720
     )
       throw new ImageFailure('invalid_cached_image');
     return { status: 'ready', width: 1280, height: 720 };
   } catch (error) {
-    if (error.code === 'ENOENT') return null;
+    if (error.code === 'ENOENT') {
+      const legacy = path.replace(/\.gif$/, '.png');
+      try {
+        await readFile(legacy);
+      } catch (legacyError) {
+        if (legacyError.code === 'ENOENT') return null;
+        throw legacyError;
+      }
+      const temporary = `${path}.${randomUUID()}.tmp`;
+      try {
+        await normalizeImage(legacy, temporary);
+        await rename(temporary, path);
+      } finally {
+        await rm(temporary, { force: true });
+      }
+      return cachedCover(config, id);
+    }
     throw error;
   }
 }
@@ -109,16 +125,39 @@ export async function generateCover(
     await Promise.all([rm(raw, { force: true }), rm(normalized, { force: true })]);
   }
 }
-export async function uploadVkCover(config, entry, fetchImpl = fetch) {
-  if (!config.vkPhotosToken) throw new ImageFailure('vk_photo_token_required', 27);
+async function pythonVkRequest(request) {
+  const pending = exec(
+    process.env.BOT_PYTHON || 'python3',
+    [fileURLToPath(new URL('./upload-vk-document.py', import.meta.url))],
+    { timeout: 35000, maxBuffer: 1000000 },
+  );
+  pending.child.stdin.end(JSON.stringify(request));
+  const { stdout } = await pending;
+  return JSON.parse(stdout);
+}
+async function uploadVkDocument(url, path) {
+  return pythonVkRequest({ url, path });
+}
+export async function uploadVkCover(config, entry, fetchImpl = fetch, transfer = uploadVkDocument) {
+  if (!config.vkToken) throw new ImageFailure('vk_community_token_required', 27);
   async function method(name, params) {
     try {
-      const response = await fetchImpl(`https://api.vk.com/method/${name}`, {
-        method: 'POST',
-        redirect: 'error',
-        signal: AbortSignal.timeout(30000),
-        body: new URLSearchParams({ access_token: config.vkPhotosToken, v: '5.199', ...params }),
-      });
+      const paramsWithToken = { access_token: config.vkToken, v: '5.199', ...params };
+      // Upload URLs can be tied to the requesting IP. Use the same transport for
+      // obtaining the URL, uploading bytes and saving the resulting document.
+      const response =
+        fetchImpl === fetch
+          ? {
+              ok: true,
+              json: () =>
+                pythonVkRequest({ operation: 'api', method: name, params: paramsWithToken }),
+            }
+          : await fetchImpl(`https://api.vk.ru/method/${name}`, {
+              method: 'POST',
+              redirect: 'error',
+              signal: AbortSignal.timeout(30000),
+              body: new URLSearchParams({ access_token: config.vkToken, v: '5.199', ...params }),
+            });
       const body = await response.json();
       if (!response.ok || body.error)
         throw new ImageFailure('vk_photo_api_rejected', body.error?.error_code || response.status);
@@ -129,7 +168,7 @@ export async function uploadVkCover(config, entry, fetchImpl = fetch) {
       throw new ImageFailure('vk_photo_network_failure');
     }
   }
-  const server = await method('photos.getWallUploadServer', { group_id: entry.vkGroupId });
+  const server = await method('docs.getWallUploadServer', { group_id: entry.vkGroupId });
   let url;
   try {
     url = new URL(server.upload_url);
@@ -144,34 +183,22 @@ export async function uploadVkCover(config, entry, fetchImpl = fetch) {
     !/(^|\.)(vk\.com|vk\.ru|vkuserphoto\.ru|vkuserphoto\.net)$/.test(url.hostname)
   )
     throw new ImageFailure('invalid_vk_upload_url');
-  const form = new FormData();
-  form.set(
-    'photo',
-    new Blob([await readFile(coverPath(config, entry.postId))], { type: 'image/png' }),
-    'cover.png',
-  );
+  if (!(await cachedCover(config, entry.postId))) throw new ImageFailure('missing_cached_image');
   let uploaded;
   try {
-    const response = await fetchImpl(url.href, {
-      method: 'POST',
-      redirect: 'error',
-      signal: AbortSignal.timeout(30000),
-      body: form,
-    });
-    uploaded = await response.json();
-    if (!response.ok || !uploaded.photo || !uploaded.hash || !Number.isInteger(uploaded.server))
-      throw new Error();
+    uploaded = await transfer(url.href, coverPath(config, entry.postId));
+    if (typeof uploaded.file !== 'string' || !uploaded.file) throw new Error();
   } catch {
-    throw new ImageFailure('vk_photo_upload_failed');
+    throw new ImageFailure('vk_document_upload_failed');
   }
-  const photos = await method('photos.saveWallPhoto', {
-    group_id: entry.vkGroupId,
-    photo: uploaded.photo,
-    server: String(uploaded.server),
-    hash: uploaded.hash,
-  });
-  const photo = photos[0];
-  if (!Number.isInteger(photo?.owner_id) || !Number.isInteger(photo?.id))
-    throw new ImageFailure('invalid_vk_saved_photo');
-  return `photo${photo.owner_id}_${photo.id}${photo.access_key ? `_${photo.access_key}` : ''}`;
+  const saved = await method('docs.save', { file: uploaded.file, title: 'Обложка дайджеста' });
+  const doc = saved.doc;
+  if (
+    !Number.isInteger(doc?.owner_id) ||
+    !Number.isInteger(doc?.id) ||
+    doc.owner_id !== -Number(entry.vkGroupId) ||
+    doc.type !== 3
+  )
+    throw new ImageFailure('invalid_vk_saved_document');
+  return `doc${doc.owner_id}_${doc.id}${doc.access_key ? `_${doc.access_key}` : ''}`;
 }

@@ -13,7 +13,6 @@ import {
   ImageFailure,
   DEFAULT_IMAGE_MODEL,
 } from './images.mjs';
-import { noteVkPhotosAuthFailure } from './vk-photos-inbox.mjs';
 
 export function configFromEnv(env = process.env) {
   const times = (env.BOT_TIMES || '10:00').split(',').map((time) => time.trim());
@@ -250,18 +249,19 @@ export async function sendTelegram(config, html, fetchImpl = fetch) {
   }
 }
 
-export async function sendTelegramPhoto(config, entry, caption = '', fetchImpl = fetch) {
+export async function sendTelegramAnimation(config, entry, caption = '', fetchImpl = fetch) {
   if (visibleTextLength(caption) > 1024) throw new TelegramRejection(400);
+  if (!(await cachedCover(config, entry.postId))) throw new ImageFailure('missing_cached_image');
   const photo = await readFile(coverPath(config, entry.postId));
   const form = new FormData();
   form.set('chat_id', config.chatId);
-  form.set('photo', new Blob([photo], { type: 'image/png' }), 'cover.png');
+  form.set('animation', new Blob([photo], { type: 'image/gif' }), 'cover.gif');
   if (caption) {
     form.set('caption', caption);
     form.set('parse_mode', 'HTML');
   }
   try {
-    const response = await fetchImpl(`https://api.telegram.org/bot${config.token}/sendPhoto`, {
+    const response = await fetchImpl(`https://api.telegram.org/bot${config.token}/sendAnimation`, {
       method: 'POST',
       redirect: 'error',
       signal: AbortSignal.timeout(30000),
@@ -294,7 +294,6 @@ async function prepareImages(config, state, entry, { generateImage, uploadImage,
     (entry.errors ||= []).push(event);
     await saveState(config, state);
     await alert(config, state, event, notify);
-    if (target === 'vk') await noteVkPhotosAuthFailure(config, code, reason);
   };
   if (image.status === 'generating') {
     const cached = await cachedCover(config, entry.postId);
@@ -508,7 +507,7 @@ export async function publish(
     notify = sendTelegram,
     generate = generatePost,
     generateImage = generateCover,
-    sendPhoto = sendTelegramPhoto,
+    sendPhoto = sendTelegramAnimation,
     uploadImage = uploadVkCover,
   } = {},
 ) {
