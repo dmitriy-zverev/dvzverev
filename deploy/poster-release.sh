@@ -15,7 +15,7 @@ STAGING="$(mktemp -d /tmp/dvzverev-poster.XXXXXX)"
 trap 'rm -rf "$STAGING"' EXIT
 python3 deploy/prepare-poster.py "$STAGING" --image "$IMAGE" --proxy "$PROXY_URL"
 
-echo "Loading image on $DEPLOY_HOST…"
+echo "Loading image on ${DEPLOY_HOST}..."
 docker save "$IMAGE" | gzip | ssh -o BatchMode=yes "$DEPLOY_HOST" 'gunzip | docker load'
 
 REMOTE="/opt/dvzverev-poster"
@@ -24,9 +24,10 @@ BACKUP="$REMOTE/backups/pre-${TAG}.tgz"
 ssh -o BatchMode=yes "$DEPLOY_HOST" "cd '$REMOTE' && tar -czf '$BACKUP' .env compose.yaml service.json data 2>/dev/null || true"
 
 scp "$STAGING/configuration.tar.gz" "$DEPLOY_HOST:/tmp/dvzverev-poster-config.tgz"
-ssh -o BatchMode=yes "$DEPLOY_HOST" "cd '$REMOTE' && tar -xzf /tmp/dvzverev-poster-config.tgz && rm /tmp/dvzverev-poster-config.tgz"
+scp "$STAGING/.env" "$DEPLOY_HOST:/tmp/dvzverev-poster.env"
+ssh -o BatchMode=yes "$DEPLOY_HOST" "cd '$REMOTE' && tar -xzf /tmp/dvzverev-poster-config.tgz && rm /tmp/dvzverev-poster-config.tgz && install -m 600 /tmp/dvzverev-poster.env .env && rm /tmp/dvzverev-poster.env"
 
-echo "Migrating cabinet DB…"
+echo "Migrating cabinet DB..."
 ssh -o BatchMode=yes "$DEPLOY_HOST" "cd '$REMOTE' && docker compose run --rm --no-deps cabinet node bot/cabinet/migrate.mjs"
 
 ssh -o BatchMode=yes "$DEPLOY_HOST" "cd '$REMOTE' && docker compose up -d --no-deps poster cabinet"

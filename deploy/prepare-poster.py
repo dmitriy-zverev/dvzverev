@@ -25,7 +25,9 @@ for line in (bot / '.env').read_text().splitlines():
         raise ValueError('Unsupported multiline environment file')
     key = line.split('=', 1)[0].strip()
     if key in excluded or key.startswith('VKID_') or ('VK' in key and any(x in key for x in ['USER', 'REFRESH', 'PHOTOS', 'DEVICE'])):
-        continue
+      continue
+    if key == 'BOT_IMAGE':
+      continue
     lines.append(line)
 lines += ['BOT_IMAGE=' + args.image, 'HTTP_PROXY=' + args.proxy, 'HTTPS_PROXY=' + args.proxy,
           'NO_PROXY=localhost,127.0.0.1,api.vk.com,api.vk.ru,.vk.com,.vk.ru,.vkuserphoto.ru,.vkuserphoto.net',
