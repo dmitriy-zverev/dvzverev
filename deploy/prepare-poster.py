@@ -59,6 +59,16 @@ for key, value in {
 }.items():
     set_env(key, value)
 
+cabinet_hash = os.environ.get('BOT_CABINET_PASSWORD_HASH', '').strip()
+cabinet_password = os.environ.get('BOT_CABINET_PASSWORD', '').strip()
+lines = [line for line in lines if not line.startswith('BOT_CABINET_PASSWORD=') and not line.startswith('BOT_CABINET_PASSWORD_HASH=')]
+if cabinet_hash:
+    set_env('BOT_CABINET_PASSWORD_HASH', cabinet_hash)
+elif cabinet_password:
+    set_env('BOT_CABINET_PASSWORD', cabinet_password)
+else:
+    set_env('BOT_CABINET_PASSWORD', secrets.token_urlsafe(24))
+
 (output / '.env').write_text('\n'.join(lines) + '\n')
 os.chmod(output / '.env', 0o600)
 with tarfile.open(output / 'configuration.tar.gz', 'w:gz') as archive:

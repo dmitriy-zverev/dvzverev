@@ -72,6 +72,27 @@ function escapeAttr(value) {
   return escapeText(value).replace(/\r?\n/g, ' ');
 }
 
+const PUBLIC_ERROR = {
+  service_unavailable: 'Сервис временно недоступен. Попробуйте позже.',
+  load_failed: 'Не удалось загрузить данные. Обновите страницу позже.',
+  schedule_failed: 'Не удалось загрузить расписание.',
+  edition_load_failed: 'Не удалось загрузить выпуск.',
+  save_failed: 'Не удалось сохранить.',
+  version_conflict: 'Конфликт версии, обновите страницу.',
+  wrong_password: 'Неверный пароль.',
+};
+
+function publicErrorMessage(error, kind) {
+  const code = error?.body?.error;
+  if (code === 'version_conflict') return PUBLIC_ERROR.version_conflict;
+  if (code === 'data_unavailable') return PUBLIC_ERROR.schedule_failed;
+  if (code === 'invalid_credentials') return PUBLIC_ERROR.wrong_password;
+  if (kind === 'overview') return PUBLIC_ERROR.load_failed;
+  if (kind === 'edition') return PUBLIC_ERROR.edition_load_failed;
+  if (kind === 'login_boot') return PUBLIC_ERROR.service_unavailable;
+  return PUBLIC_ERROR.service_unavailable;
+}
+
 function stopRefresh() {
   clearTimeout(state.timer);
   state.timer = null;
@@ -241,7 +262,11 @@ function renderLogin(message = '') {
         );
         return;
       }
-      renderLogin('Неверный пароль.');
+      if (error.status === 401 || error.body?.error === 'invalid_credentials') {
+        renderLogin(PUBLIC_ERROR.wrong_password);
+        return;
+      }
+      renderLogin(publicErrorMessage(error, 'login_boot'));
     }
   });
 }
@@ -519,13 +544,6 @@ function renderOverview(data, incidents, errorMessage = '') {
     tab === 'week'
       ? `
     <section class="summary summary--week-stats" aria-label="Сводка недели: расписание и публикации">
-      <p
-        class="week-stats-lead meta"
-        title="Слоты — материалы в календаре недели; публикации — фактические доставки на каналы."
-      >
-        <span class="week-stats-lead-icon" aria-hidden="true">◈</span>
-        Неделя: что требует внимания
-      </p>
       <div class="week-stats-kpis" role="list" aria-label="Ключевые показатели недели">
         ${renderWeekKpi('Пропущено', summary.missed, 'missed')}
         ${renderWeekKpi('Запланировано', summary.planned, 'planned')}
@@ -749,7 +767,7 @@ async function handlePlanFormSubmit(event) {
     closeModal();
     await loadOverview(true);
   } catch (error) {
-    alert(error.body?.error === 'version_conflict' ? 'Конфликт версии, обновите страницу.' : 'Не удалось сохранить.');
+    alert(error.body?.error === 'version_conflict' ? PUBLIC_ERROR.version_conflict : PUBLIC_ERROR.save_failed);
   }
 }
 
@@ -760,31 +778,44 @@ async function loadSlotDetails(meta) {
   if (meta.editionId) {
     try {
       const detail = await api(`/bot/api/v1/editions/${encodeURIComponent(meta.editionId)}`);
-      const releaseBadge = detail.adHoc && detail.releaseLabel
-        ? `<p><span class="release-badge">${escapeText(detail.releaseLabel)}</span></p>`
-        : '';
-      extra.innerHTML = `
-      <h3 class="modal-section">Выпуск</h3>
-      ${releaseBadge}
-      <p><strong>Статус:</strong> ${escapeText(detail.edition.statusLabel)}</p>
-      ${detail.edition.brief ? `<p><strong>Бриф:</strong> ${escapeText(detail.edition.brief)}</p>` : ''}
-      ${detail.edition.models ? `<p class="meta">Модели: ${escapeText(JSON.stringify(detail.edition.models))}</p>` : ''}
-      ${detail.edition.costUsd != null ? `<p class="meta">Расход: $${escapeText(detail.edition.costUsd)}</p>` : ''}
-      ${detail.edition.promptVersion ? `<p class="meta">Промпт: ${escapeText(detail.edition.promptVersion)}</p>` : ''}
-      <pre class="modal-pre">${escapeText(detail.edition.bodyText || detail.edition.bodyNotice || 'Текст пока не сохранён')}</pre>
-      ${detail.deliveries
+      const releaseBadge =
+        detail.adHoc && detail.releaseLabel
+          ? `<span class="release-badge">${escapeText(detail.releaseLabel)}</span>`
+          : '';
+      const metaRows = [
+        ['Статус', detail.edition.statusLabel],
+        detail.edition.brief ? ['Бриф', detail.edition.brief] : null,
+        detail.edition.models ? ['Модели', JSON.stringify(detail.edition.models)] : null,
+        detail.edition.costUsd != null ? ['Расход', `$${detail.edition.costUsd}`] : null,
+        detail.edition.promptVersion ? ['Промпт', detail.edition.promptVersion] : null,
+      ]
+        .filter(Boolean)
         .map(
-          (delivery) =>
-            `<p>${escapeText(delivery.platform)}: ${escapeText(delivery.statusLabel)}${delivery.failureReason ? ` — ${escapeText(delivery.failureReason)}` : ''} ${delivery.vkUrl ? `<a href="${escapeText(delivery.vkUrl)}">VK</a>` : ''}</p>`,
+          ([label, value]) =>
+            `<dt>${escapeText(label)}</dt><dd>${escapeText(value)}</dd>`,
         )
-        .join('')}
+        .join('');
+      const deliveryRows = detail.deliveries
+        .map((delivery) => {
+          const link = delivery.vkUrl
+            ? ` <a href="${escapeText(delivery.vkUrl)}" rel="noopener noreferrer">VK</a>`
+            : '';
+          const reason = delivery.failureReason ? ` — ${escapeText(delivery.failureReason)}` : '';
+          return `<p class="meta">${escapeText(delivery.platform)}: ${escapeText(delivery.statusLabel)}${reason}${link}</p>`;
+        })
+        .join('');
+      extra.innerHTML = `
+      <h3 class="modal-section">${releaseBadge ? `${releaseBadge} · ` : ''}Выпуск</h3>
+      <dl class="modal-detail-grid">${metaRows}</dl>
+      <div class="modal-post-text">${escapeText(detail.edition.bodyText || detail.edition.bodyNotice || 'Текст пока не сохранён')}</div>
+      ${deliveryRows}
       ${
         detail.events?.length
-          ? `<h3 class="modal-section">История</h3>${detail.events.map((event) => `<p class="meta">${escapeText(event.createdAt)} · ${escapeText(event.stage)} · ${escapeText(event.message)}</p>`).join('')}`
+          ? `<div class="modal-history"><h3 class="modal-section">История</h3>${detail.events.map((event) => `<p class="meta">${escapeText(event.createdAt)} · ${escapeText(event.stage)} · ${escapeText(event.message)}</p>`).join('')}</div>`
           : ''
       }`;
     } catch (error) {
-      extra.innerHTML = `<p class="error-banner" role="alert">Не удалось загрузить выпуск. ${escapeText(error.message)}</p>`;
+      extra.innerHTML = `<p class="error-banner" role="alert">${escapeText(publicErrorMessage(error, 'edition'))}</p>`;
     }
     return;
   }
@@ -853,7 +884,7 @@ async function loadOverview(manual = false) {
         scheduler_last_seen_at: null,
       },
       { items: [] },
-      error.body?.message || 'API недоступен. Расписание не показано как пустое.',
+      publicErrorMessage(error, 'overview'),
     );
     state.backoffMs = Math.min(state.backoffMs * 2, 300000);
   }
@@ -876,7 +907,7 @@ async function boot() {
       credentials: 'include',
     });
     if (!sessionResponse.ok) {
-      renderLogin('API недоступен. Запустите pnpm cabinet:api.');
+      renderLogin(publicErrorMessage(null, 'login_boot'));
       return;
     }
     const session = await sessionResponse.json();
@@ -887,7 +918,7 @@ async function boot() {
     state.authenticated = true;
     await loadOverview(true);
   } catch {
-    renderLogin('API недоступен. Запустите pnpm cabinet:api.');
+    renderLogin(publicErrorMessage(null, 'login_boot'));
   }
 }
 

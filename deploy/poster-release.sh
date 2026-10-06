@@ -14,6 +14,10 @@ docker buildx build --platform linux/amd64 -t "$IMAGE" -f bot/Dockerfile .
 REMOTE="/opt/dvzverev-poster"
 EXISTING_REDIS_PASSWORD="$(ssh -o BatchMode=yes "$DEPLOY_HOST" "grep '^BOT_REDIS_PASSWORD=' '$REMOTE/.env' 2>/dev/null | cut -d= -f2- | tr -d '\r'" || true)"
 export BOT_REDIS_PASSWORD="${BOT_REDIS_PASSWORD:-$EXISTING_REDIS_PASSWORD}"
+EXISTING_CABINET_HASH="$(ssh -o BatchMode=yes "$DEPLOY_HOST" "grep '^BOT_CABINET_PASSWORD_HASH=' '$REMOTE/.env' 2>/dev/null | cut -d= -f2- | tr -d '\r'" || true)"
+EXISTING_CABINET_PASSWORD="$(ssh -o BatchMode=yes "$DEPLOY_HOST" "grep '^BOT_CABINET_PASSWORD=' '$REMOTE/.env' 2>/dev/null | cut -d= -f2- | tr -d '\r'" || true)"
+export BOT_CABINET_PASSWORD_HASH="${BOT_CABINET_PASSWORD_HASH:-$EXISTING_CABINET_HASH}"
+export BOT_CABINET_PASSWORD="${BOT_CABINET_PASSWORD:-$EXISTING_CABINET_PASSWORD}"
 
 STAGING="$(mktemp -d /tmp/dvzverev-poster.XXXXXX)"
 trap 'rm -rf "$STAGING"' EXIT
@@ -22,7 +26,6 @@ python3 deploy/prepare-poster.py "$STAGING" --image "$IMAGE" --proxy "$PROXY_URL
 echo "Loading image on ${DEPLOY_HOST}..."
 docker save "$IMAGE" | gzip | ssh -o BatchMode=yes "$DEPLOY_HOST" 'gunzip | docker load'
 
-REMOTE="/opt/dvzverev-poster"
 ssh -o BatchMode=yes "$DEPLOY_HOST" "mkdir -p '$REMOTE/backups' && cd '$REMOTE' && docker compose stop redis poster cabinet 2>/dev/null || docker compose stop poster cabinet 2>/dev/null || docker compose stop poster || true"
 BACKUP="$REMOTE/backups/pre-${TAG}.tgz"
 ssh -o BatchMode=yes "$DEPLOY_HOST" "cd '$REMOTE' && tar -czf '$BACKUP' .env compose.yaml service.json data 2>/dev/null || true"

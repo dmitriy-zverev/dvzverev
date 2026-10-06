@@ -70,6 +70,32 @@ function json(response, status, body, headers = {}) {
   response.end(payload);
 }
 
+function clientErrorBody(status) {
+  const error =
+    status === 401
+      ? 'unauthorized'
+      : status === 403
+        ? 'forbidden'
+        : status === 429
+          ? 'rate_limited'
+          : status === 400
+            ? 'bad_request'
+            : status === 413
+              ? 'payload_too_large'
+              : 'server_error';
+  const messages = {
+    403: 'Доступ запрещён.',
+    429: 'Слишком много запросов. Подождите.',
+    400: 'Некорректный запрос.',
+    413: 'Слишком большой запрос.',
+    500: 'Что-то пошло не так. Попробуйте позже.',
+  };
+  const body = { error };
+  const message = messages[status];
+  if (message) body.message = message;
+  return body;
+}
+
 function readBody(request) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -192,10 +218,7 @@ async function handleRequest(request, response, env) {
     if (route === '/overview' && request.method === 'GET') {
       const slotCount = db.prepare('SELECT COUNT(*) AS count FROM schedule_slots').get().count;
       if (!slotCount) {
-        json(response, 503, {
-          error: 'data_unavailable',
-          message: 'Не удалось загрузить расписание. Пустой календарь не показывается.',
-        }, cors);
+        json(response, 503, { error: 'data_unavailable' }, cors);
         return;
       }
       const data = await buildOverview(
@@ -343,21 +366,7 @@ async function handleRequest(request, response, env) {
     const rateLimitHeaders = status === 429 && error.retryAfterSeconds
       ? { 'Retry-After': String(error.retryAfterSeconds) }
       : {};
-    json(response, status, {
-      error:
-        status === 401
-          ? 'unauthorized'
-          : status === 403
-            ? 'forbidden'
-            : status === 429
-              ? 'rate_limited'
-              : status === 400
-                ? 'bad_request'
-                : status === 413
-                  ? 'payload_too_large'
-                  : 'server_error',
-      message: status === 500 ? 'Internal error' : error.message,
-    }, { ...cors, ...rateLimitHeaders });
+    json(response, status, clientErrorBody(status), { ...cors, ...rateLimitHeaders });
   } finally {
     db.close();
   }

@@ -9,6 +9,8 @@
   --warn: #8a6d00;
   --ok: #1e6b42;
   --border: rgb(20 21 26 / 12%);
+  --radius-block: 8px;
+  --radius-pill: 999px;
   font-family: system-ui, -apple-system, Segoe UI, sans-serif;
 }
 
@@ -42,7 +44,7 @@ body:has(.cabinet:not(.cabinet--gate)) {
 .incidents {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-block);
   padding: 0.85rem 1rem;
   margin-bottom: 0.65rem;
   box-shadow: 0 0.75rem 2rem rgb(20 21 26 / 4%);
@@ -76,7 +78,7 @@ body:has(.cabinet:not(.cabinet--gate)) {
   padding: 1.75rem 1.6rem 1.5rem;
   background: var(--gate-panel);
   border: 1px solid var(--gate-line);
-  border-radius: 14px;
+  border-radius: var(--radius-block);
   box-shadow:
     0 1.5rem 3rem rgb(0 0 0 / 42%),
     inset 0 1px 0 rgb(255 255 255 / 4%);
@@ -117,7 +119,7 @@ body:has(.cabinet:not(.cabinet--gate)) {
   line-height: 1.4;
   background: rgb(179 38 30 / 14%);
   border: 1px solid rgb(179 38 30 / 35%);
-  border-radius: 9px;
+  border-radius: var(--radius-block);
   color: #f0b8b3;
 }
 
@@ -148,7 +150,7 @@ body:has(.cabinet:not(.cabinet--gate)) {
   color: var(--gate-text);
   background: rgb(16 23 34 / 85%);
   border: 1px solid var(--gate-line);
-  border-radius: 9px;
+  border-radius: var(--radius-block);
   transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 
@@ -167,7 +169,7 @@ body:has(.cabinet:not(.cabinet--gate)) {
   color: var(--gate-bg);
   background: var(--gate-accent);
   border: 1px solid rgb(161 197 244 / 35%);
-  border-radius: 9px;
+  border-radius: var(--radius-block);
   cursor: pointer;
   transition: filter 140ms ease, transform 140ms ease;
 }
@@ -207,22 +209,6 @@ body:has(.cabinet:not(.cabinet--gate)) {
   gap: 0.45rem;
 }
 
-.week-stats-lead {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin: 0;
-  font-size: 0.72rem;
-  line-height: 1.25;
-}
-
-.week-stats-lead-icon {
-  flex-shrink: 0;
-  font-size: 0.65rem;
-  color: var(--accent);
-  line-height: 1;
-}
-
 .week-stats-kpis {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -236,7 +222,7 @@ body:has(.cabinet:not(.cabinet--gate)) {
   gap: 0.12rem;
   min-width: 0;
   padding: 0.4rem 0.55rem;
-  border-radius: 8px;
+  border-radius: var(--radius-block);
   border: 1px solid var(--border);
   background: var(--bg);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 70%);
@@ -416,7 +402,7 @@ body:has(.cabinet:not(.cabinet--gate)) {
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-block);
   background: var(--bg);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 65%);
 }
@@ -476,7 +462,7 @@ body:has(.cabinet:not(.cabinet--gate)) {
   min-width: 1.125rem;
   height: 1.125rem;
   padding: 0 0.25rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 0.68rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -539,6 +525,7 @@ body:has(.cabinet:not(.cabinet--gate)) {
   font-size: var(--cabinet-control-fs);
   line-height: var(--cabinet-control-lh);
   white-space: nowrap;
+  border-radius: var(--radius-block);
   background: var(--panel);
   cursor: pointer;
 }
@@ -589,7 +576,7 @@ body:has(.cabinet:not(.cabinet--gate)) {
   margin: 0;
   padding: 0;
   border: 1px solid rgb(138 109 0 / 35%);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgb(138 109 0 / 10%);
   color: var(--warn);
   cursor: pointer;
@@ -621,7 +608,7 @@ body:has(.cabinet:not(.cabinet--gate)) {
   font-size: 0.75rem;
   line-height: 1.2;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--panel);
   cursor: pointer;
   white-space: nowrap;
@@ -758,7 +745,7 @@ body:has(.cabinet:not(.cabinet--gate)) {
 .toolbar-nav {
   height: var(--toolbar-control-h);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-block);
   overflow: hidden;
   background: var(--bg);
 }
@@ -847,7 +834,7 @@ textarea {
   color: inherit;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-block);
   padding: 0.45rem 0.65rem;
 }
 
@@ -970,7 +957,7 @@ textarea:focus-visible {
   border: 1px solid rgb(20 21 26 / 10%);
   border-left-width: 2px;
   border-left-color: transparent;
-  border-radius: 9px;
+  border-radius: var(--radius-block);
   background: var(--panel);
   box-shadow: 0 1px 0 rgb(255 255 255 / 80%) inset;
   font: inherit;
@@ -1006,7 +993,7 @@ textarea:focus-visible {
   margin-left: 0.35rem;
   padding: 0.1rem 0.4rem;
   border: 1px dashed var(--muted);
-  border-radius: 4px;
+  border-radius: var(--radius-block);
   font-size: 0.72rem;
   color: var(--muted);
 }
@@ -1049,7 +1036,7 @@ textarea:focus-visible {
   flex-shrink: 0;
   white-space: nowrap;
   padding: 0.08rem 0.38rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 0.625rem;
   font-weight: 600;
   line-height: 1.25;
@@ -1090,7 +1077,7 @@ textarea:focus-visible {
   display: inline-flex;
   align-items: center;
   padding: 0.06rem 0.32rem;
-  border-radius: 4px;
+  border-radius: var(--radius-block);
   font-size: 0.625rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -1125,7 +1112,7 @@ textarea:focus-visible {
 
 .card {
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-block);
   padding: 0.75rem;
   margin-bottom: 0.5rem;
   background: var(--panel);
@@ -1159,7 +1146,7 @@ textarea:focus-visible {
 }
 
 .error-banner {
-  border-radius: 10px;
+  border-radius: var(--radius-block);
   padding: 0.75rem 1rem;
   margin-bottom: 0.85rem;
   background: #fdecea;
@@ -1216,11 +1203,11 @@ body.modal-open {
   display: flex;
   flex-direction: column;
   width: min(36rem, 100%);
-  max-height: min(88vh, 44rem);
+  max-height: min(92vh, 52rem);
   overflow: hidden;
   background: #fff;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-block);
   box-shadow:
     0 0 0 1px rgb(255 255 255 / 80%) inset,
     0 1.25rem 3rem rgb(20 21 26 / 14%),
@@ -1242,7 +1229,7 @@ body.modal-open {
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   line-height: 1;
   font-size: 1.25rem;
   font-weight: 500;
@@ -1266,7 +1253,7 @@ body.modal-open {
   height: 2rem;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   line-height: 1;
   font-size: 1.25rem;
   font-weight: 500;
@@ -1292,9 +1279,11 @@ body.modal-open {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   overscroll-behavior: contain;
   padding: 1.25rem 1.35rem 1.4rem;
+  scrollbar-gutter: stable;
 }
 
 .modal-head {
@@ -1354,7 +1343,7 @@ body.modal-open {
   display: inline-flex;
   align-items: center;
   padding: 0.22rem 0.6rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 0.72rem;
   font-weight: 600;
   line-height: 1.25;
@@ -1424,7 +1413,30 @@ body.modal-open {
   line-height: 1.45;
 }
 
-.modal-form {
+.modal-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(4.5rem, auto) 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0 0 0.85rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.modal-detail-grid dt {
+  margin: 0;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.modal-detail-grid dd {
+  margin: 0;
+  color: var(--text);
+}
+
+.modal-detail-grid .meta {
+  font-size: inherit;
+}
+
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -1486,22 +1498,35 @@ body.modal-open {
   outline-offset: 2px;
 }
 
-.modal-pre {
-  margin: 0.65rem 0 0;
-  padding: 0.9rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: rgb(20 21 26 / 3%);
+.modal-pre,
+.modal-post-text {
+  margin: 0.85rem 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--text);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.8125rem;
-  line-height: 1.6;
-  max-height: min(42vh, 22rem);
-  overflow: auto;
-  tab-size: 2;
-  -webkit-overflow-scrolling: touch;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  letter-spacing: -0.01em;
+}
+
+.modal-post-text {
+  padding-top: 0.35rem;
+  border-top: 1px solid rgb(20 21 26 / 8%);
+}
+
+.modal-history {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.modal-history .meta {
+  margin: 0.25rem 0;
 }
 
 @media (max-width: 540px) {
@@ -1515,7 +1540,7 @@ body.modal-open {
     width: 100%;
     max-height: min(92vh, 100%);
     margin: 0;
-    border-radius: 18px 18px 0 0;
+    border-radius: var(--radius-block) var(--radius-block) 0 0;
     border-bottom: 0;
     padding: 0;
     box-shadow: 0 -0.65rem 2.5rem rgb(20 21 26 / 16%);
@@ -1527,7 +1552,7 @@ body.modal-open {
     width: 2.75rem;
     height: 0.28rem;
     margin: 0.35rem auto 0;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: rgb(20 21 26 / 16%);
     flex-shrink: 0;
   }
@@ -1571,7 +1596,7 @@ body.modal-open {
 
 @media (max-width: 389px) {
   .modal-dialog {
-    border-radius: 14px 14px 0 0;
+    border-radius: var(--radius-block) var(--radius-block) 0 0;
   }
 }
 
