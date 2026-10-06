@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { dirname, resolve, sep } from 'node:path';
+import { resolve, sep } from 'node:path';
 
 export function resolveConfigPath(configPath, env = process.env) {
   const raw = configPath || env.BOT_CONFIG_PATH || '';

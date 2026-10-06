@@ -20,7 +20,7 @@ export function parseVkOAuthRedirectUrl(text) {
     throw new Error('Empty VK OAuth redirect');
   }
   const trimmed = text.trim();
-  let fragment = '';
+  let fragment;
   const urlMatch = trimmed.match(/https?:\/\/oauth\.vk\.(?:ru|com)\/blank\.html#([^\s]+)/i);
   if (urlMatch) fragment = urlMatch[1];
   else if (trimmed.includes('access_token=')) fragment = trimmed.replace(/^[^#]*#/, '');
@@ -95,9 +95,7 @@ export async function updateEnvVkPhotosToken(token) {
   }
   const line = `VK_PHOTOS_ACCESS_TOKEN=${token}`;
   const pattern = /^VK_PHOTOS_ACCESS_TOKEN=.*$/m;
-  const next = pattern.test(body)
-    ? body.replace(pattern, line)
-    : `${body.trimEnd()}\n${line}\n`;
+  const next = pattern.test(body) ? body.replace(pattern, line) : `${body.trimEnd()}\n${line}\n`;
   await writeAtomic(path, next);
   return true;
 }

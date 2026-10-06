@@ -1,8 +1,7 @@
 name: dvzverev-poster
 services:
   poster:
-    build: .
-    image: dvzverev-poster:local
+    image: ${BOT_IMAGE:?Set BOT_IMAGE to a verified release tag}
     container_name: dvzverev-poster
     labels:
       app: dvzverev-poster
@@ -12,6 +11,7 @@ services:
       BOT_QUEUE_PATH: /app/content/posts.json
       BOT_STATE_PATH: /app/data/state.json
       BOT_LOG_DIR: /app/data/logs
+      NODE_USE_ENV_PROXY: '1'
     volumes:
       - ./content:/app/content:ro
       - ./data:/app/data

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "projectId": "code-to-think",
+  "groupId": 242034586,
+  "currency": "RUB",
+  "records": [
+    {
+      "id": "2026-10-06-group",
+      "from": "2026-10-06",
+      "to": "2026-10-06",
+      "scope": "group",
+      "metrics": {
+        "subscribers": null,
+        "postReach": null,
+        "postViews": null,
+        "productLinkClicks": null,
+        "orders": null,
+        "orderRevenue": null,
+        "commissionRevenue": null,
+        "otherExpenses": null,
+        "generationExpensesRub": null,
+        "generationExpensesUsd": null,
+        "usdToRub": null
+      }
+    }
+  ]
+}

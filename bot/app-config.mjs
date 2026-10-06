@@ -75,7 +75,7 @@ export async function validateConfigFile(configPath, env = process.env) {
     document = JSON.parse(raw);
   } catch (error) {
     if (error instanceof SyntaxError) {
-      throw new SyntaxError(`${resolved} is not valid JSON`);
+      throw new SyntaxError(`${resolved} is not valid JSON`, { cause: error });
     }
     throw error;
   }

@@ -1,0 +1,200 @@
+{
+  "version": 1,
+  "service": {
+    "alertChatIdEnv": "BOT_ALERT_CHAT_ID",
+    "minDestinationIntervalMinutes": 30
+  },
+  "providers": {
+    "budget-editor": {
+      "adapter": "openrouter",
+      "credentialEnv": "OPENROUTER_API_KEY",
+      "model": "qwen/qwen3-32b",
+      "fallbackModels": [
+        "qwen/qwen3.5-flash-02-23",
+        "deepseek/deepseek-v4.1-flash"
+      ]
+    },
+    "lifestyle-editor": {
+      "adapter": "openrouter",
+      "credentialEnv": "OPENROUTER_API_KEY",
+      "model": "qwen/qwen3.5-flash-02-23",
+      "fallbackModels": [
+        "qwen/qwen3-32b",
+        "deepseek/deepseek-v4.1-flash"
+      ]
+    }
+  },
+  "destinations": {
+    "connaissance-vk": {
+      "platform": "vk",
+      "groupIdEnv": "VK_DARK_ACADEMIA_GROUP_ID",
+      "credentialEnv": "VK_DARK_ACADEMIA_ACCESS_TOKEN",
+      "media": {
+        "enabled": true,
+        "kind": "video",
+        "prompt": "prompts/dark-academia-video.md",
+        "times": [
+          "18:00"
+        ],
+        "model": "bytedance/seedance-1-5-pro",
+        "maxAttempts": 3
+      }
+    },
+    "code-to-think-vk": {
+      "platform": "vk",
+      "groupIdEnv": "VK_CODE_TO_THINK_GROUP_ID",
+      "credentialEnv": "VK_ACCESS_TOKEN",
+      "media": {
+        "enabled": false
+      }
+    },
+    "things-vk": {
+      "platform": "vk",
+      "groupIdEnv": "VK_THINGS_GROUP_ID",
+      "credentialEnv": "VK_THINGS_ACCESS_TOKEN",
+      "media": {
+        "enabled": true,
+        "kind": "video",
+        "prompt": "prompts/things-video.md",
+        "times": [
+          "18:00"
+        ],
+        "model": "bytedance/seedance-1-5-pro",
+        "maxAttempts": 3
+      }
+    }
+  },
+  "projects": {
+    "dark-academia": {
+      "enabled": true,
+      "format": "literary",
+      "language": "ru",
+      "postSource": "openrouter",
+      "prompts": {
+        "editor": "prompts/dark-academia.md",
+        "cover": "prompts/dark-academia-gif.md"
+      },
+      "generation": {
+        "provider": "budget-editor"
+      },
+      "schedule": {
+        "timezone": "Europe/Moscow",
+        "times": [
+          "10:00",
+          "18:00"
+        ],
+        "missedSlots": "skip"
+      },
+      "delivery": {
+        "policy": "ordered-independent",
+        "destinations": [
+          "connaissance-vk"
+        ]
+      },
+      "budget": {
+        "dailyUsd": 2,
+        "monthlyUsd": 30
+      },
+      "statePath": "data/projects/dark-academia/state.json",
+      "queuePath": "content/posts.json",
+      "metrics": {
+        "enabled": true,
+        "intervalMinutes": 60
+      }
+    },
+    "code-to-think": {
+      "enabled": true,
+      "format": "programming",
+      "language": "ru",
+      "postSource": "openrouter",
+      "prompts": {
+        "editor": "prompts/code-to-think.md"
+      },
+      "generation": {
+        "provider": "budget-editor",
+        "reviewModel": "qwen/qwen3.5-flash-02-23"
+      },
+      "schedule": {
+        "timezone": "Europe/Moscow",
+        "times": [
+          "12:00",
+          "18:00"
+        ],
+        "weekly": {
+          "1": [
+            "12:00",
+            "18:00"
+          ],
+          "2": [
+            "12:00"
+          ],
+          "3": [
+            "12:00",
+            "18:00"
+          ],
+          "4": [
+            "12:00"
+          ],
+          "5": [
+            "12:00",
+            "18:00"
+          ],
+          "6": [
+            "12:00"
+          ],
+          "7": [
+            "12:00",
+            "18:00"
+          ]
+        },
+        "missedSlots": "skip"
+      },
+      "delivery": {
+        "policy": "ordered-independent",
+        "destinations": [
+          "code-to-think-vk"
+        ]
+      },
+      "statePath": "data/projects/code-to-think/state.json",
+      "queuePath": "content/posts.json",
+      "metrics": {
+        "enabled": true,
+        "intervalMinutes": 60
+      }
+    },
+    "things": {
+      "enabled": true,
+      "format": "lifestyle",
+      "language": "ru",
+      "postSource": "openrouter",
+      "prompts": {
+        "editor": "prompts/things-editor.md",
+        "cover": "prompts/things-gif.md"
+      },
+      "generation": {
+        "provider": "lifestyle-editor",
+        "reviewModel": "qwen/qwen3.5-flash-02-23"
+      },
+      "schedule": {
+        "timezone": "Europe/Moscow",
+        "times": [
+          "10:00",
+          "18:00"
+        ],
+        "missedSlots": "skip"
+      },
+      "delivery": {
+        "policy": "ordered-independent",
+        "destinations": [
+          "things-vk"
+        ]
+      },
+      "statePath": "data/projects/things/state.json",
+      "queuePath": "content/posts.json",
+      "metrics": {
+        "enabled": true,
+        "intervalMinutes": 60
+      }
+    }
+  }
+}

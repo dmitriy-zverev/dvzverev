@@ -34,7 +34,7 @@ async function writeInbox(config, inbox) {
   await rename(temp, path);
 }
 
-function operatorUserId(config) {
+function operatorUserId() {
   const raw = process.env.BOT_OPERATOR_USER_ID || '';
   if (!/^\d+$/.test(raw)) return null;
   return Number(raw);
@@ -139,7 +139,7 @@ async function handleOperatorText(config, text, fetchImpl) {
 
 export async function processVkPhotosInbox(config, { fetchImpl = fetch } = {}) {
   if (!config.vkImagesEnabled || !config.token) return { processed: 0 };
-  const operatorId = operatorUserId(config);
+  const operatorId = operatorUserId();
   if (!operatorId) return { processed: 0 };
 
   const inbox = await readInbox(config);

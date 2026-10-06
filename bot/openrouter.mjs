@@ -1,4 +1,6 @@
+import { logError } from './logging.mjs';
 import { formatVkPost } from './content.mjs';
+import { recordGenerationCost } from './costs.mjs';
 
 export const DEFAULT_MODEL = 'google/gemini-3.1-flash-lite';
 export const DEFAULT_PROMPT =
@@ -22,7 +24,7 @@ const schema = {
   properties: Object.fromEntries(fields.map((field) => [field, { type: 'string' }])),
 };
 
-export async function requestCompletion(config, options = {}, fetchImpl = fetch) {
+async function requestOneCompletion(config, options = {}, fetchImpl = fetch) {
   if (!config.openrouterKey)
     throw new GenerationFailure('missing_api_key', { kind: 'configuration' });
   let body;
@@ -41,8 +43,20 @@ export async function requestCompletion(config, options = {}, fetchImpl = fetch)
     body = await response.json();
   } catch {
     // Generation has no publishing side effects; a bounded retry is safe here.
+    await recordGenerationCost(config, {
+      usd: null,
+      outcome: 'network_unknown',
+      postId: options.costPostId || config.generationPostId,
+    });
     throw new GenerationFailure('network_or_invalid_response');
   }
+  await recordGenerationCost(config, {
+    id: body?.id,
+    model: body?.model,
+    usd: body?.usage?.cost,
+    outcome: response.ok && !body?.error ? 'completed' : 'rejected',
+    postId: options.costPostId || config.generationPostId,
+  });
   if (!response.ok || body.error) {
     const code = Number(body.error?.code || response.status);
     const retryAfter = Number(response.headers?.get('retry-after'));
@@ -55,10 +69,124 @@ export async function requestCompletion(config, options = {}, fetchImpl = fetch)
   return body;
 }
 
-export async function generatePost(
+export function sharedProviderFailure(error) {
+  return error.reason === 'missing_api_key' || [401, 402, 403].includes(error.code);
+}
+export async function requestCompletion(config, options = {}, fetchImpl = fetch) {
+  const models = config.openrouterModels?.length
+    ? config.openrouterModels
+    : [config.openrouterModel || DEFAULT_MODEL];
+  let failure;
+  for (const [index, model] of models.entries()) {
+    try {
+      return await requestOneCompletion(
+        { ...config, openrouterModel: model },
+        { ...options, body: { ...options.body, model } },
+        fetchImpl,
+      );
+    } catch (error) {
+      if (!(error instanceof GenerationFailure) || sharedProviderFailure(error)) throw error;
+      failure = error;
+      if (index < models.length - 1) {
+        error.logId ||= await logError(
+          config,
+          {
+            platform: 'openrouter',
+            reason: error.reason,
+            errorCode: error.code,
+            model,
+            status: 'fallback',
+            postId: options.costPostId || config.generationPostId || options.id,
+          },
+          error,
+        );
+        if (config.onGenerationFailure) await config.onGenerationFailure(error, model);
+      }
+    }
+  }
+  throw failure;
+}
+export async function generatePost(config, options = {}) {
+  const models = config.openrouterModels?.length
+    ? config.openrouterModels
+    : [config.openrouterModel || DEFAULT_MODEL];
+  let failure;
+  for (const [index, model] of models.entries()) {
+    try {
+      return await generateOnePost(
+        {
+          ...config,
+          openrouterModel: model,
+          openrouterModels: [model],
+          generationPostId: options.id,
+        },
+        { ...options, feedback: failure?.reason || options.feedback },
+      );
+    } catch (error) {
+      if (!(error instanceof GenerationFailure) || sharedProviderFailure(error)) throw error;
+      failure = error;
+      if (index < models.length - 1) {
+        error.logId ||= await logError(
+          config,
+          {
+            platform: 'openrouter',
+            reason: error.reason,
+            errorCode: error.code,
+            model,
+            status: 'fallback',
+            postId: options.costPostId || config.generationPostId || options.id,
+          },
+          error,
+        );
+        if (config.onGenerationFailure) await config.onGenerationFailure(error, model);
+      }
+    }
+  }
+  throw failure;
+}
+
+async function generateOnePost(
   config,
-  { id, history = [], feedback = '', fetchImpl = fetch, excludeUrls = [] } = {},
+  {
+    id,
+    history = [],
+    feedback = '',
+    fetchImpl = fetch,
+    excludeUrls = [],
+    excludeQuoteIds = [],
+    historyPosts = [],
+    editorialHistory = [],
+    slot = null,
+    now = new Date(),
+  } = {},
 ) {
+  if (config.contentMode === 'lifestyle') {
+    const { generateLifestylePost } = await import('./lifestyle.mjs');
+    return generateLifestylePost(config, { id, history, historyPosts, feedback, fetchImpl, now });
+  }
+  if (config.contentMode === 'programming') {
+    const { generateProgrammingPost } = await import('./programming.mjs');
+    return generateProgrammingPost(config, {
+      id,
+      historyPosts,
+      editorialHistory,
+      slot,
+      now,
+      feedback,
+      fetchImpl,
+    });
+  }
+  if (config.contentMode === 'literary') {
+    const { generateLiteraryPost } = await import('./literary.mjs');
+    return generateLiteraryPost(config, {
+      id,
+      history,
+      feedback,
+      fetchImpl,
+      excludeQuoteIds,
+      historyPosts,
+    });
+  }
   if (config.contentMode === 'digest') {
     const { generateDigest } = await import('./digest.mjs');
     return generateDigest(config, { id, history, feedback, fetchImpl, excludeUrls });

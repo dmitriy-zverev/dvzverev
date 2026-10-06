@@ -4,11 +4,11 @@ import { assertNoInlineSecrets, isEnvVarName } from './env.mjs';
 import { assertRelativePathInsideConfigRoot } from './paths.mjs';
 import { scheduleConflicts, validateTimezone } from './schedule.mjs';
 
-const PROVIDER_ADAPTERS = new Set(['openrouter', 'openai-compatible']);
+const PROVIDER_ADAPTERS = new Set(['openrouter']);
 const PLATFORMS = new Set(['telegram', 'vk']);
-const FORMATS = new Set(['tip', 'digest']);
+const FORMATS = new Set(['tip', 'digest', 'literary', 'programming', 'lifestyle']);
 const POST_SOURCES = new Set(['queue', 'openrouter']);
-const DELIVERY_POLICIES = new Set(['ordered-independent', 'ordered-continue', 'ordered-strict']);
+const DELIVERY_POLICIES = new Set(['ordered-independent']);
 const MISSED_SLOTS = new Set(['skip']);
 
 function push(errors, path, message) {
@@ -45,6 +45,14 @@ function validateProvider(errors, provider, path) {
   if (!PROVIDER_ADAPTERS.has(provider.adapter)) {
     push(errors, `${path}.adapter`, 'unsupported adapter');
   }
+  if (
+    provider.fallbackModels !== undefined &&
+    (!Array.isArray(provider.fallbackModels) ||
+      provider.fallbackModels.length > 2 ||
+      provider.fallbackModels.some((model) => typeof model !== 'string' || !model.trim()) ||
+      new Set(provider.fallbackModels).size !== provider.fallbackModels.length)
+  )
+    push(errors, `${path}.fallbackModels`, 'must contain at most two unique model IDs');
   validateEnvRef(errors, provider.credentialEnv, `${path}.credentialEnv`);
   if (provider.modelEnv) validateEnvRef(errors, provider.modelEnv, `${path}.modelEnv`);
   if (provider.baseUrlEnv) validateEnvRef(errors, provider.baseUrlEnv, `${path}.baseUrlEnv`);
@@ -77,6 +85,37 @@ function validateDestination(errors, destination, path) {
   }
   if (destination.media !== undefined) {
     if (!requireObject(errors, destination.media, `${path}.media`)) return;
+    if (
+      destination.media.maxAttempts !== undefined &&
+      (!Number.isInteger(destination.media.maxAttempts) ||
+        destination.media.maxAttempts < 1 ||
+        destination.media.maxAttempts > 3)
+    )
+      push(errors, `${path}.media.maxAttempts`, 'must be an integer between 1 and 3');
+    if (
+      destination.media.prompt !== undefined &&
+      (typeof destination.media.prompt !== 'string' || !destination.media.prompt.trim())
+    )
+      push(errors, `${path}.media.prompt`, 'must be a prompt path');
+    if (
+      destination.media.kind !== undefined &&
+      !['image', 'video'].includes(destination.media.kind)
+    )
+      push(errors, `${path}.media.kind`, 'must be image or video');
+    if (
+      destination.media.times !== undefined &&
+      (!Array.isArray(destination.media.times) ||
+        !destination.media.times.length ||
+        destination.media.times.some(
+          (time) => typeof time !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time),
+        ))
+    )
+      push(errors, `${path}.media.times`, 'must contain valid HH:MM times');
+    if (
+      destination.media.model !== undefined &&
+      (typeof destination.media.model !== 'string' || !destination.media.model.trim())
+    )
+      push(errors, `${path}.media.model`, 'must be a nonempty model');
     if (typeof destination.media.enabled !== 'boolean') {
       push(errors, `${path}.media.enabled`, 'must be boolean');
     }
@@ -127,13 +166,20 @@ function validateProject(errors, project, path, service, configRoot) {
   }
   if (!project.generation?.provider) {
     push(errors, `${path}.generation.provider`, 'provider is required');
-  } else if (!service.providers[project.generation.provider]) {
+  } else if (!service.providers?.[project.generation.provider]) {
     push(errors, `${path}.generation.provider`, 'unknown provider');
   }
-  for (const fallbackId of project.generation?.fallbackProviders || []) {
-    if (!service.providers[fallbackId]) {
-      push(errors, `${path}.generation.fallbackProviders`, `unknown provider: ${fallbackId}`);
-    }
+  if (project.generation?.fallbackProviders?.length)
+    push(
+      errors,
+      `${path}.generation.fallbackProviders`,
+      'provider fallback is not implemented; use fallbackModels',
+    );
+  if (
+    project.generation?.reviewModel !== undefined &&
+    (typeof project.generation.reviewModel !== 'string' || !project.generation.reviewModel.trim())
+  ) {
+    push(errors, `${path}.generation.reviewModel`, 'must be a nonempty model id');
   }
   if (!project.prompts?.editor) push(errors, `${path}.prompts.editor`, 'editor prompt is required');
   else {
@@ -150,7 +196,8 @@ function validateProject(errors, project, path, service, configRoot) {
       push(errors, `${path}.prompts.cover`, error.message);
     }
   }
-  if (!project.schedule?.timezone) push(errors, `${path}.schedule.timezone`, 'timezone is required');
+  if (!project.schedule?.timezone)
+    push(errors, `${path}.schedule.timezone`, 'timezone is required');
   else {
     try {
       validateTimezone(project.schedule.timezone);
@@ -160,6 +207,31 @@ function validateProject(errors, project, path, service, configRoot) {
   }
   if (!Array.isArray(project.schedule?.times) || project.schedule.times.length === 0) {
     push(errors, `${path}.schedule.times`, 'at least one schedule time is required');
+  }
+  if (project.schedule?.weekly !== undefined) {
+    const weekly = project.schedule.weekly;
+    if (
+      !weekly ||
+      typeof weekly !== 'object' ||
+      Array.isArray(weekly) ||
+      !Object.keys(weekly).length
+    ) {
+      push(errors, `${path}.schedule.weekly`, 'must map ISO weekdays to scheduled times');
+    } else
+      for (const [day, times] of Object.entries(weekly)) {
+        if (
+          !/^[1-7]$/.test(day) ||
+          !Array.isArray(times) ||
+          !times.length ||
+          new Set(times).size !== times.length ||
+          times.some((time) => !project.schedule.times?.includes(time))
+        )
+          push(
+            errors,
+            `${path}.schedule.weekly.${day}`,
+            'must contain unique times from schedule.times',
+          );
+      }
   }
   const missedSlots = project.schedule?.missedSlots || 'skip';
   if (!MISSED_SLOTS.has(missedSlots)) {
@@ -173,13 +245,35 @@ function validateProject(errors, project, path, service, configRoot) {
   if (!Array.isArray(destinations) || destinations.length === 0) {
     push(errors, `${path}.delivery.destinations`, 'at least one destination is required');
   } else {
+    const platforms = new Set();
     for (const destinationId of destinations) {
-      if (!service.destinations[destinationId]) {
+      const destination = service.destinations?.[destinationId];
+      if (destination) {
+        if (platforms.has(destination.platform))
+          push(
+            errors,
+            `${path}.delivery.destinations`,
+            'only one destination per platform is supported per project',
+          );
+        platforms.add(destination.platform);
+      }
+      if (!service.destinations?.[destinationId]) {
         push(errors, `${path}.delivery.destinations`, `unknown destination: ${destinationId}`);
       }
     }
   }
   if (project.budget) validateBudget(errors, project.budget, `${path}.budget`);
+  if (project.metrics !== undefined) {
+    if (!project.metrics || typeof project.metrics.enabled !== 'boolean')
+      push(errors, `${path}.metrics.enabled`, 'must be boolean');
+    if (
+      project.metrics?.intervalMinutes !== undefined &&
+      (!Number.isInteger(project.metrics.intervalMinutes) ||
+        project.metrics.intervalMinutes < 15 ||
+        project.metrics.intervalMinutes > 1440)
+    )
+      push(errors, `${path}.metrics.intervalMinutes`, 'must be an integer between 15 and 1440');
+  }
 }
 
 export function validateServiceDocument(document, { configPath }) {
@@ -201,12 +295,27 @@ export function validateServiceDocument(document, { configPath }) {
     push(errors, 'projects', 'at least one project is required');
   }
   for (const [id, provider] of Object.entries(document.providers || {})) {
+    if (!provider || typeof provider !== 'object' || Array.isArray(provider)) continue;
     validateProvider(errors, provider, `providers.${id}`);
   }
   for (const [id, destination] of Object.entries(document.destinations || {})) {
+    if (!destination || typeof destination !== 'object' || Array.isArray(destination)) continue;
+    if (destination.media?.prompt) {
+      try {
+        assertRelativePathInsideConfigRoot(configRoot, destination.media.prompt);
+      } catch (error) {
+        push(errors, `destinations.${id}.media.prompt`, error.message);
+      }
+    }
     validateDestination(errors, destination, `destinations.${id}`);
   }
+  const statePaths = new Set();
   for (const [id, project] of Object.entries(document.projects || {})) {
+    if (!project || typeof project !== 'object' || Array.isArray(project)) continue;
+    const statePath = project.statePath || `state/${id}.json`;
+    if (statePaths.has(statePath))
+      push(errors, `projects.${id}.statePath`, 'state path must be unique per project');
+    statePaths.add(statePath);
     validateProject(errors, project, `projects.${id}`, document, configRoot);
   }
   if (document.service?.alertChatIdEnv) {
@@ -219,7 +328,7 @@ export function validateServiceDocument(document, { configPath }) {
   ) {
     push(errors, 'service.minDestinationIntervalMinutes', 'must be a non-negative integer');
   }
-  const scheduleIssues = scheduleConflicts(document, minInterval);
+  const scheduleIssues = errors.length ? [] : scheduleConflicts(document, minInterval);
   for (const issue of scheduleIssues) {
     if (issue.kind === 'destination_interval') {
       push(

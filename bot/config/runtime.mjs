@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
 import { DEFAULT_MODEL, DEFAULT_PROMPT } from '../openrouter.mjs';
 import { DEFAULT_IMAGE_MODEL } from '../images.mjs';
 import { readEnvValue, readOptionalEnvValue } from './env.mjs';
@@ -14,11 +14,13 @@ function destinationByPlatform(project, service, platform) {
 
 function resolveProvider(service, providerId, env) {
   const provider = service.providers[providerId];
-  const model = provider.model || (provider.modelEnv ? readEnvValue(env, provider.modelEnv) : DEFAULT_MODEL);
+  const model =
+    provider.model || (provider.modelEnv ? readEnvValue(env, provider.modelEnv) : DEFAULT_MODEL);
   return {
     providerId,
     adapter: provider.adapter,
     model,
+    models: [model, ...(provider.fallbackModels || [])],
     apiKey: readEnvValue(env, provider.credentialEnv),
     baseUrl: provider.baseUrlEnv ? readEnvValue(env, provider.baseUrlEnv) : '',
   };
@@ -33,6 +35,9 @@ export async function runtimeConfigForProject(service, projectId, env, { configR
   const vk = destinationByPlatform(project, service, 'vk');
   const generation = resolveProvider(service, project.generation.provider, env);
   const editorPrompt = await readPromptFile(configRoot, project.prompts.editor);
+  const coverPrompt = project.prompts.cover
+    ? await readPromptFile(configRoot, project.prompts.cover)
+    : '';
   const postSource = project.postSource || 'openrouter';
   const queuePath = project.queuePath
     ? resolveRelativeConfigPath(configRoot, project.queuePath)
@@ -44,7 +49,9 @@ export async function runtimeConfigForProject(service, projectId, env, { configR
     ? readOptionalEnvValue(env, service.service.alertChatIdEnv)
     : env.BOT_ALERT_CHAT_ID || '';
 
-  const token = telegram ? readEnvValue(env, telegram.destination.credentialEnv) : '';
+  const token = telegram
+    ? readEnvValue(env, telegram.destination.credentialEnv)
+    : env.TELEGRAM_BOT_TOKEN || '';
   const chatId = telegram ? readEnvValue(env, telegram.destination.chatIdEnv) : '';
   const vkToken = vk ? readEnvValue(env, vk.destination.credentialEnv) : '';
   const vkGroupId = vk ? readEnvValue(env, vk.destination.groupIdEnv) : '';
@@ -55,13 +62,23 @@ export async function runtimeConfigForProject(service, projectId, env, { configR
     projectId,
     deliveryPolicy: project.delivery.policy || 'ordered-independent',
     destinationIds: [...project.delivery.destinations],
+    telegramEnabled: Boolean(telegram),
     token,
     chatId,
     alertChatId,
     vkToken,
     vkGroupId,
-    vkPhotosToken: env.VK_PHOTOS_ACCESS_TOKEN || '',
+    vkPhotosToken: '',
     imagesEnabled: telegramMedia,
+    mediaTimes: vk?.destination.media?.times || telegram?.destination.media?.times || null,
+    coverMode: vk?.destination.media?.kind || telegram?.destination.media?.kind || 'image',
+    coverPrompt,
+    videoPrompt: vk?.destination.media?.prompt
+      ? await readPromptFile(configRoot, vk.destination.media.prompt)
+      : '',
+    imageMaxAttempts:
+      vk?.destination.media?.maxAttempts || telegram?.destination.media?.maxAttempts || 1,
+    videoModel: vk?.destination.media?.model || 'bytedance/seedance-1-5-pro',
     vkImagesEnabled: vkMedia,
     imageModel: env.OPENROUTER_IMAGE_MODEL || DEFAULT_IMAGE_MODEL,
     vkEnabled: Boolean(vk),
@@ -71,11 +88,21 @@ export async function runtimeConfigForProject(service, projectId, env, { configR
     contentMode: project.format,
     openrouterKey: generation.apiKey,
     openrouterModel: generation.model,
+    openrouterModels: generation.models,
+    reviewModel: project.generation.reviewModel || generation.models[1] || generation.model,
     openrouterPrompt: editorPrompt.trim() || DEFAULT_PROMPT,
     times: [...new Set(project.schedule.times)].sort(),
     timezone: project.schedule.timezone,
+    weekly: project.schedule.weekly || null,
     queuePath,
     statePath,
+    metricsEnabled: project.metrics?.enabled === true,
+    metricsIntervalMinutes: project.metrics?.intervalMinutes || 60,
+    metricsPath: resolve(dirname(statePath), 'analytics.json'),
+    costLedgerPath:
+      project.metrics?.enabled === true
+        ? resolve(dirname(statePath), 'generation-costs.jsonl')
+        : null,
     budget: project.budget || null,
     generationProvider: generation.providerId,
   };

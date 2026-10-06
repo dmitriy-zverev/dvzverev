@@ -1,0 +1,14 @@
+[Unit]
+Description=Dedicated API proxy for dvzverev autoposter
+Wants=network-online.target
+After=network-online.target
+[Service]
+Type=simple
+ExecStartPre=/usr/sbin/squid -k parse -f /etc/squid/autoposter.conf
+ExecStart=/usr/sbin/squid -N -f /etc/squid/autoposter.conf
+ExecReload=/usr/sbin/squid -k reconfigure -f /etc/squid/autoposter.conf
+Restart=on-failure
+RestartSec=10
+MemoryMax=96M
+[Install]
+WantedBy=multi-user.target

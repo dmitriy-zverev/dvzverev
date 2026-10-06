@@ -1,3 +1,4 @@
+import { redact } from '../logging.mjs';
 const SAFE_ERROR_PREFIXES = [
   'Invalid service config:',
   'Missing environment variable:',
@@ -33,6 +34,6 @@ export function formatCliError(error) {
   if (isGenerationFailure(error)) {
     return `OpenRouter: ${error.reason} (code ${error.code || '—'})`;
   }
-  if (isOperatorSafeError(error)) return error.message;
+  if (isOperatorSafeError(error)) return redact(error.message);
   return 'Bot stopped: check environment, queue, state and file permissions. Run bot tests for validation.';
 }

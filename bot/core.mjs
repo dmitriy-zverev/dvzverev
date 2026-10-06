@@ -1,7 +1,16 @@
+import { sendNotification } from './notifications.mjs';
+import { writeAtomic } from './storage.mjs';
+import { logError } from './logging.mjs';
 import { escapeHtml, formatPost, formatVkPost, visibleTextLength } from './content.mjs';
-import { generatePost, GenerationFailure, DEFAULT_MODEL, DEFAULT_PROMPT } from './openrouter.mjs';
+import {
+  generatePost,
+  GenerationFailure,
+  DEFAULT_MODEL,
+  DEFAULT_PROMPT,
+  sharedProviderFailure,
+} from './openrouter.mjs';
 export { formatPost, formatVkPost } from './content.mjs';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { acquireLock } from './lock.mjs';
@@ -9,6 +18,7 @@ import {
   generateCover,
   cachedCover,
   coverPath,
+  ImagePending,
   uploadVkCover,
   ImageFailure,
   DEFAULT_IMAGE_MODEL,
@@ -96,12 +106,28 @@ export function dueSlot(config, now = new Date()) {
   );
   const minute = Number(parts.hour) * 60 + Number(parts.minute);
   // Five-minute window handles normal restarts; never catch up old missed slots.
-  const time = config.times.findLast((time) => {
+  const day = new Date(`${parts.year}-${parts.month}-${parts.day}T12:00:00Z`).getUTCDay() || 7;
+  const scheduledTimes = config.weekly ? config.weekly[day] || [] : config.times;
+  const time = scheduledTimes.findLast((time) => {
     const [h, m] = time.split(':').map(Number);
     const age = minute - (h * 60 + m);
     return age >= 0 && age < 5;
   });
   return time ? `${parts.year}-${parts.month}-${parts.day}@${time}[${config.timezone}]` : null;
+}
+
+export function mediaForSlot(config, slot, now = new Date()) {
+  if (!config.imagesEnabled && !config.vkImagesEnabled) return false;
+  if (!config.mediaTimes) return true;
+  const time =
+    slot?.match(/@(\d{2}:\d{2})\[/)?.[1] ||
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: config.timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).format(now);
+  return config.mediaTimes.includes(time);
 }
 
 export async function readState(config) {
@@ -110,12 +136,23 @@ export async function readState(config) {
     state = JSON.parse(await readFile(config.statePath, 'utf8'));
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
-    return { version: 1, chatId: config.chatId, entries: [], pauses: {}, cooldowns: {} };
+    return {
+      version: 1,
+      chatId: config.chatId,
+      vkGroupId: config.telegramEnabled === false ? config.vkGroupId || '' : undefined,
+      entries: [],
+      pauses: {},
+      cooldowns: {},
+      deliveryFailureStreaks: {},
+    };
   }
   if (
     state.version !== 1 ||
     !Array.isArray(state.entries) ||
     state.chatId !== config.chatId ||
+    (config.telegramEnabled === false &&
+      state.vkGroupId !== undefined &&
+      state.vkGroupId !== (config.vkGroupId || '')) ||
     (state.paused &&
       (typeof state.paused !== 'object' || typeof state.paused.reason !== 'string')) ||
     state.entries.some(
@@ -130,10 +167,14 @@ export async function readState(config) {
             (entry.image.vk &&
               (!['uploading', 'ready', 'failed'].includes(entry.image.vk.status) ||
                 (entry.image.vk.attachment !== undefined &&
-                  !/^photo-?\d+_\d+(?:_[A-Za-z0-9_-]+)?$/.test(entry.image.vk.attachment)))))) ||
+                  !/^(?:photo|doc)-?\d+_\d+(?:_[A-Za-z0-9_-]+)?$/.test(
+                    entry.image.vk.attachment,
+                  )))))) ||
         (entry.platform !== undefined && !['telegram', 'vk'].includes(entry.platform)) ||
         (entry.platform === 'vk' &&
-          (!Number.isInteger(entry.messageId) ||
+          entry.status !== 'empty' &&
+          !(entry.status === 'failed' && entry.reason === 'invalid_post') &&
+          ((config.telegramEnabled !== false && !Number.isInteger(entry.messageId)) ||
             typeof entry.vkText !== 'string' ||
             typeof entry.vkGroupId !== 'string')) ||
         ![
@@ -176,6 +217,13 @@ export async function readState(config) {
     throw new Error('Invalid cooldown');
   state.pauses ||= {};
   state.cooldowns ||= {};
+  state.deliveryFailureStreaks ||= {};
+  if (
+    Object.values(state.deliveryFailureStreaks).some(
+      (count) => !Number.isSafeInteger(count) || count < 0,
+    )
+  )
+    throw new Error('Invalid delivery failure streak');
   if (
     state.pendingGeneration &&
     (typeof state.pendingGeneration.id !== 'string' ||
@@ -196,13 +244,23 @@ export async function readState(config) {
 }
 
 async function saveState(config, state) {
-  const temporary = `${config.statePath}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
-    await rename(temporary, config.statePath);
-  } finally {
-    await rm(temporary, { force: true });
-  }
+  await writeAtomic(config.statePath, state);
+}
+
+// Positive jitter never shortens a server-provided minimum. This is publication
+// policy, not a claim about VK's undocumented limit reset time.
+export function publicationBackoffSeconds(error, failureStreak, random = Math.random) {
+  const base =
+    error instanceof VkRejection && error.code === 29
+      ? 3600
+      : error instanceof VkRejection && error.code === 9
+        ? 900
+        : [429, 6].includes(error.code)
+          ? 120
+          : 60;
+  const exponential = Math.min(21600, base * 2 ** Math.min(20, Math.max(0, failureStreak - 1)));
+  const jitter = Math.floor(exponential * 0.25 * random());
+  return Math.max(error.retryAfter || 0, Math.min(21600, exponential + jitter));
 }
 
 export class TelegramRejection extends Error {
@@ -283,33 +341,65 @@ export async function sendTelegramAnimation(config, entry, caption = '', fetchIm
 async function prepareImages(config, state, entry, { generateImage, uploadImage, notify }) {
   if (!entry.image) return;
   const image = entry.image;
-  const failure = async (target, reason, code = null) => {
+  const failure = async (target, reason, code = null, model = null, logId = null, error = null) => {
     const event = {
       platform: target,
       postId: entry.postId,
       status: 'failed',
       reason,
       errorCode: code,
+      attempts: (target === 'vk' ? image.vk?.attempts : image.failureAttempts) || 0,
+      model: model || (config.coverMode === 'video' ? config.videoModel : config.imageModel),
+      ...(logId ? { logId } : {}),
     };
+    event.logId ||= await logError(config, event, error);
     (entry.errors ||= []).push(event);
     await saveState(config, state);
     await alert(config, state, event, notify);
   };
   if (image.status === 'generating') {
     const cached = await cachedCover(config, entry.postId);
-    image.status = cached ? 'ready' : 'failed';
-    if (!cached) await failure('openrouter', 'interrupted_image_generation');
+    image.status = cached ? 'ready' : config.coverMode === 'video' ? 'pending' : 'failed';
+    if (!cached && config.coverMode !== 'video')
+      await failure('openrouter', 'interrupted_image_generation');
   }
   if (image.status === 'pending') {
     image.status = 'generating';
     await saveState(config, state);
     try {
-      Object.assign(image, await generateImage(config, entry));
+      Object.assign(
+        image,
+        await generateImage(
+          {
+            ...config,
+            onGenerationFailure: async (error, model) =>
+              failure('openrouter', error.reason, error.code, model, error.logId, error),
+          },
+          entry,
+        ),
+      );
       image.status = 'ready';
     } catch (error) {
+      if (error instanceof ImagePending) {
+        image.status = 'pending';
+        entry.status = 'retry_wait';
+        entry.retryAt = new Date(Date.now() + 30000).toISOString();
+        await saveState(config, state);
+        return false;
+      }
       if (!(error instanceof ImageFailure)) throw error;
-      image.status = 'failed';
-      await failure('openrouter', error.reason, error.code);
+      image.failureAttempts = (image.failureAttempts || 0) + 1;
+      const retry =
+        image.failureAttempts < (config.imageMaxAttempts || 1) &&
+        error.reason !== 'video_submission_uncertain' &&
+        error.reason !== 'invalid_video_receipt';
+      image.status = retry ? 'pending' : 'failed';
+      if (retry) {
+        entry.status = 'retry_wait';
+        entry.retryAt = new Date(Date.now() + 30000 * image.failureAttempts).toISOString();
+      }
+      await failure('openrouter', error.reason, error.code, null, null, error);
+      if (retry) return false;
     }
     await saveState(config, state);
   }
@@ -329,8 +419,28 @@ async function prepareImages(config, state, entry, { generateImage, uploadImage,
       image.vk.status = 'ready';
     } catch (error) {
       if (!(error instanceof ImageFailure)) throw error;
-      image.vk.status = 'failed';
-      await failure('vk', error.reason, error.code);
+      image.vk.attempts = (image.vk.attempts || 0) + 1;
+      const retry = image.vk.attempts < (config.imageMaxAttempts || 1);
+      const limited = [6, 9, 29].includes(error.code);
+      if (limited) {
+        const streak = (state.deliveryFailureStreaks.vk = Math.min(
+          21,
+          (state.deliveryFailureStreaks.vk || 0) + 1,
+        ));
+        const until = new Date(
+          Date.now() + publicationBackoffSeconds(new VkRejection(error.code), streak) * 1000,
+        ).toISOString();
+        state.cooldowns.vk = until;
+        entry.status = 'retry_wait';
+        entry.retryAt = until;
+      }
+      image.vk.status = retry ? 'uploading' : 'failed';
+      if (retry && !limited) {
+        entry.status = 'retry_wait';
+        entry.retryAt = new Date(Date.now() + 30000 * image.vk.attempts).toISOString();
+      }
+      await failure('vk', error.reason, error.code, null, null, error);
+      if (retry || limited) return false;
     }
     await saveState(config, state);
   }
@@ -387,6 +497,10 @@ export async function sendVk(config, entry, fetchImpl = fetch) {
 }
 
 async function alert(config, state, event, notify) {
+  if (!event.logId) {
+    event.logId = await logError(config, event);
+    await saveState(config, state);
+  }
   if (!config.alertChatId || (event.alertStatus && event.alertStatus !== 'retry_wait')) return;
   if (event.alertStatus === 'retry_wait' && Date.parse(event.alertRetryAt) > Date.now()) return;
   // Save before notification I/O to avoid repeated alerts on lost responses/restarts.
@@ -395,15 +509,23 @@ async function alert(config, state, event, notify) {
   delete event.alertRetryAt;
   await saveState(config, state);
   const message =
-    `<b>Сбой автопостера</b>\nПлощадка: ${escapeHtml(event.platform || 'telegram')}\n` +
+    `<b>Сбой автопостера</b>\nПроект: ${escapeHtml(config.projectId || 'legacy')}\nПлощадка: ${escapeHtml(event.platform || 'telegram')}\n` +
     `Получатель: ${escapeHtml(event.platform === 'vk' ? `club${config.vkGroupId}` : config.chatId)}\n` +
     `Статус: ${escapeHtml(event.status || 'paused')}\n` +
+    (event.model ? `Модель: ${escapeHtml(event.model)}\n` : '') +
     `Причина: ${escapeHtml(event.reason || 'delivery_failure')}\n` +
+    (event.postingContinues ? 'Публикации продолжаются.\n' : '') +
     `Пост: ${escapeHtml(String(event.postId || '—').slice(0, 120))}\n` +
     `Код: ${event.errorCode || '—'}; попыток: ${event.attempts || 0}`;
   try {
-    await notify({ ...config, chatId: config.alertChatId }, message);
-    event.alertStatus = 'sent';
+    const result = await sendNotification(config, notify, message, (error) =>
+      publicationBackoffSeconds(error, event.alertAttempts),
+    );
+    if (result.deferredUntil) {
+      event.alertStatus = 'retry_wait';
+      event.alertAttempts--;
+      event.alertRetryAt = new Date(result.deferredUntil).toISOString();
+    } else event.alertStatus = 'sent';
   } catch (error) {
     if (
       error instanceof TelegramRejection &&
@@ -412,13 +534,21 @@ async function alert(config, state, event, notify) {
     ) {
       event.alertStatus = 'retry_wait';
       event.alertRetryAt = new Date(
-        Date.now() + Math.max(error.retryAfter, 30 * 2 ** (event.alertAttempts - 1)) * 1000,
+        Date.now() + publicationBackoffSeconds(error, event.alertAttempts) * 1000,
       ).toISOString();
     } else {
       event.alertStatus = 'failed';
     }
-    console.error(
-      'Owner notification failed; inspect bot state. Only confirmed temporary rejections can retry.',
+    await logError(
+      config,
+      {
+        platform: 'telegram',
+        reason: 'owner_notification_failed',
+        status: event.alertStatus,
+        errorCode: error.code,
+        attempts: event.alertAttempts,
+      },
+      error,
     );
   }
   await saveState(config, state);
@@ -431,24 +561,49 @@ async function generateForSlot(config, state, slot, now, generate, notify) {
     attempts: 0,
     errors: [],
   });
-  const limitReached = job.attempts >= config.maxAttempts;
+  const models = config.openrouterModels?.length
+    ? config.openrouterModels
+    : [config.openrouterModel || DEFAULT_MODEL];
+  const limit = models.length > 1 ? models.length : config.maxAttempts;
+  const limitReached = job.attempts >= limit;
   job.status = 'generating';
   if (!limitReached) job.attempts++;
   await saveState(config, state);
+  const model = models[Math.min(job.attempts - 1, models.length - 1)];
+  job.model = model;
   const started = Date.now();
   let post;
   let failure;
   if (limitReached) failure = new GenerationFailure('interrupted_generation_limit');
   else {
     try {
-      post = await generate(config, {
-        id: job.id,
-        history: state.entries
-          .filter((entry) => entry.generation)
-          .map((entry) => entry.generation.title),
-        feedback: job.reason,
-        excludeUrls: state.entries.slice(-28).flatMap((entry) => entry.generation?.urls || []),
-      });
+      post = await generate(
+        { ...config, openrouterModel: model, openrouterModels: [model] },
+        {
+          id: job.id,
+          slot: job.slot,
+          now,
+          editorialHistory: state.entries
+            .filter(
+              (entry) =>
+                entry.platform === 'vk' && entry.status === 'sent' && entry.generation?.editorial,
+            )
+            .slice(-60),
+          history: state.entries
+            .filter((entry) => entry.generation)
+            .map((entry) => entry.generation.title),
+          historyPosts: state.entries
+            .filter((entry) => entry.vkText && entry.status === 'sent')
+            .slice(-4)
+            .map((entry) => entry.vkText.slice(0, 1500)),
+          excludeQuoteIds: state.entries
+            .slice(-20)
+            .map((entry) => entry.generation?.quoteId)
+            .filter(Boolean),
+          feedback: job.reason,
+          excludeUrls: state.entries.slice(-28).flatMap((entry) => entry.generation?.urls || []),
+        },
+      );
     } catch (error) {
       if (!(error instanceof GenerationFailure)) throw error;
       failure = error;
@@ -459,17 +614,19 @@ async function generateForSlot(config, state, slot, now, generate, notify) {
     platform: 'openrouter',
     postId: job.id,
     reason: failure.reason,
+    model,
     errorCode: failure.code,
     attempts: job.attempts,
     status: 'retry_wait',
   };
+  event.logId = failure.logId || (await logError(config, event, failure));
   job.reason = failure.reason;
   job.errors.push(event);
-  if (failure.kind === 'configuration') {
+  if (failure.kind === 'configuration' && (models.length <= 1 || sharedProviderFailure(failure))) {
     job.status = 'failed';
     event.status = 'paused';
     state.pauses.openrouter = event;
-  } else if (job.attempts >= config.maxAttempts) {
+  } else if (job.attempts >= limit) {
     event.status = 'exhausted';
     state.entries.push({
       slot: job.slot,
@@ -517,6 +674,7 @@ export async function publish(
   try {
     const state = await readState(config);
     if (
+      config.telegramEnabled !== false &&
       (!/^\d+:[A-Za-z0-9_-]+$/.test(config.token) || !config.chatId.trim()) &&
       !state.pauses.telegram
     ) {
@@ -561,15 +719,18 @@ export async function publish(
     );
     const ready = (entry) =>
       available(entry.platform || 'telegram') && !(Date.parse(entry.retryAt) > now.getTime());
-    const telegramPending = pending.find((entry) => entry.platform !== 'vk');
-    let entry = telegramPending && ready(telegramPending) ? telegramPending : null;
+    const primaryPlatform = config.telegramEnabled === false ? 'vk' : 'telegram';
+    const primaryPending = pending.find(
+      (entry) => (entry.platform || 'telegram') === primaryPlatform,
+    );
+    let entry = primaryPending && ready(primaryPending) ? primaryPending : null;
     let sourceFailure = null;
     const useLlm = config.postSource === 'openrouter' && provider === nextQueuedPost;
     const job = useLlm ? state.pendingGeneration : null;
     const sourceAvailable = useLlm
       ? available('openrouter') && (!job || !(Date.parse(job.retryAt) > now.getTime()))
       : !state.pauses.queue;
-    if (!entry && !telegramPending && available('telegram') && sourceAvailable) {
+    if (!entry && !primaryPending && available(primaryPlatform) && sourceAvailable) {
       const slot = job?.slot || (manual ? `manual:${randomUUID()}` : dueSlot(config, now));
       if (slot && !state.entries.some((entry) => entry.slot === slot)) {
         let post;
@@ -599,10 +760,14 @@ export async function publish(
         if ((useLlm && post) || (!useLlm && !state.pauses.queue)) {
           entry = {
             slot,
-            status: post ? (useLlm || config.imagesEnabled ? 'retry_wait' : 'sending') : 'empty',
+            status: post
+              ? useLlm || mediaForSlot(config, slot, now)
+                ? 'retry_wait'
+                : 'sending'
+              : 'empty',
             createdAt: now.toISOString(),
             attempts: 0,
-            platform: 'telegram',
+            platform: primaryPlatform,
           };
           if (post) {
             entry.postId = post.id;
@@ -615,8 +780,9 @@ export async function publish(
             }
             try {
               entry.html = formatPost(post);
-              if (config.imagesEnabled) {
-                if (visibleTextLength(entry.html) > 1024) throw new Error('Photo caption too long');
+              if (mediaForSlot(config, slot, now)) {
+                if (config.imagesEnabled && visibleTextLength(entry.html) > 1024)
+                  throw new Error('Photo caption too long');
                 entry.retryAt = now.toISOString();
                 entry.image = { status: 'pending', text: formatVkPost(post) };
               }
@@ -678,7 +844,16 @@ export async function publish(
           platform: 'vk',
           retryAt: state.cooldowns.vk,
         };
-      await prepareImages(config, state, entry, { generateImage, uploadImage, notify });
+      if (
+        (await prepareImages(config, state, entry, { generateImage, uploadImage, notify })) ===
+        false
+      )
+        return {
+          status: 'retry_wait',
+          platform: 'media',
+          postId: entry.postId,
+          retryAt: entry.retryAt,
+        };
       if (entry.platform !== 'vk' && !available('telegram'))
         return {
           status: 'retry_wait',
@@ -695,12 +870,14 @@ export async function publish(
         if (entry.platform === 'vk') {
           entry.vkPostId = await sendVK(config, entry);
           entry.vkSentAt = new Date().toISOString();
+          state.deliveryFailureStreaks.vk = 0;
         } else {
           entry.messageId =
             entry.image?.status === 'ready' && !entry.image.telegram
               ? await sendPhoto(config, entry, entry.html)
               : await send(config, entry.html);
           entry.telegramSentAt = new Date().toISOString();
+          state.deliveryFailureStreaks.telegram = 0;
           if (entry.vkText) {
             entry.telegramAttempts = entry.attempts;
             entry.platform = 'vk';
@@ -735,27 +912,32 @@ export async function publish(
           entry.reason = [429, 6, 9, 29].includes(error.code)
             ? 'rate_limit'
             : `${entry.platform || 'telegram'}_unavailable`;
+          const platform = entry.platform || 'telegram';
+          const streak = (state.deliveryFailureStreaks[platform] = Math.min(
+            21,
+            (state.deliveryFailureStreaks[platform] || 0) + 1,
+          ));
+          const delay = publicationBackoffSeconds(error, streak);
+          const retryAt = new Date(
+            now.getTime() + (Date.now() - started) + delay * 1000,
+          ).toISOString();
           if (entry.attempts >= config.maxAttempts) {
             entry.status = 'exhausted';
+            delete entry.retryAt;
           } else {
-            const delay = Math.max(
-              error.retryAfter,
-              10 * 2 ** (entry.attempts - 1) + Math.floor(Math.random() * 5),
-            );
             entry.status = 'retry_wait';
-            entry.retryAt = new Date(
-              now.getTime() + (Date.now() - started) + delay * 1000,
-            ).toISOString();
+            entry.retryAt = retryAt;
           }
-          // Apply rate limits to the whole affected service, including later posts.
-          const delay = Math.max(error.retryAfter, 10 * 2 ** (entry.attempts - 1));
-          state.cooldowns[entry.platform || 'telegram'] =
-            entry.retryAt ||
-            new Date(now.getTime() + (Date.now() - started) + delay * 1000).toISOString();
+          // Later posts and manual publication obey the same persisted cooldown,
+          // including after this post has exhausted its attempt budget.
+          state.cooldowns[platform] = retryAt;
         } else {
           entry.status = 'failed';
           entry.reason = `${entry.platform || 'telegram'}_rejected_post`;
         }
+        entry.logId = await logError(config, entry, error);
+        if (state.pauses[entry.platform || 'telegram']?.postId === entry.postId)
+          state.pauses[entry.platform || 'telegram'].logId = entry.logId;
       }
       await saveState(config, state);
       if (entry.status === 'rejected') {
@@ -776,8 +958,11 @@ export async function publish(
           postId: entry.postId,
           errorCode: entry.errorCode,
           attempts: entry.attempts,
+          retryAt: entry.retryAt,
+          logId: entry.logId,
         };
         (entry.errors ||= []).push(event);
+        await saveState(config, state);
         await alert(config, state, event, notify);
       }
       if (state.pauses[entry.platform || 'telegram'])
@@ -823,6 +1008,7 @@ export async function resume(config, platform = null) {
     for (const target of platform ? [platform] : ['telegram', 'vk', 'queue', 'openrouter']) {
       delete state.pauses[target];
       delete state.cooldowns[target];
+      delete state.deliveryFailureStreaks[target];
     }
     if ((!platform || platform === 'openrouter') && state.pendingGeneration?.status === 'failed') {
       state.pendingGeneration.status = 'retry_wait';
@@ -843,8 +1029,14 @@ export async function resume(config, platform = null) {
   }
 }
 
+const fallbackNotificationAt = new Map();
 // A separate incident file remains usable even if delivery history is corrupt.
-export async function reportRuntimeFailure(config, notify = sendTelegram, failureEvent = null) {
+export async function reportRuntimeFailure(
+  config,
+  notify = sendTelegram,
+  failureEvent = null,
+  error = null,
+) {
   const incidentConfig = { ...config, statePath: `${config.statePath}.errors.json` };
   const event = failureEvent || {
     reason: 'runtime_or_state_failure',
@@ -863,18 +1055,38 @@ export async function reportRuntimeFailure(config, notify = sendTelegram, failur
       if (error.code !== 'ENOENT') throw error;
       incident = { event };
     }
+    if (
+      !incident.event ||
+      ['reason', 'platform', 'errorCode', 'postId'].some(
+        (key) => incident.event[key] !== event[key],
+      )
+    )
+      incident = { event };
+    if (!incident.event.logId) incident.event.logId = await logError(config, incident.event, error);
+    await writeAtomic(incidentConfig.statePath, incident);
     await alert(incidentConfig, incident, incident.event, notify);
+    fallbackNotificationAt.delete(config.statePath);
   } catch {
-    // If the disk itself is unavailable, the daemon limits this fallback to once
-    // per process until a successful scheduler check.
-    if (config.alertChatId) {
+    await logError(config, event, error);
+    // A ten-minute process-local bound also applies when no incident file can be written.
+    const last = fallbackNotificationAt.get(config.statePath);
+    if (config.alertChatId && (last === undefined || Date.now() - last >= 600000)) {
+      fallbackNotificationAt.set(config.statePath, Date.now());
+      if (fallbackNotificationAt.size > 1000)
+        fallbackNotificationAt.delete(fallbackNotificationAt.keys().next().value);
       try {
         await notify(
           { ...config, chatId: config.alertChatId },
-          '<b>Сбой автопостера</b>\nНе удалось прочитать или сохранить состояние. Публикации остановлены; проверьте журнал Docker.',
+          failureEvent?.postingContinues
+            ? '<b>Сбой аналитики</b>\nНе удалось сохранить метрики или расходы. Публикации продолжаются; проверьте журнал Docker.'
+            : '<b>Сбой автопостера</b>\nНе удалось прочитать или сохранить состояние. Публикации остановлены; проверьте журнал Docker.',
         );
-      } catch {
-        console.error('Runtime failure notification could not be delivered.');
+      } catch (notificationError) {
+        await logError(
+          config,
+          { platform: 'telegram', reason: 'runtime_notification_failed' },
+          notificationError,
+        );
       }
     }
   } finally {
@@ -887,6 +1099,7 @@ export async function clearRuntimeFailure(config) {
   if (!release) return;
   try {
     await rm(`${config.statePath}.errors.json`, { force: true });
+    fallbackNotificationAt.delete(config.statePath);
   } finally {
     await release();
   }

@@ -1,3 +1,4 @@
+import { recordGenerationCost } from './costs.mjs';
 import { readFile, mkdir, writeFile, rename, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -12,6 +13,11 @@ export class ImageFailure extends Error {
     super(`Image operation failed: ${reason}`);
     this.reason = reason;
     this.code = code;
+  }
+}
+export class ImagePending extends ImageFailure {
+  constructor() {
+    super('video_pending');
   }
 }
 export function coverPath(config, id) {
@@ -73,7 +79,12 @@ export async function generateCover(
   const cached = await cachedCover(config, entry.postId);
   if (cached) return cached;
   if (!config.openrouterKey) throw new ImageFailure('missing_image_api_key');
-  const direction = await readFile(new URL('./prompts/cover.md', import.meta.url), 'utf8');
+  if (config.coverMode === 'video') {
+    const { generateVideoCover } = await import('./videos.mjs');
+    return generateVideoCover(config, entry, { fetchImpl });
+  }
+  const direction =
+    config.coverPrompt || (await readFile(new URL('./prompts/cover.md', import.meta.url), 'utf8'));
   const model = config.imageModel || DEFAULT_IMAGE_MODEL;
   let body;
   try {
@@ -95,6 +106,14 @@ export async function generateCover(
       }),
     });
     body = await response.json();
+    await recordGenerationCost(config, {
+      id: body?.id,
+      kind: 'image',
+      model,
+      usd: body?.usage?.cost,
+      postId: entry.postId,
+      outcome: response.ok && !body?.error ? 'completed' : 'rejected',
+    });
     if (!response.ok || body.error)
       throw new ImageFailure('image_api_rejected', Number(body.error?.code || response.status));
     if (
@@ -105,6 +124,13 @@ export async function generateCover(
       throw new ImageFailure('invalid_image_response');
   } catch (error) {
     if (error instanceof ImageFailure) throw error;
+    await recordGenerationCost(config, {
+      kind: 'image',
+      model,
+      usd: null,
+      postId: entry.postId,
+      outcome: 'network_unknown',
+    });
     throw new ImageFailure('image_network_or_response_failure');
   }
   const path = coverPath(config, entry.postId);
@@ -191,7 +217,7 @@ export async function uploadVkCover(config, entry, fetchImpl = fetch, transfer =
   } catch {
     throw new ImageFailure('vk_document_upload_failed');
   }
-  const saved = await method('docs.save', { file: uploaded.file, title: 'Обложка дайджеста' });
+  const saved = await method('docs.save', { file: uploaded.file, title: 'Обложка публикации' });
   const doc = saved.doc;
   if (
     !Number.isInteger(doc?.owner_id) ||

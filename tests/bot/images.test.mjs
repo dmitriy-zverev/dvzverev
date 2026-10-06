@@ -122,11 +122,11 @@ test('captioned photo retry and VK retry reuse the image without sending separat
     },
     notify: async () => {},
   };
-  assert.equal((await publish(config, options)).status, 'retry_wait');
-  await publish(config, { ...options, manual: false, now: new Date(Date.now() + 60000) });
+  const first = await publish(config, options);
+  assert.equal(first.status, 'retry_wait');
+  const second = await publish(config, { ...options, manual: false, now: new Date(first.retryAt) });
   assert.equal(
-    (await publish(config, { ...options, manual: false, now: new Date(Date.now() + 120000) }))
-      .status,
+    (await publish(config, { ...options, manual: false, now: new Date(second.retryAt) })).status,
     'sent',
   );
   assert.deepEqual(
@@ -224,9 +224,12 @@ test('captioned photo respects rate limits and retries only after confirmed reje
     uploadImage: async () => 'photo-42_1',
     notify: async () => {},
   };
-  assert.equal((await publish(config, options)).status, 'retry_wait');
+  const first = await publish(config, options);
+  assert.equal(first.status, 'retry_wait');
   assert.equal(texts, 0);
-  await publish(config, { ...options, now: new Date(Date.now() + 120000) });
+  await publish(config, { ...options, now: new Date(Date.parse(first.retryAt) - 1) });
+  assert.equal(photos, 1);
+  await publish(config, { ...options, now: new Date(first.retryAt) });
   assert.equal(texts, 0);
   assert.equal(photos, 2);
 });

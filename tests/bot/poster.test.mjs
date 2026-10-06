@@ -23,6 +23,7 @@ import {
   VkRejection,
   reportRuntimeFailure,
   clearRuntimeFailure,
+  publicationBackoffSeconds,
 } from '../../bot/core.mjs';
 
 const post = {
@@ -935,6 +936,8 @@ test('notification rate limit retries safely without resending posts or blocking
   const state = await readState(config);
   state.entries[0].alertRetryAt = '2000-01-01T00:00:00Z';
   await writeFile(config.statePath, JSON.stringify(state));
+  const later = Date.now() + 180000;
+  t.mock.method(Date, 'now', () => later);
   await publish(config, { notify });
   assert.equal(calls, 2);
   assert.equal((await readState(config)).entries[0].alertStatus, 'sent');
@@ -961,4 +964,156 @@ test('legacy global VK pause migrates without blocking Telegram', async (t) => {
   const state = await readState(config);
   assert.ok(state.pauses.vk);
   assert.equal(state.pauses.telegram, undefined);
+});
+
+test('VK-only project sends no Telegram post and reloads its receipt', async (t) => {
+  const config = {
+    ...(await setup(t)),
+    telegramEnabled: false,
+    chatId: '',
+    vkEnabled: true,
+    vkToken: 'community-secret',
+    vkGroupId: '194579254',
+  };
+  let telegramCalls = 0;
+  const result = await publish(config, {
+    manual: true,
+    send: async () => {
+      telegramCalls++;
+    },
+    sendVK: async (_config, entry) => {
+      assert.match(entry.vkText, /Code/);
+      return 42;
+    },
+  });
+  assert.equal(result.status, 'sent');
+  assert.equal(result.platform, 'vk');
+  assert.equal(telegramCalls, 0);
+  const state = await readState(config);
+  assert.equal(state.entries[0].vkPostId, 42);
+  assert.equal(state.pauses.telegram, undefined);
+  const restart = await publish(config, {
+    manual: true,
+    sendVK: async () => {
+      throw new Error('Duplicate');
+    },
+  });
+  assert.equal(restart.status, 'empty');
+});
+
+test('VK-only temporary failure retries the saved post without generating another', async (t) => {
+  const config = {
+    ...(await setup(t)),
+    telegramEnabled: false,
+    chatId: '',
+    vkEnabled: true,
+    vkToken: 'community-secret',
+    vkGroupId: '194579254',
+    alertChatId: '1913596973',
+  };
+  let notices = 0;
+  const failed = await publish(config, {
+    manual: true,
+    notify: async () => {
+      notices++;
+    },
+    sendVK: async () => {
+      throw new VkRejection(6);
+    },
+  });
+  assert.equal(failed.status, 'retry_wait');
+  assert.equal(notices, 1);
+  const sent = await publish(config, {
+    manual: true,
+    now: new Date(failed.retryAt),
+    provider: async () => {
+      throw new Error('Do not generate');
+    },
+    sendVK: async () => 45,
+    notify: async () => {},
+  });
+  assert.equal(sent.status, 'sent');
+  assert.equal((await readState(config)).entries.length, 1);
+});
+
+test('GIF document attachments survive state reload', async (t) => {
+  const config = await setup(t);
+  await publish(config, { manual: true, send: async () => 9 });
+  const state = await readState(config);
+  state.entries[0].image = {
+    status: 'ready',
+    text: 'Cover',
+    vk: { status: 'ready', attachment: 'doc-242034586_123456' },
+  };
+  await writeFile(config.statePath, JSON.stringify(state));
+  assert.equal((await readState(config)).entries[0].image.vk.attachment, 'doc-242034586_123456');
+});
+
+test('publication backoff grows, adds positive jitter, caps and honors server minimum', () => {
+  assert.equal(
+    publicationBackoffSeconds(new TelegramRejection(503), 1, () => 0),
+    60,
+  );
+  assert.equal(
+    publicationBackoffSeconds(new TelegramRejection(503), 2, () => 0.5),
+    135,
+  );
+  assert.equal(
+    publicationBackoffSeconds(new TelegramRejection(429), 1, () => 0),
+    120,
+  );
+  assert.equal(
+    publicationBackoffSeconds(new VkRejection(6), 2, () => 0),
+    240,
+  );
+  assert.equal(
+    publicationBackoffSeconds(new VkRejection(9), 1, () => 0),
+    900,
+  );
+  assert.equal(
+    publicationBackoffSeconds(new VkRejection(29), 1, () => 0),
+    3600,
+  );
+  assert.equal(
+    publicationBackoffSeconds(new VkRejection(29), 21, () => 0.99),
+    21600,
+  );
+  assert.equal(
+    publicationBackoffSeconds(new TelegramRejection(429, 86400), 21, () => 0),
+    86400,
+  );
+});
+
+test('exhausted publication retains cooldown and failure streak across later posts', async (t) => {
+  const config = await setup(t, [post, { ...post, id: 'second' }]);
+  let now = new Date('2026-10-06T07:00:00Z');
+  let calls = 0;
+  const send = async () => {
+    calls++;
+    throw new TelegramRejection(429);
+  };
+  for (let i = 0; i < 3; i++) {
+    const result = await publish(config, { manual: true, now, send, notify: async () => {} });
+    assert.equal(result.status, i === 2 ? 'exhausted' : 'retry_wait');
+    const state = await readState(config);
+    assert.equal(state.deliveryFailureStreaks.telegram, i + 1);
+    now = new Date(state.cooldowns.telegram);
+  }
+  await publish(config, {
+    manual: true,
+    now: new Date(now.getTime() - 1),
+    send,
+    notify: async () => {},
+  });
+  assert.equal(calls, 3);
+  const next = await publish(config, { manual: true, now, send, notify: async () => {} });
+  assert.equal(next.postId, 'second');
+  assert.ok(Date.parse(next.retryAt) >= now.getTime() + 960000);
+  assert.equal((await readState(config)).deliveryFailureStreaks.telegram, 4);
+  await publish(config, {
+    now: new Date(next.retryAt),
+    send: async () => 99,
+    notify: async () => {},
+  });
+  assert.equal((await readState(config)).deliveryFailureStreaks.telegram, 0);
 });

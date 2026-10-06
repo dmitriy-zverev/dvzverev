@@ -1,3 +1,6 @@
+import { programmingText } from './programming.mjs';
+import { literaryText } from './literary-quotes.mjs';
+
 export const escapeHtml = (value) =>
   value
     .replaceAll('&', '&amp;')
@@ -10,6 +13,9 @@ export const visibleTextLength = (html) =>
   html.replace(/<[^>]*>/g, '').replace(/&(?:amp|lt|gt|quot);/g, 'x').length;
 
 export function formatPost(post) {
+  if (post?.kind === 'lifestyle') return escapeHtml(lifestyleText(post));
+  if (post?.kind === 'programming') return escapeHtml(programmingText(post));
+  if (post?.kind === 'literary') return escapeHtml(literaryText(post));
   if (post?.kind === 'digest') return formatDigest(post, true);
   for (const field of ['id', 'title', 'summary', 'why', ...(post?.kind === 'tip' ? [] : ['url'])]) {
     if (typeof post?.[field] !== 'string' || !post[field].trim()) {
@@ -47,6 +53,9 @@ export function formatPost(post) {
 }
 
 export function formatVkPost(post) {
+  if (post?.kind === 'lifestyle') return lifestyleText(post);
+  if (post?.kind === 'programming') return programmingText(post);
+  if (post?.kind === 'literary') return literaryText(post);
   if (post?.kind === 'digest') return formatDigest(post, false);
   formatPost(post);
   return [
@@ -57,6 +66,13 @@ export function formatVkPost(post) {
     ...(post.action?.trim() ? [`Что попробовать: ${post.action}`] : []),
     ...(post.kind === 'tip' ? [] : [`Читать оригинал ↗ ${new URL(post.url).href}`]),
   ].join('\n\n');
+}
+
+export function lifestyleText(post) {
+  if (typeof post.id !== 'string' || !post.id || typeof post.text !== 'string' ||
+      !post.text.trim() || post.text.length > 3900 || /https?:\/\/|www\.|<[^>]+>|#[\p{L}\p{N}_]+/u.test(post.text))
+    throw new Error('Invalid lifestyle post');
+  return post.text.trim();
 }
 
 function formatDigest(post, html) {
