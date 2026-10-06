@@ -208,18 +208,21 @@ function renderIncidentsSection(incidents) {
 }
 
 function renderLogin(message = '') {
+  app.className = 'cabinet cabinet--gate';
   app.innerHTML = `
     <section class="login" aria-labelledby="login-title">
+      <p class="login-eyebrow"><span aria-hidden="true">◈</span> Редакция</p>
       <h1 id="login-title">Редакционный кабинет</h1>
-      <p class="meta">Доступ только для владельца.</p>
-      ${message ? `<p class="error-banner" role="alert">${escapeText(message)}</p>` : ''}
-      <form id="login-form">
-        <label>
-          <span class="meta">Пароль</span><br />
+      <p class="login-lead">Доступ только для владельца.</p>
+      ${message ? `<p class="error-banner login-error" role="alert">${escapeText(message)}</p>` : ''}
+      <form id="login-form" class="login-form">
+        <label class="login-field">
+          <span class="login-field-label">Пароль</span>
           <input type="password" name="password" autocomplete="current-password" required />
         </label>
-        <button type="submit">Войти</button>
+        <button type="submit" class="login-submit">Войти</button>
       </form>
+      <p class="login-footer"><a class="login-site-link" href="/">← На сайт</a></p>
     </section>`;
   document.getElementById('login-form').addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -563,6 +566,7 @@ function renderOverview(data, incidents, errorMessage = '') {
   const incidentsPanel = tab === 'incidents' ? renderIncidentsSection(incidents) : '';
   const servicePanel = tab === 'service' ? renderServiceSection(data) : '';
 
+  app.className = 'cabinet';
   app.innerHTML = `
     ${renderSiteHeader(openCount, data)}
     ${errorMessage ? `<div class="error-banner" role="alert">${escapeText(errorMessage)}</div>` : ''}
