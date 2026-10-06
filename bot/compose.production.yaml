@@ -36,6 +36,7 @@ services:
       BOT_QUEUE_PATH: /app/content/posts.json
       BOT_STATE_PATH: /app/data/state.json
       BOT_LOG_DIR: /app/data/logs
+      BOT_CABINET_DB_PATH: /app/data/cabinet.sqlite
       NODE_USE_ENV_PROXY: '1'
     volumes:
       - ./content:/app/content:ro

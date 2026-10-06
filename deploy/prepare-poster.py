@@ -46,6 +46,19 @@ else:
             break
 if not any(line.startswith('BOT_REDIS_URL=') for line in lines):
     lines.append('BOT_REDIS_URL=redis://:' + quote(redis_password, safe='') + '@redis:6379')
+
+def set_env(key, value):
+    global lines
+    lines = [line for line in lines if not line.startswith(key + '=')]
+    lines.append(key + '=' + value)
+
+for key, value in {
+    'BOT_CABINET_DB_PATH': '/app/data/cabinet.sqlite',
+    'BOT_CABINET_SECURE_COOKIES': 'true',
+    'BOT_CABINET_ALLOWED_ORIGINS': 'https://www.dvzverev.ru,https://dvzverev.ru',
+}.items():
+    set_env(key, value)
+
 (output / '.env').write_text('\n'.join(lines) + '\n')
 os.chmod(output / '.env', 0o600)
 with tarfile.open(output / 'configuration.tar.gz', 'w:gz') as archive:
