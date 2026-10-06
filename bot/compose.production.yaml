@@ -36,7 +36,6 @@ services:
       BOT_QUEUE_PATH: /app/content/posts.json
       BOT_STATE_PATH: /app/data/state.json
       BOT_LOG_DIR: /app/data/logs
-      BOT_REDIS_URL: redis://:${BOT_REDIS_PASSWORD}@redis:6379
       NODE_USE_ENV_PROXY: '1'
     volumes:
       - ./content:/app/content:ro
@@ -75,7 +74,6 @@ services:
       BOT_CONFIG_PATH: /app/service.json
       BOT_CABINET_SECURE_COOKIES: 'true'
       BOT_CABINET_ALLOWED_ORIGINS: https://www.dvzverev.ru,https://dvzverev.ru
-      BOT_REDIS_URL: redis://:${BOT_REDIS_PASSWORD}@redis:6379
     volumes:
       - ./data:/app/data
       - ./service.json:/app/service.json:ro
