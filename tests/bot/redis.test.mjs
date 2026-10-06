@@ -2,15 +2,17 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
   clearWeek,
+  claimDueTasks,
   createAdHocTask,
   currentWeekStartYmd,
   ensureCurrentWeek,
   markTaskStatus,
   materializeWeek,
+  reconcileDueQueue,
   updateTaskEditorial,
 } from '../../bot/redis/schedule.mjs';
 import { encodeTask, decodeTask } from '../../bot/redis/codec.mjs';
-import { taskKey } from '../../bot/redis/keys.mjs';
+import { taskKey, DUE_ZSET } from '../../bot/redis/keys.mjs';
 import service from '../../bot/service.json' with { type: 'json' };
 
 function createMockRedis() {
@@ -147,7 +149,9 @@ describe('redis schedule', () => {
     const weekStart = currentWeekStartYmd(new Date('2026-10-08T12:00:00Z'));
     const { inserted } = await materializeWeek(redis, service, weekStart, new Date('2026-10-08T12:00:00Z'));
     assert.ok(inserted > 0);
-    assert.equal(await redis.zCard('schedule:due'), inserted);
+    const dueCount = await redis.zCard('schedule:due');
+    assert.ok(dueCount > 0);
+    assert.ok(dueCount <= inserted);
     await clearWeek(redis, weekStart);
   });
 
@@ -209,5 +213,73 @@ describe('redis schedule', () => {
     const { inserted } = await ensureCurrentWeek(redis, service, { now: new Date('2026-10-09T12:00:00Z') });
     assert.equal(inserted, 0);
     assert.equal((await redis.sMembers(`schedule:w:${weekStart}`)).length, beforeCount);
+  });
+
+  test('reconcileDueQueue drops missed entries from due zset', async () => {
+    const redis = createMockRedis();
+    const missed = {
+      id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      projectId: 'things',
+      destinationId: 'things-vk',
+      slotUtc: '2026-10-05T15:00:00.000Z',
+      slotKey: '2026-10-05@18:00[Europe/Moscow]',
+      topic: null,
+      brief: null,
+      version: 1,
+      status: 'missed',
+      publicationKind: 'video',
+      expectedMedia: 'video',
+      adHoc: false,
+      weekStart: '2026-10-05',
+    };
+    await redis.set(taskKey(missed.id), encodeTask(missed));
+    await redis.zAdd(DUE_ZSET, { score: Date.parse(missed.slotUtc), value: missed.id });
+    const { pruned } = await reconcileDueQueue(redis, new Date('2026-10-06T16:00:00.000Z'));
+    assert.equal(pruned, 1);
+    assert.equal(await redis.zCard(DUE_ZSET), 0);
+  });
+
+  test('claimDueTasks finds planned slot after missed backlog', async () => {
+    const redis = createMockRedis();
+    const now = new Date('2026-10-06T15:02:00.000Z');
+    for (let index = 0; index < 8; index += 1) {
+      const missed = {
+        id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        projectId: 'things',
+        destinationId: 'things-vk',
+        slotUtc: `2026-10-0${5 + (index % 2)}T${7 + index}:00:00.000Z`,
+        slotKey: `k-${index}`,
+        topic: null,
+        brief: null,
+        version: 1,
+        status: 'missed',
+        publicationKind: 'video',
+        expectedMedia: 'video',
+        adHoc: false,
+        weekStart: '2026-10-05',
+      };
+      await redis.set(taskKey(missed.id), encodeTask(missed));
+      await redis.zAdd(DUE_ZSET, { score: Date.parse(missed.slotUtc), value: missed.id });
+    }
+    const planned = {
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      projectId: 'dark-academia',
+      destinationId: 'connaissance-vk',
+      slotUtc: '2026-10-06T15:00:00.000Z',
+      slotKey: '2026-10-06@18:00[Europe/Moscow]',
+      topic: 't',
+      brief: 'b',
+      version: 1,
+      status: 'planned',
+      publicationKind: 'video',
+      expectedMedia: 'video',
+      adHoc: false,
+      weekStart: '2026-10-05',
+    };
+    await redis.set(taskKey(planned.id), encodeTask(planned));
+    await redis.zAdd(DUE_ZSET, { score: Date.parse(planned.slotUtc), value: planned.id });
+    const claimed = await claimDueTasks(redis, now, { projectId: 'dark-academia', limit: 1 });
+    assert.equal(claimed.length, 1);
+    assert.equal(claimed[0].id, planned.id);
   });
 });

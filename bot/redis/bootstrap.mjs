@@ -1,5 +1,5 @@
 import { redisConfigured, getRedis } from './client.mjs';
-import { currentWeekStartYmd, ensureCurrentWeek, weekUtcBounds } from './schedule.mjs';
+import { currentWeekStartYmd, ensureCurrentWeek, reconcileDueQueue, weekUtcBounds } from './schedule.mjs';
 
 export { redisConfigured, getRedis };
 
@@ -19,7 +19,9 @@ export async function bootstrapRedisSchedule(service, { db = null, env = process
       )
       .all(new Date(startMs).toISOString(), new Date(endMs).toISOString());
   }
-  return ensureCurrentWeek(redis, service, { now, seedRows });
+  const result = await ensureCurrentWeek(redis, service, { now, seedRows });
+  await reconcileDueQueue(redis, now);
+  return result;
 }
 
 export async function runRedisScheduleTick(service, options = {}) {

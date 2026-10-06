@@ -24,8 +24,41 @@ import {
 } from '../cabinet/time.mjs';
 
 const SLOT_WINDOW_MS = 5 * 60 * 1000;
+/** Planned tasks stay claimable after the 5-minute on-time window (deploy/outage recovery). */
+const SLOT_CATCHUP_MS = 12 * 60 * 60 * 1000;
 const MIN_ADHOC_GAP_MS = 60 * 60 * 1000;
 const LOCK_TTL_SEC = 900;
+const DUE_SCAN_BATCH = 48;
+
+export { SLOT_WINDOW_MS, SLOT_CATCHUP_MS };
+
+function taskAgeMs(task, nowMs) {
+  return nowMs - slotUtcMs(task.slotUtc);
+}
+
+function isClaimablePlannedTask(task, nowMs) {
+  if (task.status !== 'planned') return false;
+  const ageMs = taskAgeMs(task, nowMs);
+  if (ageMs < 0) return false;
+  return ageMs < SLOT_CATCHUP_MS;
+}
+
+async function persistTask(redis, task) {
+  await redis.set(taskKey(task.id), encodeTask(task));
+}
+
+async function removeFromDue(redis, taskId) {
+  await redis.zRem(DUE_ZSET, taskId);
+}
+
+async function syncDueMembership(redis, task) {
+  if (task.status === 'planned') {
+    const ms = slotUtcMs(task.slotUtc);
+    await redis.zAdd(DUE_ZSET, { score: ms, value: task.id });
+  } else {
+    await removeFromDue(redis, task.id);
+  }
+}
 
 export function currentWeekStartYmd(now = new Date(), timeZone = OPERATOR_TIMEZONE) {
   const parts = zonedParts(now, timeZone);
@@ -104,7 +137,6 @@ async function removeTask(redis, task) {
 
 async function saveTask(redis, task, { reserveOccupancy = false } = {}) {
   const ms = slotUtcMs(task.slotUtc);
-  const encoded = encodeTask(task);
   const occ = occupancyKey(task.projectId, task.destinationId, ms);
   if (reserveOccupancy) {
     const reserved = await redis.set(occ, task.id, { NX: true });
@@ -113,13 +145,13 @@ async function saveTask(redis, task, { reserveOccupancy = false } = {}) {
     await redis.set(occ, task.id);
   }
   try {
-    await redis.set(taskKey(task.id), encoded);
-    await redis.zAdd(DUE_ZSET, { score: ms, value: task.id });
+    await persistTask(redis, task);
+    await syncDueMembership(redis, task);
     await redis.sAdd(weekIndexKey(task.weekStart), task.id);
     return true;
   } catch (error) {
     await redis.del(taskKey(task.id));
-    await redis.zRem(DUE_ZSET, task.id);
+    await removeFromDue(redis, task.id);
     await redis.sRem(weekIndexKey(task.weekStart), task.id);
     await redis.del(occ);
     throw error;
@@ -340,30 +372,68 @@ export async function discardTask(redis, taskId) {
   if (task) await removeTask(redis, task);
 }
 
-export async function claimDueTasks(redis, now = new Date(), { projectId = null, limit = 4 } = {}) {
+export async function reconcileDueQueue(redis, now = new Date()) {
   const nowMs = now.getTime();
-  const ids = await redis.zRangeByScore(DUE_ZSET, 0, nowMs, { LIMIT: { offset: 0, count: limit * 3 } });
+  let offset = 0;
+  let pruned = 0;
+  while (true) {
+    const ids = await redis.zRangeByScore(DUE_ZSET, 0, nowMs, {
+      LIMIT: { offset, count: DUE_SCAN_BATCH },
+    });
+    if (!ids.length) break;
+    for (const id of ids) {
+      const task = await getTask(redis, id);
+      if (!task) {
+        await removeFromDue(redis, id);
+        pruned += 1;
+        continue;
+      }
+      if (task.status !== 'planned') {
+        await removeFromDue(redis, id);
+        pruned += 1;
+        continue;
+      }
+      const ageMs = taskAgeMs(task, nowMs);
+      if (ageMs >= SLOT_CATCHUP_MS) {
+        task.status = 'missed';
+        await persistTask(redis, task);
+        await removeFromDue(redis, id);
+        pruned += 1;
+      }
+    }
+    if (ids.length < DUE_SCAN_BATCH) break;
+    offset += DUE_SCAN_BATCH;
+  }
+  return { pruned };
+}
+
+export async function claimDueTasks(redis, now = new Date(), { projectId = null, limit = 4 } = {}) {
+  await reconcileDueQueue(redis, now);
+  const nowMs = now.getTime();
   const claimed = [];
-  for (const id of ids) {
-    if (claimed.length >= limit) break;
-    const locked = await redis.set(lockKey(id), '1', { NX: true, EX: LOCK_TTL_SEC });
-    if (!locked) continue;
-    const task = await getTask(redis, id);
-    if (!task || task.status !== 'planned') {
-      await redis.del(lockKey(id));
-      continue;
+  let offset = 0;
+  while (claimed.length < limit) {
+    const ids = await redis.zRangeByScore(DUE_ZSET, 0, nowMs, {
+      LIMIT: { offset, count: DUE_SCAN_BATCH },
+    });
+    if (!ids.length) break;
+    for (const id of ids) {
+      if (claimed.length >= limit) break;
+      const locked = await redis.set(lockKey(id), '1', { NX: true, EX: LOCK_TTL_SEC });
+      if (!locked) continue;
+      const task = await getTask(redis, id);
+      if (!task || !isClaimablePlannedTask(task, nowMs)) {
+        await redis.del(lockKey(id));
+        continue;
+      }
+      if (projectId && task.projectId !== projectId) {
+        await redis.del(lockKey(id));
+        continue;
+      }
+      claimed.push(task);
     }
-    if (projectId && task.projectId !== projectId) {
-      await redis.del(lockKey(id));
-      continue;
-    }
-    const slotMs = slotUtcMs(task.slotUtc);
-    const ageMs = nowMs - slotMs;
-    if (ageMs < 0 || ageMs >= SLOT_WINDOW_MS) {
-      await redis.del(lockKey(id));
-      continue;
-    }
-    claimed.push(task);
+    if (ids.length < DUE_SCAN_BATCH) break;
+    offset += DUE_SCAN_BATCH;
   }
   return claimed;
 }
@@ -376,9 +446,7 @@ export async function markTaskStatus(redis, taskId, status) {
   const task = await getTask(redis, taskId);
   if (!task) return null;
   task.status = status;
-  await redis.set(taskKey(task.id), encodeTask(task));
-  if (status !== 'planned') {
-    await redis.zRem(DUE_ZSET, task.id);
-  }
+  await persistTask(redis, task);
+  await syncDueMembership(redis, task);
   return task;
 }
