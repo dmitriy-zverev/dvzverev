@@ -84,19 +84,19 @@
   vertical-align: -0.15em;
 }
 .terminal-line[data-error] {
-  background: rgb(179 38 30 / 8%);
+  background: rgb(243 169 169 / 8%);
 }
 .terminal-line[data-error]::before {
-  color: #b3261e;
+  color: #f3a9a9;
 }
 .token-keyword {
-  color: #5b21b6;
+  color: #c3b8ef;
 }
 .token-string {
-  color: #1e6b42;
+  color: #b4d6bc;
 }
 .token-number {
-  color: #8a6d00;
+  color: #e2c49c;
 }
 .token-decorator {
   color: var(--color-accent);
@@ -136,10 +136,10 @@
 }
 .terminal-logs > div { white-space: pre-wrap; }
 .terminal-logs [data-tone='error'] {
-  color: #b3261e;
+  color: #f3a9a9;
 }
 .terminal-logs [data-tone='success'] {
-  color: #1e6b42;
+  color: #b4d6bc;
 }
 .terminal-logs [data-tone='muted'] {
   color: var(--color-muted);

@@ -158,7 +158,7 @@
 }
 .mode {
   padding: 0.45rem 1rem;
-  color: var(--color-on-accent);
+  color: var(--color-bg);
   background: var(--color-sage);
   font-weight: 800;
 }

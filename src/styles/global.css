@@ -22,8 +22,8 @@ body {
   line-height: 1.55;
   color: var(--color-text);
   background:
-    linear-gradient(rgb(20 21 26 / 4%) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(20 21 26 / 4%) 1px, transparent 1px), var(--color-bg);
+    linear-gradient(rgb(115 169 194 / 2%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(115 169 194 / 2%) 1px, transparent 1px), var(--color-bg);
   background-size: 3rem 3rem;
   -webkit-font-smoothing: antialiased;
 }
@@ -54,7 +54,7 @@ a {
   left: 1rem;
   z-index: 1000;
   padding: 0.65rem 1rem;
-  color: var(--color-on-accent);
+  color: var(--color-bg);
   background: var(--color-sage);
   text-decoration: none;
   transform: translateY(-120%);
@@ -157,13 +157,13 @@ a {
 }
 
 .button-primary {
-  color: var(--color-on-accent);
+  color: var(--color-bg);
   background: var(--color-sage);
   border-color: var(--color-sage);
 }
 
 .button-primary::before {
-  color: var(--color-on-accent);
+  color: var(--color-bg);
 }
 
 .button-primary:hover,

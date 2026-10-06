@@ -11,9 +11,8 @@
 .moment-card {
   padding: var(--space-lg);
   border-radius: var(--radius-lg);
-  background: var(--color-panel);
+  background: rgb(23 33 46 / 88%);
   box-shadow: var(--shadow-soft);
-  border: 1px solid var(--color-line);
 }
 
 .moment-card h3 {
@@ -33,7 +32,7 @@
 .moment-card:hover,
 .moment-card:focus-within {
   transform: translateY(-2px);
-  box-shadow: 0 1rem 2rem rgb(47 95 149 / 12%);
+  box-shadow: 0 1rem 2rem rgb(161 197 244 / 14%);
 }
 
 .route-hint {
