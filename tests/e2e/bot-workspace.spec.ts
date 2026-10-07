@@ -131,6 +131,33 @@ test('VK login is visible and service shows verified legacy rights and actual re
   );
 });
 
+test('workspace tabs skip weekly preparation and start analytics alongside overview', async ({
+  page,
+}) => {
+  await workspace(page);
+  let weeklyRequests = 0;
+  let overviewComplete = false;
+  let analyticsStartedBeforeOverview = false;
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path.endsWith('/weekly-preparation')) weeklyRequests++;
+    if (path.endsWith('/analytics')) analyticsStartedBeforeOverview = !overviewComplete;
+  });
+  await page.route('**/bot/api/v1/overview?**', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    overviewComplete = true;
+    await route.fallback();
+  });
+  await page.goto('/bot/?tab=analytics');
+  await expect(page.locator('.week-kpi-value').nth(1)).toHaveText('5.0%');
+  expect(analyticsStartedBeforeOverview).toBe(true);
+  await page.getByRole('button', { name: 'Рубрики', exact: true }).click();
+  await expect(page.locator('#app')).toHaveAttribute('data-tab', 'rubrics');
+  await page.getByRole('button', { name: 'Сервис', exact: true }).click();
+  await expect(page.locator('#app')).toHaveAttribute('data-tab', 'service');
+  expect(weeklyRequests).toBe(0);
+});
+
 for (const width of [375, 1280]) {
   test(`all workspace tabs fit and remain accessible at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });

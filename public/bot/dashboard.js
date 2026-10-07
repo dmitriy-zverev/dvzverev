@@ -1724,7 +1724,17 @@ async function loadOverview(manual = false) {
   if (status) query.set('status', status);
   if (params().get('rubric')) query.set('rubric', params().get('rubric'));
   try {
-    const [overview, incidents, vk, weekly] = await Promise.all([
+    const tabBundleRequest = (
+      isAnalyticsTab()
+        ? loadAnalyticsBundle(project)
+        : isEditorialTab()
+          ? loadEditorialBundle(project).then((editorial) => ({ editorial }))
+          : Promise.resolve(null)
+    ).catch((error) => {
+      if (error.status === 401) throw error;
+      return isEditorialTab() ? { editorial: { error: error.message } } : { error: error.message };
+    });
+    const [overview, incidents, vk, weekly, tabBundle] = await Promise.all([
       api(`/bot/api/v1/overview?${query}`),
       api(
         `/bot/api/v1/incidents?${project ? `project=${encodeURIComponent(project)}&` : ''}status=open`,
@@ -1733,31 +1743,18 @@ async function loadOverview(manual = false) {
         if (error.status === 401) throw error;
         return { unavailable: true };
       }),
-      api('/bot/api/v1/weekly-preparation').catch((error) => {
-        if (error.status === 401) throw error;
-        return null;
-      }),
+      activeTab() === 'week'
+        ? api('/bot/api/v1/weekly-preparation').catch((error) => {
+            if (error.status === 401) throw error;
+            return null;
+          })
+        : Promise.resolve(null),
+      tabBundleRequest,
     ]);
     if (state.dataVersion && overview.data_version < state.dataVersion && !manual) {
       overview.service = { ...(overview.service || {}), stale: true };
     }
     state.dataVersion = overview.data_version;
-    let tabBundle = null;
-    if (isAnalyticsTab()) {
-      try {
-        tabBundle = await loadAnalyticsBundle(project);
-      } catch (error) {
-        if (error.status === 401) throw error;
-        tabBundle = { error: error.message };
-      }
-    } else if (isEditorialTab()) {
-      try {
-        tabBundle = { editorial: await loadEditorialBundle(project) };
-      } catch (error) {
-        if (error.status === 401) throw error;
-        tabBundle = { editorial: { error: error.message } };
-      }
-    }
     if (requestId !== overviewRequest || requestedSearch !== location.search) return;
     state.vk = vk;
     state.weekly = weekly?.week && Array.isArray(weekly.posts) ? weekly : null;

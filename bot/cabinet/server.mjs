@@ -32,7 +32,12 @@ import { handleVkOAuthRoute, getOAuthBroker, reportOAuthError } from '../vk-oaut
 import { createRefreshTick, startRefreshWorker } from '../vk-oauth/refresh.mjs';
 import { getWeeklyVkClient } from '../vk-oauth/legacy.mjs';
 import { retryEditionNow } from './retry.mjs';
-import { ensureWeeklySnapshot, claimWeeklyJob, prepareWeeklyPosts } from './weekly.mjs';
+import {
+  ensureWeeklySnapshot,
+  weeklySnapshot,
+  claimWeeklyJob,
+  prepareWeeklyPosts,
+} from './weekly.mjs';
 import { handleOzonRoute } from './ozon.mjs';
 
 const API_PREFIX = '/bot/api/v1';
@@ -293,7 +298,11 @@ async function handleRequest(request, response, env) {
     if (route === '/weekly-preparation' && ['GET', 'POST'].includes(request.method)) {
       if (request.method === 'POST') assertOrigin(request, env);
       const current = url.searchParams.get('scope') === 'current';
-      const snapshot = await ensureWeeklySnapshot(db, env, new Date(), current);
+      const now = new Date();
+      const snapshot =
+        request.method === 'POST'
+          ? await ensureWeeklySnapshot(db, env, now, current)
+          : weeklySnapshot(db, now, current);
       const client = getWeeklyVkClient(env);
       if (request.method === 'POST') {
         if (!client?.status().canPrepare) {
@@ -341,8 +350,8 @@ async function handleRequest(request, response, env) {
         response,
         request.method === 'POST' ? 202 : 200,
         {
-          ...(await ensureWeeklySnapshot(db, env, new Date(), current)),
-          current: await ensureWeeklySnapshot(db, env, new Date(), true),
+          ...weeklySnapshot(db, now, current),
+          current: weeklySnapshot(db, now, true),
           vk: client?.status() || { available: false, canPrepare: false, connected: false },
         },
         cors,
@@ -367,9 +376,6 @@ async function handleRequest(request, response, env) {
       return;
 
     if (route === '/overview' && request.method === 'GET') {
-      const { document: service } = await loadServiceForCabinet(env);
-      ensureRubrics(db, service);
-      materializeScheduleSlots(db, service, env);
       const slotCount = db.prepare('SELECT COUNT(*) AS count FROM schedule_slots').get().count;
       if (!slotCount) {
         json(response, 503, { error: 'data_unavailable' }, cors);

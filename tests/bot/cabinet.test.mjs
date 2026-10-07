@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   clearLoginDefenseState,
+  createSession,
   getLoginLockStatus,
   hashPassword,
   recordLoginFailure,
@@ -184,6 +185,24 @@ test('overview API requires session', async (t) => {
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const denied = await fetch(`http://127.0.0.1:${address.port}/bot/api/v1/overview`);
   assert.equal(denied.status, 401);
+  const checkDb = openCabinetDb(env);
+  const session = createSession(checkDb, env);
+  const before = checkDb
+    .prepare("SELECT value FROM cabinet_meta WHERE key='data_version'")
+    .get().value;
+  for (const path of ['overview', 'weekly-preparation', 'weekly-preparation?scope=current']) {
+    const response = await fetch(`http://127.0.0.1:${address.port}/bot/api/v1/${path}`, {
+      headers: { Cookie: `cabinet_session=${session.token}` },
+    });
+    assert.equal(response.status, 200);
+    await response.json();
+  }
+  assert.equal(
+    checkDb.prepare("SELECT value FROM cabinet_meta WHERE key='data_version'").get().value,
+    before,
+    'reading the calendar and preparation must not rebuild the schedule',
+  );
+  checkDb.close();
 });
 
 test('week boundaries and code schedule respect weekdays', () => {
@@ -470,10 +489,7 @@ test('retry is offered only for an unpublished failure from today', () => {
   const failed = { edition, deliveries: [{ status: 'exhausted' }] };
   assert.equal(canRetryPublication(failed, now), true);
   assert.equal(canRetryPublication({ edition, deliveries: [{ status: 'sent' }] }, now), false);
-  assert.equal(
-    canRetryPublication({ edition, deliveries: [{ status: 'uncertain' }] }, now),
-    false,
-  );
+  assert.equal(canRetryPublication({ edition, deliveries: [{ status: 'uncertain' }] }, now), false);
   assert.equal(
     canRetryPublication(
       {
@@ -484,10 +500,7 @@ test('retry is offered only for an unpublished failure from today', () => {
     ),
     false,
   );
-  assert.equal(
-    canRetryPublication(failed, new Date('2026-10-07T21:00:00Z')),
-    false,
-  );
+  assert.equal(canRetryPublication(failed, new Date('2026-10-07T21:00:00Z')), false);
 });
 
 test('projectTitle uses editorial brand names', () => {
