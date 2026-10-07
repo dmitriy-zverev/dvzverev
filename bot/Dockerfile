@@ -39,6 +39,7 @@ COPY --from=media-build /output/bin/ffmpeg /output/bin/ffprobe /usr/local/bin/
 COPY --chown=node:node bot/lifestyle.mjs bot/metrics.mjs bot/costs.mjs bot/programming.mjs bot/videos.mjs bot/video-to-gif.py bot/literary.mjs bot/literary-quotes.mjs bot/core.mjs bot/content.mjs bot/openrouter.mjs bot/digest.mjs bot/images.mjs bot/resize-image.py bot/upload-vk-document.py bot/run.mjs bot/check-telegram.mjs bot/lock.mjs bot/lock.py bot/app-config.mjs bot/logging.mjs bot/storage.mjs bot/health.mjs bot/notifications.mjs bot/maintenance.mjs ./bot/
 COPY --chown=node:node bot/config ./bot/config/
 COPY --chown=node:node bot/cabinet ./bot/cabinet/
+COPY --chown=node:node bot/vk-oauth ./bot/vk-oauth/
 COPY --chown=node:node bot/redis ./bot/redis/
 COPY --chown=node:node bot/video-scenes.mjs ./bot/video-scenes.mjs
 COPY --chown=node:node bot/prompts ./bot/prompts/

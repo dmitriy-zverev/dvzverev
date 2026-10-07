@@ -27,6 +27,7 @@ import { createAdHocTask, discardTask } from '../redis/schedule.mjs';
 import { upsertPlanFromRedisTask } from '../redis/sqlite-bridge.mjs';
 import { createLargeBodyReader, handleAnalyticsRoute } from './analytics/routes.mjs';
 import { handleEditorialRoute } from './editorial/routes.mjs';
+import { handleVkOAuthRoute } from '../vk-oauth/routes.mjs';
 
 const API_PREFIX = '/bot/api/v1';
 const readBodyLarge = createLargeBodyReader();
@@ -148,7 +149,8 @@ async function handleRequest(request, response, env) {
     return;
   }
 
-  if (!url.pathname.startsWith(API_PREFIX)) {
+  const vkAlias = env.VK_OAUTH_ENABLED === 'true' && url.pathname.startsWith('/vk/');
+  if (!url.pathname.startsWith(API_PREFIX) && !vkAlias) {
     json(response, 404, { error: 'not_found' }, cors);
     return;
   }
@@ -156,7 +158,8 @@ async function handleRequest(request, response, env) {
   const db = openCabinetDb(env);
   try {
     ensurePasswordHash(db, env);
-    const route = url.pathname.slice(API_PREFIX.length);
+    const rawRoute = vkAlias ? url.pathname : url.pathname.slice(API_PREFIX.length);
+    const route = rawRoute.startsWith('/vk/') ? rawRoute.replace(/\/$/, '') : rawRoute;
 
     if (route === '/auth/login' && request.method === 'POST') {
       assertOrigin(request, env);
@@ -224,7 +227,23 @@ async function handleRequest(request, response, env) {
       return;
     }
 
-    requireSession(db, request);
+    const session = requireSession(db, request);
+    if (
+      await handleVkOAuthRoute({
+        route,
+        request,
+        response,
+        url,
+        env,
+        session,
+        assertOrigin,
+        readBody,
+        parseJson,
+        json,
+        cors,
+      })
+    )
+      return;
 
     if (route === '/overview' && request.method === 'GET') {
       const slotCount = db.prepare('SELECT COUNT(*) AS count FROM schedule_slots').get().count;

@@ -90,9 +90,11 @@ services:
       BOT_CABINET_DB_PATH: /app/data/cabinet.sqlite
       BOT_CONFIG_PATH: /app/service.json
       BOT_CABINET_SECURE_COOKIES: 'true'
+      BOT_LOG_DIR: /app/data/logs
       BOT_CABINET_ALLOWED_ORIGINS: https://www.dvzverev.ru,https://dvzverev.ru
     volumes:
       - ./data:/app/data
+      - ./content:/app/content:ro
       - ./service.json:/app/service.json:ro
     restart: unless-stopped
     init: true
@@ -100,7 +102,7 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     pids_limit: 32
-    mem_limit: 128m
+    mem_limit: ${BOT_CABINET_MEMORY_LIMIT:-128m}
     cpus: 0.25
     tmpfs:
       - /tmp:size=16m,noexec,nosuid
