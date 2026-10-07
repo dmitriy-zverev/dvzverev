@@ -1,10 +1,17 @@
 ---
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+
 interface Props {
   title?: string;
 }
 
 const { title = 'Редакционный кабинет' } = Astro.props;
 const apiBase = import.meta.env.PUBLIC_BOT_API_BASE ?? '';
+const assetVersion = (file: string) =>
+  createHash('sha256').update(readFileSync(`public/bot/${file}`)).digest('hex').slice(0, 12);
+const cssUrl = `/bot/dashboard.css?v=${assetVersion('dashboard.css')}`;
+const jsUrl = `/bot/dashboard.js?v=${assetVersion('dashboard.js')}`;
 ---
 
 <!doctype html>
@@ -16,12 +23,12 @@ const apiBase = import.meta.env.PUBLIC_BOT_API_BASE ?? '';
     <meta name="theme-color" content="#f3f5f8" />
     <meta name="robots" content="noindex, nofollow" />
     <title>{title}</title>
-    <link rel="stylesheet" href="/bot/dashboard.css" />
+    <link rel="stylesheet" href={cssUrl} />
   </head>
   <body>
     <div id="app" class="cabinet" data-api-base={apiBase}>
       <noscript>Для кабинета нужен JavaScript.</noscript>
     </div>
-    <script type="module" src="/bot/dashboard.js"></script>
+    <script is:inline type="module" src={jsUrl}></script>
   </body>
 </html>
