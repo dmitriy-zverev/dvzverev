@@ -39,7 +39,7 @@ start() {
     -p 127.0.0.1:18082:8080 "$1"
 }
 if [[ -n "$PREVIOUS" ]]; then docker rm -f "$NAME"; fi
-if ! start "$IMAGE" || ! healthy "$NAME" || ! curl -fsS http://127.0.0.1:18082/ >/dev/null; then
+if ! start "$IMAGE" || ! healthy "$NAME" || ! curl --noproxy '*' -fsS http://127.0.0.1:18082/ >/dev/null; then
   docker rm -f "$NAME" >/dev/null 2>&1 || true
   if [[ -n "$PREVIOUS" ]]; then start "$PREVIOUS"; healthy "$NAME"; fi
   echo 'Deployment failed; attempted rollback to previous image' >&2
