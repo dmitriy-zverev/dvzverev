@@ -3,7 +3,7 @@
 set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEPLOY_HOST="${1:-cloudru}"
-PROXY_URL="${POSTER_HTTP_PROXY:-http://127.0.0.1:3129}"
+PROXY_URL="${POSTER_HTTP_PROXY:?Set POSTER_HTTP_PROXY to a proxy reachable from Docker containers}"
 TAG="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD)-$(date -u +%Y%m%d%H%M%S)"
 IMAGE="dvzverev-poster:${TAG}"
 
