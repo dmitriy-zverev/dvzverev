@@ -11,7 +11,12 @@ import {
   claimWeeklyJob,
   prepareWeeklyPosts,
 } from '../../bot/cabinet/weekly.mjs';
-import { LegacyVkClient, legacyCallbackPage } from '../../bot/vk-oauth/legacy.mjs';
+import {
+  LegacyVkClient,
+  legacyCallbackPage,
+  legacyManualLoginPage,
+  parseLegacyRedirectUrl,
+} from '../../bot/vk-oauth/legacy.mjs';
 import { OAuthStore } from '../../bot/vk-oauth/store.mjs';
 import { weeklyDelivery } from '../../bot/cabinet/weekly-delivery.mjs';
 
@@ -296,7 +301,7 @@ test('login verifies real user and permissions, consumes state once and never re
     store,
     {
       clientId: '54809516',
-      redirectUri: 'https://www.dvzverev.ru/vk/callback/',
+      redirectUri: 'https://oauth.vk.ru/blank.html',
       allowedUserId: '42',
     },
     fetcher,
@@ -309,7 +314,9 @@ test('login verifies real user and permissions, consumes state once and never re
     access_token: 'vk1.a.' + 'a'.repeat(30),
     expires_in: '86400',
   };
-  await legacy.complete(body, 'session');
+  const returnedUrl = 'https://oauth.vk.ru/blank.html#' + new URLSearchParams(body);
+  assert.deepEqual(parseLegacyRedirectUrl(returnedUrl), body);
+  await legacy.complete(parseLegacyRedirectUrl(returnedUrl), 'session');
   assert.equal(legacy.status().canPrepare, true);
   assert.equal(legacy.status().refreshAvailable, false);
   await assert.rejects(legacy.complete(body, 'session'), /invalid_state/);
@@ -319,6 +326,22 @@ test('login verifies real user and permissions, consumes state once and never re
   const page = legacyCallbackPage();
   assert.match(page.html, /history.replaceState/);
   assert.match(page.html, /\/bot\/\?vk=connected/);
+  const manual = legacyManualLoginPage(url.href);
+  assert.match(manual.html, /id="vk-return" type="password"/);
+  assert.match(manual.html, /credentials:'same-origin'/);
+  assert.equal(manual.html.includes(body.access_token), false);
+  assert.throws(
+    () => parseLegacyRedirectUrl(returnedUrl.replace('oauth.vk.ru', 'evil.test')),
+    /invalid_redirect/,
+  );
+  assert.throws(
+    () => parseLegacyRedirectUrl(returnedUrl.replace('https:', 'http:')),
+    /invalid_redirect/,
+  );
+  assert.throws(
+    () => parseLegacyRedirectUrl('https://oauth.vk.ru/blank.html#error=access_denied'),
+    /consent_required/,
+  );
   const wrong = new URL(legacy.begin('session'));
   await assert.rejects(
     legacy.complete({ ...body, state: wrong.searchParams.get('state') }, 'other-session'),

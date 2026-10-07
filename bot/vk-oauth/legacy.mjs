@@ -118,3 +118,84 @@ export function legacyCallbackPage() {
   </script></body></html>`,
   };
 }
+
+export function parseLegacyRedirectUrl(value) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('vk_oauth_invalid_redirect');
+  }
+  if (
+    typeof value !== 'string' ||
+    value.length > 4000 ||
+    url.protocol !== 'https:' ||
+    !['oauth.vk.ru', 'oauth.vk.com'].includes(url.hostname) ||
+    url.port ||
+    url.username ||
+    url.password ||
+    url.pathname !== '/blank.html' ||
+    url.search
+  )
+    throw new Error('vk_oauth_invalid_redirect');
+  const fields = new URLSearchParams(url.hash.slice(1));
+  if (fields.has('error')) throw new Error('vk_oauth_consent_required');
+  return {
+    state: fields.get('state'),
+    access_token: fields.get('access_token'),
+    expires_in: fields.get('expires_in'),
+  };
+}
+
+export function legacyManualLoginPage(authorizeUrl) {
+  const nonce = randomBytes(18).toString('base64');
+  const href = authorizeUrl
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;');
+  return {
+    nonce,
+    html: `<!doctype html><html lang="ru"><head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,nofollow"><title>Подключить VK · Редакционный кабинет</title>
+    <style nonce="${nonce}">
+    *{box-sizing:border-box}body{margin:0;background:#f3f5f8;color:#20364d;font:16px/1.55 system-ui,sans-serif}
+    main{max-width:600px;margin:8vh auto;padding:32px;background:#fff;border:1px solid #dce4eb;border-radius:18px}
+    h1{margin:12px 0;font-size:28px;line-height:1.2}h2{font-size:18px;margin:24px 0 8px}p{color:#526981}
+    a{color:#2f5f95}label{display:block;margin:16px 0 8px;font-weight:600}
+    input{width:100%;min-height:48px;padding:12px;border:1px solid #bac9d9;border-radius:8px;font:inherit}
+    .action,button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:10px 20px;border:0;border-radius:8px;background:#2f5f95;color:#fff;font:600 15px system-ui;text-decoration:none;cursor:pointer}
+    button{margin-top:16px}button:disabled{opacity:.55;cursor:wait}:focus-visible{outline:3px solid #6a9cc9;outline-offset:3px}
+    #feedback{color:#a32c28;min-height:24px}small{display:block;color:#526981;margin-top:8px}
+    @media(max-width:640px){main{margin:20px 12px;padding:24px}}
+    </style></head><body><main>
+    <a href="/bot/">← В кабинет</a><h1>Подключить VK</h1>
+    <p>Подключение нужно для фото, коротких видео и подготовки отложенных постов.</p>
+    <h2>1. Войдите в VK</h2><p>Разрешите приложению доступ. VK откроет пустую страницу — оставьте эту вкладку открытой.</p>
+    <a class="action" id="vk-authorize" href="${href}" target="_blank" rel="noopener noreferrer">Открыть VK ↗</a>
+    <h2>2. Вернитесь сюда с адресом страницы</h2>
+    <p>Скопируйте полный адрес пустой страницы из адресной строки браузера и вставьте ниже.</p>
+    <form id="vk-connect"><label for="vk-return">Адрес страницы после входа</label>
+    <input id="vk-return" type="password" autocomplete="off" spellcheck="false" required maxlength="4000" aria-describedby="vk-private">
+    <small id="vk-private">Адрес содержит ключ доступа. Вставляйте его только сюда; кабинет сохранит ключ зашифрованным.</small>
+    <button type="submit">Подключить VK</button><p id="feedback" role="status" aria-live="polite"></p></form>
+    <script nonce="${nonce}">
+    document.getElementById('vk-connect').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget, input = document.getElementById('vk-return'), button = form.querySelector('button'), feedback = document.getElementById('feedback');
+      const redirectUrl = input.value.trim(); input.value = ''; button.disabled = true; feedback.textContent = 'Проверяем аккаунт и права…';
+      try {
+        const response = await fetch('/bot/api/v1/vk/legacy/complete', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({redirectUrl})});
+        if (response.status === 401) { location.replace('/bot/'); return; }
+        const result = await response.json();
+        if (!response.ok) {
+          const messages = {vk_oauth_invalid_redirect:'Нужен полный адрес страницы oauth.vk.ru/blank.html после входа.', vk_oauth_invalid_state:'Попытка входа истекла или относится к другой вкладке. Обновите эту страницу и снова откройте VK.', vk_oauth_wrong_user:'Войдите в VK под аккаунтом владельца кабинета.', vk_oauth_wall_photos_groups_required:'VK не выдал права на стену, фотографии и сообщества. Пройдите вход заново.', vk_oauth_invalid_token:'В адресе нет корректного ключа VK. Скопируйте полный адрес после разрешения доступа.', vk_oauth_consent_required:'Сначала разрешите приложению доступ в VK.'};
+          feedback.textContent = messages[result.error] || 'Не удалось проверить подключение. Повторите вход в VK.'; return;
+        }
+        location.replace('/bot/?vk=connected');
+      } catch { feedback.textContent = 'Нет связи с кабинетом. Проверьте подключение перед повтором.'; }
+      finally { button.disabled = false; }
+    });
+    </script></main></body></html>`,
+  };
+}

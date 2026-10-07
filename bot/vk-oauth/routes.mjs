@@ -4,7 +4,12 @@ import { VkOAuthClient, oauthConfig } from './client.mjs';
 import { logError } from '../logging.mjs';
 import { sendNotification } from '../notifications.mjs';
 import { publicationBackoffSeconds, sendTelegram } from '../core.mjs';
-import { getWeeklyVkClient, legacyCallbackPage } from './legacy.mjs';
+import {
+  getWeeklyVkClient,
+  legacyCallbackPage,
+  legacyManualLoginPage,
+  parseLegacyRedirectUrl,
+} from './legacy.mjs';
 
 let broker;
 let trialBroker;
@@ -69,6 +74,17 @@ export async function handleVkOAuthRoute({
       }
       if (!legacy) throw new Error('vk_legacy_not_configured');
       if (request.method === 'GET' && route === '/vk/legacy/login') {
+        if (legacy.config.redirectUri === 'https://oauth.vk.ru/blank.html') {
+          const page = legacyManualLoginPage(legacy.begin(session.sessionId));
+          response.writeHead(200, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store',
+            'Referrer-Policy': 'no-referrer',
+            'Content-Security-Policy': `default-src 'none'; style-src 'nonce-${page.nonce}'; script-src 'nonce-${page.nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+          });
+          response.end(page.html);
+          return true;
+        }
         response.writeHead(303, {
           Location: legacy.begin(session.sessionId),
           'Cache-Control': 'no-store',
@@ -90,10 +106,14 @@ export async function handleVkOAuthRoute({
       }
       if (request.method === 'POST' && route === '/vk/legacy/complete') {
         assertOrigin(request, env);
+        const body = parseJson(await readBody(request));
         json(
           response,
           200,
-          await legacy.complete(parseJson(await readBody(request)), session.sessionId),
+          await legacy.complete(
+            body.redirectUrl ? parseLegacyRedirectUrl(body.redirectUrl) : body,
+            session.sessionId,
+          ),
           cors,
         );
         return true;
