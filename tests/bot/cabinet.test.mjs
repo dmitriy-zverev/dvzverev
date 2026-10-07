@@ -18,6 +18,7 @@ import { materializeScheduleSlots, syncProjectState } from '../../bot/cabinet/sy
 import { buildOverview, patchPlan } from '../../bot/cabinet/overview.mjs';
 import {
   aggregateEditionStatus,
+  canRetryPublication,
   classifyReleaseSource,
   projectTitle,
   summaryBucket,
@@ -461,6 +462,32 @@ test('patch plan rejects stale version', async (t) => {
   });
   assert.equal(conflict.error, 'version_conflict');
   db.close();
+});
+
+test('retry is offered only for an unpublished failure from today', () => {
+  const now = new Date('2026-10-07T12:00:00Z');
+  const edition = { slotKey: '2026-10-07@18:00[Europe/Moscow]', status: 'exhausted' };
+  const failed = { edition, deliveries: [{ status: 'exhausted' }] };
+  assert.equal(canRetryPublication(failed, now), true);
+  assert.equal(canRetryPublication({ edition, deliveries: [{ status: 'sent' }] }, now), false);
+  assert.equal(
+    canRetryPublication({ edition, deliveries: [{ status: 'uncertain' }] }, now),
+    false,
+  );
+  assert.equal(
+    canRetryPublication(
+      {
+        edition: { ...edition, slotKey: '2026-10-06@18:00[Europe/Moscow]' },
+        deliveries: [{ status: 'exhausted' }],
+      },
+      now,
+    ),
+    false,
+  );
+  assert.equal(
+    canRetryPublication(failed, new Date('2026-10-07T21:00:00Z')),
+    false,
+  );
 });
 
 test('projectTitle uses editorial brand names', () => {

@@ -1,3 +1,5 @@
+import { zonedParts } from './time.mjs';
+
 export const TERMINAL_DELIVERY_STATUSES = new Set([
   'sent',
   'failed',
@@ -48,7 +50,10 @@ export function aggregateEditionStatus(deliveryStatuses) {
   const statuses = [...new Set(deliveryStatuses)];
   if (!statuses.length) return 'planned';
   if (statuses.every((status) => SUCCESS.has(status))) return 'sent';
-  if (statuses.some((status) => SUCCESS.has(status)) && statuses.some((status) => FAILURE.has(status)))
+  if (
+    statuses.some((status) => SUCCESS.has(status)) &&
+    statuses.some((status) => FAILURE.has(status))
+  )
     return 'partially_sent';
   if (statuses.some((status) => status === 'uncertain')) return 'uncertain';
   if (statuses.some((status) => status === 'retry_wait')) return 'retry_wait';
@@ -92,6 +97,7 @@ export function publicationKind(config, slotKeyValue, destination) {
   const mediaEnabled = destination?.media?.enabled === true;
   if (mediaEnabled && mediaTimes?.includes(time)) {
     const kind = destination.media.kind || config.coverMode || 'image';
+    if (destination.media.uploadMode === 'photo') return { kind: 'image', media: 'image' };
     if (kind === 'video') return { kind: 'video', media: 'video' };
     return { kind: 'gif', media: 'gif' };
   }
@@ -118,6 +124,20 @@ export function matchesStatusFilter(cardStatus, filter) {
   if (filter === 'sent') return cardStatus === 'sent' || cardStatus === 'partially_sent';
   if (filter === 'failed') return ['failed', 'exhausted'].includes(cardStatus);
   return cardStatus === filter;
+}
+
+const SLOT_DATE = /^(\d{4}-\d{2}-\d{2})@\d{2}:\d{2}\[([^\]]+)\]$/;
+
+export function canRetryPublication(detail, now = new Date()) {
+  const slot = SLOT_DATE.exec(detail?.edition?.slotKey || '');
+  if (!slot) return false;
+  if (!['failed', 'exhausted'].includes(detail.edition.status)) return false;
+  if (
+    (detail.deliveries || []).some((row) => ['sent', 'uncertain', 'sending'].includes(row.status))
+  )
+    return false;
+  const today = zonedParts(now, slot[2]);
+  return slot[1] === `${today.year}-${today.month}-${today.day}`;
 }
 
 export function classifyReleaseSource(slotKey, postId) {

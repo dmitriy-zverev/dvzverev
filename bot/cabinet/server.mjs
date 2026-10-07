@@ -29,6 +29,10 @@ import { createLargeBodyReader, handleAnalyticsRoute } from './analytics/routes.
 import { handleEditorialRoute } from './editorial/routes.mjs';
 import { handleVkOAuthRoute, getOAuthBroker, reportOAuthError } from '../vk-oauth/routes.mjs';
 import { createRefreshTick, startRefreshWorker } from '../vk-oauth/refresh.mjs';
+import { getWeeklyVkClient } from '../vk-oauth/legacy.mjs';
+import { retryEditionNow } from './retry.mjs';
+import { ensureWeeklySnapshot, claimWeeklyJob, prepareWeeklyPosts } from './weekly.mjs';
+import { handleOzonRoute } from './ozon.mjs';
 
 const API_PREFIX = '/bot/api/v1';
 const readBodyLarge = createLargeBodyReader();
@@ -230,6 +234,61 @@ async function handleRequest(request, response, env) {
 
     const session = requireSession(db, request);
     if (
+      await handleOzonRoute({
+        route,
+        request,
+        response,
+        db,
+        env,
+        json,
+        cors,
+        assertOrigin,
+        parseJson,
+        readBody,
+      })
+    )
+      return;
+    if (route === '/weekly-preparation' && ['GET', 'POST'].includes(request.method)) {
+      if (request.method === 'POST') assertOrigin(request, env);
+      const snapshot = await ensureWeeklySnapshot(db, env);
+      const client = getWeeklyVkClient(env);
+      if (request.method === 'POST') {
+        if (!client?.status().canPrepare) {
+          json(
+            response,
+            409,
+            {
+              error: 'vk_login_required',
+              message: 'Войдите в VK с правами на стену, фотографии и сообщества.',
+            },
+            cors,
+          );
+          return;
+        }
+        if (!snapshot.running && snapshot.missing > 0) {
+          const owner = claimWeeklyJob(db, snapshot.week.start);
+          if (owner) {
+            auditAuth(db, 'vk_weekly_preparation', {
+              week: snapshot.week.start,
+              missing: snapshot.missing,
+            });
+            // The background job owns its SQLite connection after this request closes.
+            void prepareWeeklyPosts(env, snapshot.week.start, owner);
+          }
+        }
+      }
+      json(
+        response,
+        request.method === 'POST' ? 202 : 200,
+        {
+          ...(await ensureWeeklySnapshot(db, env)),
+          vk: client?.status() || { available: false, canPrepare: false, connected: false },
+        },
+        cors,
+      );
+      return;
+    }
+    if (
       await handleVkOAuthRoute({
         route,
         request,
@@ -267,6 +326,22 @@ async function handleRequest(request, response, env) {
 
     if (route === '/projects' && request.method === 'GET') {
       json(response, 200, { projects: listProjects(db) }, cors);
+      return;
+    }
+
+    if (route.startsWith('/editions/') && route.endsWith('/retry') && request.method === 'POST') {
+      assertOrigin(request, env);
+      const editionId = decodeURIComponent(route.slice('/editions/'.length, -'/retry'.length));
+      if (!/^[a-f0-9]{32}$/.test(editionId)) {
+        json(response, 400, { error: 'invalid_id' }, cors);
+        return;
+      }
+      const result = await retryEditionNow(db, editionId, env);
+      if (result.error) {
+        json(response, result.status, { error: result.error }, cors);
+        return;
+      }
+      json(response, 202, result, cors);
       return;
     }
 

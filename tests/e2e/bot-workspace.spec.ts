@@ -9,13 +9,14 @@ async function workspace(page: Page, invalid = false, anomalies = false) {
     const path = new URL(route.request().url()).pathname;
     let body: unknown = { items: [], series: [] };
     if (path.endsWith('/auth/session')) body = { authenticated: true };
-    if (path.endsWith('/vk/status'))
+    if (path.endsWith('/vk/legacy/status'))
       body = {
         connected: true,
         userId: 83357715,
         expiresAt: '2026-10-07T13:00:00Z',
-        refreshAvailable: true,
-        grantedScope: 'vkid.personal_info',
+        refreshAvailable: false,
+        canPrepare: true,
+        grantedScope: 'wall photos groups',
       };
     if (path.endsWith('/overview'))
       body = {
@@ -112,18 +113,21 @@ test('analytics navigation makes one request and preserves percentage and unknow
   await expect(page.locator('.posts-pagination')).toBeVisible();
 });
 
-test('VK login is visible and service shows refresh status without claiming posting rights', async ({
+test('VK login is visible and service shows verified legacy rights and actual refresh limitation', async ({
   page,
 }) => {
   await workspace(page);
   await page.goto('/bot/?tab=service');
   await expect(page.locator('.cabinet-header .vk-login')).toHaveText('Переподключить VK');
-  await expect(page.locator('.cabinet-header .vk-login')).toHaveAttribute('href', /\/vk\/login$/);
-  await expect(page.locator('.vk-connection')).toContainText(
-    'Автоматическое обновление токена включено',
+  await expect(page.locator('.cabinet-header .vk-login')).toHaveAttribute(
+    'href',
+    /\/vk\/legacy\/login$/,
   );
   await expect(page.locator('.vk-connection')).toContainText(
-    'Вход не подтверждает доступ к публикациям',
+    'Для обновления токена нужен повторный вход',
+  );
+  await expect(page.locator('.vk-connection')).toContainText(
+    'Права wall, photos и groups проверены',
   );
 });
 

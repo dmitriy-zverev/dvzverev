@@ -4,6 +4,7 @@ import { VkOAuthClient, oauthConfig } from './client.mjs';
 import { logError } from '../logging.mjs';
 import { sendNotification } from '../notifications.mjs';
 import { publicationBackoffSeconds, sendTelegram } from '../core.mjs';
+import { getWeeklyVkClient, legacyCallbackPage } from './legacy.mjs';
 
 let broker;
 let trialBroker;
@@ -48,8 +49,59 @@ export async function handleVkOAuthRoute({
   json,
   cors,
 }) {
-  if (!route.startsWith('/vk/') || env.VK_OAUTH_ENABLED !== 'true') return false;
+  if (!route.startsWith('/vk/')) return false;
   try {
+    if (
+      route.startsWith('/vk/legacy/') ||
+      (route === '/vk/callback' &&
+        !url.searchParams.has('code') &&
+        env.VK_LEGACY_OAUTH_ENABLED === 'true')
+    ) {
+      const legacy = getWeeklyVkClient(env);
+      if (route === '/vk/legacy/status') {
+        json(
+          response,
+          200,
+          legacy?.status() || { available: false, connected: false, canPrepare: false },
+          cors,
+        );
+        return true;
+      }
+      if (!legacy) throw new Error('vk_legacy_not_configured');
+      if (request.method === 'GET' && route === '/vk/legacy/login') {
+        response.writeHead(303, {
+          Location: legacy.begin(session.sessionId),
+          'Cache-Control': 'no-store',
+          'Referrer-Policy': 'no-referrer',
+        });
+        response.end();
+        return true;
+      }
+      if (request.method === 'GET' && route === '/vk/callback') {
+        const page = legacyCallbackPage();
+        response.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'Referrer-Policy': 'no-referrer',
+          'Content-Security-Policy': `default-src 'none'; script-src 'nonce-${page.nonce}'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'`,
+        });
+        response.end(page.html);
+        return true;
+      }
+      if (request.method === 'POST' && route === '/vk/legacy/complete') {
+        assertOrigin(request, env);
+        json(
+          response,
+          200,
+          await legacy.complete(parseJson(await readBody(request)), session.sessionId),
+          cors,
+        );
+        return true;
+      }
+      json(response, 404, { error: 'not_found' }, cors);
+      return true;
+    }
+    if (env.VK_OAUTH_ENABLED !== 'true') return false;
     let client = getOAuthBroker(env);
     let trial = false;
     if (route.startsWith('/vk/trial/')) {

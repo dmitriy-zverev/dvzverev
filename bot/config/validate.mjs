@@ -86,6 +86,20 @@ function validateDestination(errors, destination, path) {
   if (destination.media !== undefined) {
     if (!requireObject(errors, destination.media, `${path}.media`)) return;
     if (
+      destination.media.uploadMode !== undefined &&
+      !['photo', 'document'].includes(destination.media.uploadMode)
+    )
+      push(errors, `${path}.media.uploadMode`, 'must be photo or document');
+    if (destination.media.uploadMode === 'photo') {
+      if (destination.platform !== 'vk' || destination.media.kind !== 'image')
+        push(errors, `${path}.media.uploadMode`, 'photo requires a VK image destination');
+      validateEnvRef(
+        errors,
+        destination.media.photosCredentialEnv,
+        `${path}.media.photosCredentialEnv`,
+      );
+    }
+    if (
       destination.media.maxAttempts !== undefined &&
       (!Number.isInteger(destination.media.maxAttempts) ||
         destination.media.maxAttempts < 1 ||

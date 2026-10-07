@@ -20,7 +20,75 @@ import {
   uploadVkCover,
   ImageFailure,
   cachedCover,
+  normalizeImage,
+  uploadVkPhoto,
 } from '../../bot/images.mjs';
+
+test('static covers are real PNGs and upload as a wall photo with a user credential', async (t) => {
+  const config = await setup(t);
+  config.staticPhoto = true;
+  config.vkPhotosToken = 'photo-token';
+  const path = coverPath(config, 'static');
+  assert.match(path, /\.png$/);
+  await mkdir(join(path, '..'), { recursive: true });
+  const header = Buffer.alloc(24);
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(header);
+  header.write('IHDR', 12);
+  header.writeUInt32BE(1280, 16);
+  header.writeUInt32BE(720, 20);
+  await writeFile(path, header);
+  assert.equal((await cachedCover(config, 'static')).width, 1280);
+  const calls = [];
+  const attachment = await uploadVkPhoto(
+    config,
+    { postId: 'static', vkGroupId: '42' },
+    async (url, init) => {
+      assert.equal(init.body.get('access_token'), 'photo-token');
+      calls.push(url.split('/').pop());
+      return {
+        ok: true,
+        json: async () => ({
+          response: url.endsWith('getWallUploadServer')
+            ? { upload_url: 'https://upload.vk.com/photo' }
+            : [{ owner_id: -42, id: 123, access_key: 'allowed_key' }],
+        }),
+      };
+    },
+    async (request) => {
+      assert.equal(request.kind, 'photo');
+      assert.equal(request.path, path);
+      return { server: 1, photo: 'opaque-photo', hash: 'hash' };
+    },
+  );
+  assert.equal(attachment, 'photo-42_123_allowed_key');
+  assert.deepEqual(calls, ['photos.getWallUploadServer', 'photos.saveWallPhoto']);
+  config.vkPhotosToken = '';
+  await assert.rejects(
+    uploadVkPhoto(config, { postId: 'static', vkGroupId: '42' }),
+    /vk_user_photo_token_required/,
+  );
+});
+
+test('PNG normalization produces a single still image without legacy GIF conversion', async (t) => {
+  const config = await setup(t);
+  config.staticPhoto = true;
+  const output = coverPath(config, 'normalized');
+  await mkdir(join(output, '..'), { recursive: true });
+  const source = output + '.input';
+  await writeFile(
+    source,
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  );
+  await normalizeImage(source, output, true);
+  assert.deepEqual(await cachedCover(config, 'normalized'), {
+    status: 'ready',
+    width: 1280,
+    height: 720,
+  });
+});
 
 const post = {
   id: 'cover-test',

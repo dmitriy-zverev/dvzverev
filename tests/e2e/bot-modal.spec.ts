@@ -118,6 +118,96 @@ test('refresh failure keeps the draft, and session expiry releases the scroll lo
   await expect.poll(() => page.evaluate(() => document.body.style.paddingRight)).toBe('');
 });
 
+test('failed unpublished slot can be retried now', async ({ page }) => {
+  let retried = false;
+  await page.route('**/bot/api/v1/**', async (route) => {
+    const url = new URL(route.request().url());
+    const headers = {
+      'Access-Control-Allow-Origin': new URL(page.url()).origin,
+      'Access-Control-Allow-Credentials': 'true',
+      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Methods': 'GET,POST,PATCH,OPTIONS',
+    };
+    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
+    if (url.pathname.endsWith('/retry') && route.request().method() === 'POST') {
+      retried = true;
+      return route.fulfill({ status: 202, headers, json: { status: 'queued' } });
+    }
+    let body: unknown = { items: [] };
+    if (url.pathname.endsWith('/auth/session')) body = { authenticated: true };
+    if (url.pathname.endsWith('/overview')) {
+      body = {
+        week: { start: '2026-10-05', end: '2026-10-11', timezone: 'Europe/Moscow' },
+        projects: [],
+        summary: {
+          materials: 1,
+          planned: 0,
+          sent: 0,
+          missed: 0,
+          failed: 1,
+          delayed: 0,
+          readying: 0,
+          uncertain: 0,
+        },
+        deliverySummary: {},
+        days: [
+          {
+            date: '2026-10-07',
+            cards: [
+              {
+                planId: 'plan-1',
+                editionId: 'a'.repeat(32),
+                projectTitle: 'Конэсанс',
+                destinationTitle: 'VK',
+                time: '18:00',
+                publicationKind: 'video',
+                expectedMedia: 'video',
+                status: 'exhausted',
+                statusLabel: 'Не опубликован',
+              },
+            ],
+          },
+        ],
+        cards: [],
+        data_version: 1,
+        service: { heartbeat: { ok: true }, stale: false },
+        as_of: '2026-10-07T15:24:00Z',
+      };
+    }
+    if (url.pathname.includes('/editions/')) {
+      body = {
+        retryable: true,
+        edition: {
+          status: 'exhausted',
+          statusLabel: 'Не опубликован',
+          bodyNotice: 'Текст пока не сохранён',
+          promptVersion: 'b603584a013a67c9',
+        },
+        deliveries: [
+          {
+            platform: 'telegram',
+            status: 'exhausted',
+            statusLabel: 'Не опубликован',
+            failureReason: 'generation_exhausted',
+          },
+        ],
+        events: [],
+      };
+    }
+    await route.fulfill({ headers, json: body });
+  });
+  await page.goto('/bot/');
+  await page.locator('.slot').click();
+  const button = page.getByRole('button', { name: 'Повторить' });
+  await expect(button).toBeVisible();
+  await button.click();
+  await expect(page.locator('#retry-feedback')).toHaveText(
+    'Публикация запущена. Пост уйдёт в ближайшие секунды.',
+  );
+  await expect(page.locator('#retry-publication')).toBeDisabled();
+  expect(retried).toBe(true);
+});
+
 test('long task content scrolls inside the dialog and retains its position on refresh', async ({
   page,
 }) => {

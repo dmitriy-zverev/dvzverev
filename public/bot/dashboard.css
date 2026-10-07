@@ -2111,6 +2111,11 @@ body.modal-open {
   padding-top: 0.15rem;
 }
 
+.modal-retry-actions {
+  justify-content: flex-start;
+  margin: 0 0 0.85rem;
+}
+
 .modal-form-submit {
   min-width: 8.5rem;
   padding: 0.55rem 1.1rem;
@@ -2284,5 +2289,406 @@ body.modal-open {
     align-self: stretch;
     padding-top: 0;
     height: 44px;
+  }
+}
+
+/* Weekly preparation: an operational desk, with one clear next action. */
+.weekly-prepare {
+  margin: 0 0 20px;
+  padding: 28px;
+  background: #fff;
+  border: 1px solid #dce4eb;
+  border-radius: 18px;
+  box-shadow: 0 8px 30px #20364d06;
+}
+.weekly-prepare-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 32px;
+}
+.weekly-eyebrow {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: #607890;
+}
+.weekly-prepare h2 {
+  margin: 0;
+  font-size: clamp(21px, 2vw, 28px);
+  line-height: 1.25;
+  letter-spacing: -0.035em;
+  color: #20384e;
+}
+.weekly-description {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #617387;
+}
+.weekly-prepare-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  max-width: 300px;
+  min-width: 220px;
+}
+.weekly-auth {
+  font-size: 12px;
+  color: #7b6b51;
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+}
+.weekly-auth.is-connected {
+  color: #24644b;
+}
+.weekly-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 46px;
+  padding: 12px 20px;
+  border: 1px solid #295b88;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  color: #fff;
+  background: #295b88;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    box-shadow 0.15s;
+}
+.weekly-primary:hover:not(:disabled) {
+  background: #214b71;
+  box-shadow: 0 5px 14px #295b8820;
+}
+.weekly-primary:focus-visible {
+  outline: 3px solid #9ebedf;
+  outline-offset: 3px;
+}
+.weekly-primary:disabled {
+  color: #687d90;
+  background: #f0f4f8;
+  border-color: #dce4eb;
+  cursor: default;
+}
+.is-complete .weekly-primary {
+  color: #24644b;
+  background: #edf5ef;
+  border-color: #c9e0d2;
+}
+.weekly-action-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: right;
+  color: #657789;
+}
+.weekly-progress-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 25px;
+  font-size: 12px;
+  color: #607487;
+}
+.weekly-progress-line strong {
+  font-size: 16px;
+  color: #20384e;
+  font-variant-numeric: tabular-nums;
+}
+.weekly-progress-line strong span,
+.weekly-project strong span {
+  color: #617387;
+  font-weight: 400;
+}
+.weekly-progress {
+  display: block;
+  width: 100%;
+  height: 5px;
+  margin: 10px 0 20px;
+  border: 0;
+  border-radius: 5px;
+  overflow: hidden;
+  background: #edf1f5;
+  color: #397555;
+}
+.weekly-progress::-webkit-progress-bar {
+  background: #edf1f5;
+}
+.weekly-progress::-webkit-progress-value {
+  background: #397555;
+}
+.weekly-progress::-moz-progress-bar {
+  background: #397555;
+}
+.weekly-projects {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+}
+.weekly-project {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  font-size: 12px;
+  color: #2e465c;
+  padding: 15px 16px;
+  background: #f8fafc;
+  border: 1px solid #e7edf2;
+  border-radius: 10px;
+}
+.weekly-project > span {
+  font-weight: 600;
+}
+.weekly-days {
+  display: flex;
+  gap: 5px;
+  grid-column: 1 / -1;
+}
+.weekly-day {
+  height: 5px;
+  flex: 1;
+  border-radius: 2px;
+  background: #dfe7ee;
+}
+.weekly-day.is-scheduled,
+.weekly-day.is-sent {
+  background: #397555;
+}
+.weekly-day.is-preparing,
+.weekly-day.is-posting {
+  background: #5986b0;
+}
+.weekly-day.is-failed,
+.weekly-day.is-uncertain {
+  background: #b65d43;
+}
+.weekly-feedback:empty {
+  display: none;
+}
+.weekly-feedback p {
+  margin: 16px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #97412e;
+}
+.weekly-feedback .weekly-success {
+  color: #24644b;
+}
+.weekly-errors,
+.weekly-links {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #e8edf2;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.weekly-errors summary {
+  color: #97412e;
+  cursor: pointer;
+}
+.weekly-links summary {
+  color: #345e83;
+  cursor: pointer;
+}
+.weekly-links > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px 20px;
+  margin-top: 12px;
+}
+.weekly-links a {
+  color: #345e83;
+  text-underline-offset: 3px;
+}
+@media (max-width: 680px) {
+  .weekly-prepare {
+    padding: 20px;
+    border-radius: 14px;
+  }
+  .weekly-prepare-main {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 20px;
+  }
+  .weekly-prepare-action {
+    align-items: stretch;
+    min-width: 0;
+    max-width: none;
+  }
+  .weekly-action-note {
+    text-align: center;
+  }
+  .weekly-projects {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .weekly-primary {
+    transition: none;
+  }
+}
+/* Ozon composer lives outside the refreshing calendar. Native dialog keeps focus contained. */
+.ozon-dialog {
+  width: min(880px, calc(100vw - 24px));
+  max-height: calc(100dvh - 32px);
+  box-sizing: border-box;
+  border: 1px solid #d7deea;
+  border-radius: 18px;
+  padding: 24px;
+  color: #18243a;
+  background: #fff;
+  overflow: auto;
+}
+.ozon-dialog::backdrop {
+  background: rgb(15 27 47 / 55%);
+}
+.ozon-head {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: center;
+}
+.ozon-head h2 {
+  margin: 0;
+  font-size: 22px;
+}
+.ozon-dialog button {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid #cad3e1;
+  border-radius: 10px;
+  background: #f4f6fa;
+  color: inherit;
+  cursor: pointer;
+}
+.ozon-dialog button[type='submit'] {
+  background: #174dc7;
+  color: #fff;
+  border-color: #174dc7;
+}
+.ozon-dialog button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.ozon-dialog label {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.ozon-dialog input:not([type='checkbox']),
+.ozon-dialog textarea,
+.ozon-dialog select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px;
+  border: 1px solid #c4cedd;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 400;
+  color: inherit;
+  background: #fff;
+}
+.ozon-dialog textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+.ozon-dialog :focus-visible {
+  outline: 3px solid #497af0;
+  outline-offset: 3px;
+}
+.ozon-form,
+#ozon-settings {
+  display: grid;
+  gap: 18px;
+  margin: 18px 0;
+}
+.ozon-form[hidden],
+#ozon-preview[hidden] {
+  display: none;
+}
+.ozon-settings,
+.ozon-history {
+  padding: 16px 0;
+  border-top: 1px solid #e1e6ee;
+}
+.ozon-dialog summary {
+  cursor: pointer;
+  min-height: 32px;
+}
+.ozon-post-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  line-height: 1.65;
+  padding: 18px;
+  background: #f5f7fb;
+  border-radius: 12px;
+}
+.ozon-photo {
+  display: block;
+  width: 100%;
+  border-radius: 12px;
+  margin: 16px 0;
+}
+.ozon-check {
+  display: flex !important;
+  align-items: start;
+  line-height: 1.5;
+  margin-bottom: 18px;
+}
+.ozon-check input {
+  margin: 5px 0 0;
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+.ozon-history div {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.ozon-references {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.ozon-references figure {
+  margin: 0;
+  width: 120px;
+}
+.ozon-references img {
+  width: 120px;
+  height: 90px;
+  object-fit: contain;
+  background: #f5f7fb;
+}
+.ozon-references figcaption {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+#ozon-notice {
+  overflow-wrap: anywhere;
+}
+@media (min-width: 768px) {
+  .ozon-form {
+    grid-template-columns: 1fr 1fr;
+  }
+  .ozon-wide {
+    grid-column: 1 / -1;
   }
 }

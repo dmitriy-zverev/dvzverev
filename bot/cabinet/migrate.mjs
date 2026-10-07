@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { closeRedis } from '../redis/client.mjs';
 import { openCabinetDb } from './db.mjs';
 import { loadServiceForCabinet, refreshServiceSnapshot } from './projects.mjs';
 import { cabinetTick } from './sync.mjs';
@@ -15,11 +16,15 @@ export async function migrateCabinet(env = process.env) {
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain) {
   migrateCabinet()
-    .then((result) => {
+    .then(async (result) => {
       console.log(JSON.stringify(result));
+      await closeRedis();
     })
     .catch((error) => {
       console.error(error.message);
       process.exitCode = 1;
+    })
+    .finally(() => {
+      process.exit(process.exitCode || 0);
     });
 }

@@ -1,3 +1,5 @@
+import { createOzonComposer } from './ozon.js';
+
 const app = document.getElementById('app');
 if (!app || !('apiBase' in app.dataset)) {
   throw new Error('cabinet_app_missing');
@@ -23,6 +25,12 @@ function resolveApiBase(raw) {
 }
 
 const apiBase = resolveApiBase(app.dataset.apiBase);
+const ozonComposer = createOzonComposer({
+  api,
+  apiBase,
+  escapeText,
+  projectTitle: (id) => state.ozonProjects?.find((p) => p.id === id)?.title || id,
+});
 
 const state = {
   authenticated: false,
@@ -31,6 +39,9 @@ const state = {
   timer: null,
   dataVersion: null,
   vk: null,
+  weekly: null,
+  preparing: false,
+  preparationError: null,
 };
 
 function params() {
@@ -102,6 +113,7 @@ function stopRefresh() {
 }
 
 async function logout() {
+  ozonComposer.close();
   try {
     await api('/bot/api/v1/auth/logout', { method: 'POST' });
   } catch {
@@ -198,9 +210,10 @@ function renderSiteHeader(openCount = 0, data = null) {
         </div>
         ${renderCabinetTabs(openCount)}
         <div class="cabinet-header-actions">
+          <button type="button" class="cabinet-header-home" id="ozon-open">Выпустить рекламный пост</button>
           ${data ? renderStaleIndicator(Boolean(data.service?.stale)) : ''}
           ${data ? renderHeartbeatPill(data) : ''}
-          <a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/vk/login">${state.vk?.connected ? 'Переподключить VK' : 'Войти в VK'}</a>
+          <a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/vk/legacy/login">${state.vk?.connected ? 'Переподключить VK' : 'Войти в VK'}</a>
           <a class="cabinet-header-home" href="/">На сайт</a>
           <button type="button" class="cabinet-header-logout" id="logout">Выйти</button>
         </div>
@@ -246,8 +259,8 @@ function renderVkConnection() {
   const connected = vk?.connected;
   return `<article class="card vk-connection" aria-label="Подключение VK">
     <div><h3>Аккаунт VK</h3><p>${connected ? `Подключён · ID ${escapeText(vk.userId)}` : vk?.unavailable ? 'Не удалось проверить подключение' : 'Аккаунт не подключён'}</p>
-    ${connected ? `<p class="meta">${vk.refreshAvailable ? 'Автоматическое обновление токена включено' : 'Для обновления токена нужен повторный вход'} · действует до ${escapeText(editorialDate(vk.expiresAt))}</p><p class="meta">Выданные права: ${escapeText(vk.grantedScope || 'не указаны VK')}. Вход не подтверждает доступ к публикациям.</p>` : '<p class="meta">Войдите через VK, чтобы сохранить подключение на сервере.</p>'}</div>
-    <a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/vk/login">${connected ? 'Переподключить VK' : 'Войти в VK'}</a>
+    ${connected ? `<p class="meta">${vk.refreshAvailable ? 'Автоматическое обновление токена включено' : 'Для обновления токена нужен повторный вход'} · действует до ${escapeText(editorialDate(vk.expiresAt))}</p><p class="meta">Выданные права: ${escapeText(vk.grantedScope || 'не указаны VK')}. ${vk.canPrepare ? 'Права wall, photos и groups проверены' : 'Вход не подтверждает доступ к публикациям'}.</p>` : '<p class="meta">Войдите через VK, чтобы сохранить подключение на сервере.</p>'}</div>
+    <a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/vk/legacy/login">${connected ? 'Переподключить VK' : 'Войти в VK'}</a>
   </article>`;
 }
 
@@ -442,6 +455,7 @@ function renderAnalyticsSection(bundle) {
 }
 
 function renderLogin(message = '') {
+  ozonComposer.close();
   closeModal();
   app.className = 'cabinet cabinet--gate';
   app.innerHTML = `
@@ -906,7 +920,81 @@ function renderEditorialSection(bundle) {
     </section>`;
 }
 
+function renderWeeklyPreparation() {
+  const batch = state.weekly;
+  if (!batch)
+    return `<section class="weekly-prepare"><p role="status">Не удалось проверить подготовку следующей недели.</p><p class="meta">Обновите страницу. Публикации не запускаются без проверки расписания.</p></section>`;
+  const connected = batch.vk?.canPrepare;
+  const busy = batch.running || state.preparing;
+  const ready = batch.ready;
+  const percent = batch.total ? Math.round((ready / batch.total) * 100) : 0;
+  const date = (value) =>
+    new Intl.DateTimeFormat('ru-RU', {
+      day: 'numeric',
+      month: 'long',
+      timeZone: 'Europe/Moscow',
+    }).format(new Date(value + 'T12:00:00Z'));
+  const projects = [...new Set(batch.posts.map((post) => post.projectId))];
+  const errors = batch.posts.filter((post) => ['failed', 'uncertain'].includes(post.status));
+  return `<section class="weekly-prepare${batch.complete ? ' is-complete' : ''}" aria-labelledby="prepare-title">
+    <div class="weekly-prepare-main">
+      <div class="weekly-prepare-copy"><p class="weekly-eyebrow">Следующая неделя · VK</p><h2 id="prepare-title">${date(batch.week.start)} — ${date(batch.week.end)}</h2>
+      <p class="weekly-description">Вечерние посты с фотографиями — в отложенные VK.<br>Текстовые публикации выходят по обычному расписанию.</p></div>
+      <div class="weekly-prepare-action">
+        <span class="weekly-auth ${connected ? 'is-connected' : ''}"><span aria-hidden="true">${connected ? '●' : '○'}</span> ${connected ? 'VK подключён' : 'Нужен вход в VK'}</span>
+        ${!connected && !batch.complete && !busy ? `<a class="weekly-primary" href="${escapeAttr(apiBase)}/vk/legacy/login">Войти в VK <span aria-hidden="true">↗</span></a>` : `<button class="weekly-primary" type="button" id="prepare-week" ${busy || batch.complete || !batch.missing || !connected ? 'disabled' : ''} aria-busy="${Boolean(busy)}">${busy ? 'Подготавливаем посты…' : batch.complete ? 'Неделя подготовлена ✓' : 'Подготовить посты'}<span aria-hidden="true">${!busy && !batch.complete && batch.missing ? ` · ${batch.missing}` : ''}</span></button>`}
+        <p class="weekly-action-note">${batch.complete ? 'Все фотографии и записи сохранены во VK' : busy ? 'Можно закрыть страницу — подготовка продолжится' : !connected ? 'После входа вернём вас сюда' : batch.uncertain && !batch.missing ? 'Проверьте записи с неизвестным результатом' : 'Генерация и отправка только оставшихся записей'}</p>
+      </div>
+    </div>
+    <div class="weekly-progress-line"><span>${busy ? 'Подготовка идёт' : batch.complete ? 'Всё готово к публикации' : 'Готовность недели'}</span><strong>${ready}<span> / ${batch.total}</span></strong></div>
+    <progress class="weekly-progress" value="${ready}" max="${batch.total || 1}" aria-label="Отложенные посты следующей недели">${percent}%</progress>
+    <div class="weekly-projects">${projects
+      .map((id) => {
+        const posts = batch.posts.filter((p) => p.projectId === id);
+        const done = posts.filter((p) => ['scheduled', 'sent'].includes(p.status)).length;
+        return `<div class="weekly-project"><span>${escapeText(posts[0].title)}</span><strong>${done}<span> / ${posts.length}</span></strong><div class="weekly-days" aria-label="Готовность постов ${escapeAttr(posts[0].title)}">${posts.map((p) => `<span class="weekly-day is-${escapeAttr(p.status)}" title="${escapeAttr(new Date(p.date).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }))} · ${escapeAttr(p.status === 'scheduled' ? 'В отложенных VK' : p.status === 'sent' ? 'Опубликован' : p.status === 'preparing' ? 'Готовится' : p.status === 'failed' ? 'Ошибка' : p.status === 'uncertain' ? 'Нужна проверка' : 'Ожидает подготовки')}"></span>`).join('')}</div></div>`;
+      })
+      .join('')}</div>
+    <div class="weekly-feedback" aria-live="polite">${params().get('vk') === 'connected' ? '<p class="weekly-success">VK подключён. Теперь можно подготовить публикации.</p>' : params().get('vk') === 'error' ? '<p role="alert">VK не подключён. Повторите вход и разрешите доступ к стене, фотографиям и сообществам.</p>' : ''}${state.preparationError ? `<p role="alert">${escapeText(state.preparationError)}</p>` : ''}</div>
+    ${errors.length ? `<details class="weekly-errors"><summary>Требуют внимания · ${errors.length}</summary>${errors.map((p) => `<p><strong>${escapeText(p.title)}</strong> · ${escapeText(new Date(p.date).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }))}<br>${p.status === 'uncertain' ? 'Результат отправки неизвестен. Проверьте отложенные VK: повторная отправка заблокирована.' : 'Не удалось подготовить запись. Следующий запуск продолжит с сохранённого этапа.'}</p>`).join('')}</details>` : ''}
+    ${
+      ready
+        ? `<details class="weekly-links"><summary>Записи в VK · ${ready}</summary><div>${batch.posts
+            .filter((p) => p.url)
+            .map(
+              (p) =>
+                `<a href="${escapeAttr(p.url)}" target="_blank" rel="noopener noreferrer">${escapeText(p.title)} · ${escapeText(new Date(p.date).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }))} ↗</a>`,
+            )
+            .join('')}</div></details>`
+        : ''
+    }
+  </section>`;
+}
+
+async function prepareWeek() {
+  if (state.preparing || state.weekly?.running || !state.weekly?.missing) return;
+  state.preparing = true;
+  state.preparationError = null;
+  const button = document.getElementById('prepare-week');
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Подготавливаем посты…';
+  }
+  try {
+    state.weekly = await api('/bot/api/v1/weekly-preparation', { method: 'POST', body: '{}' });
+  } catch (error) {
+    state.preparationError =
+      error.status === 409
+        ? 'Сначала войдите в VK с необходимыми правами.'
+        : 'Запуск не подтверждён. Обновите страницу, чтобы проверить состояние подготовки.';
+  } finally {
+    state.preparing = false;
+    await loadOverview(true);
+  }
+}
+
 function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
+  state.ozonProjects = data.projects;
   const retainedModal = document.body.classList.contains('modal-open')
     ? document.getElementById('modal')
     : null;
@@ -925,6 +1013,7 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
   const weekPanel =
     tab === 'week'
       ? `
+    ${renderWeeklyPreparation()}
     <section class="summary summary--week-stats" aria-label="Сводка недели: расписание и публикации">
       <div class="week-stats-kpis" role="list" aria-label="Ключевые показатели недели">
         ${renderWeekKpi('Пропущено', summary.missed, 'missed')}
@@ -1069,6 +1158,8 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
   }
 
   document.getElementById('logout').onclick = () => logout();
+  document.getElementById('ozon-open').onclick = () => ozonComposer.open();
+  document.getElementById('prepare-week')?.addEventListener('click', prepareWeek);
   const openServiceTab = () => {
     if (tab === 'service') return;
     setParam('tab', 'service');
@@ -1234,7 +1325,11 @@ async function loadSlotDetails(meta) {
           return `<p class="meta">${escapeText(delivery.platform)}: ${escapeText(delivery.statusLabel)}${reason}${link}</p>`;
         })
         .join('');
+      const retryControl = detail.retryable
+        ? `<div class="modal-form-actions modal-retry-actions"><button type="button" id="retry-publication" class="modal-form-submit">Повторить</button></div><p id="retry-feedback" class="meta" role="status"></p>`
+        : '';
       extra.innerHTML = `
+      ${retryControl}
       <h3 class="modal-section">${releaseBadge ? `${releaseBadge} · ` : ''}Выпуск</h3>
       <dl class="modal-detail-grid">${metaRows}</dl>
       <div class="modal-post-text">${escapeText(detail.edition.bodyText || detail.edition.bodyNotice || 'Текст пока не сохранён')}</div>
@@ -1244,6 +1339,9 @@ async function loadSlotDetails(meta) {
           ? `<div class="modal-history"><h3 class="modal-section">История</h3>${detail.events.map((event) => `<p class="meta">${escapeText(event.createdAt)} · ${escapeText(event.stage)} · ${escapeText(event.message)}</p>`).join('')}</div>`
           : ''
       }`;
+      document.getElementById('retry-publication')?.addEventListener('click', (event) => {
+        retryPublication(event.currentTarget, meta.editionId);
+      });
     } catch (error) {
       extra.innerHTML = `<p class="error-banner" role="alert">${escapeText(publicErrorMessage(error, 'edition'))}</p>`;
     }
@@ -1266,6 +1364,37 @@ async function loadSlotDetails(meta) {
       </div>
     </form>`;
   document.getElementById('plan-form').addEventListener('submit', handlePlanFormSubmit);
+}
+
+function retryFeedback(code) {
+  if (code === 'generation_pending') return 'Публикация уже запускается.';
+  if (code === 'locked') return 'Публикация занята. Повторите через несколько секунд.';
+  if (code === 'paused') return 'Канал на паузе. Снимите паузу и повторите.';
+  if (code === 'not_retryable' || code === 'not_recoverable' || code === 'not_found')
+    return 'Повтор недоступен: пост уже отправлен или исход неизвестен.';
+  return 'Не удалось запустить публикацию. Обновите страницу и повторите.';
+}
+
+async function retryPublication(button, editionId) {
+  if (!editionId) return;
+  const feedback = document.getElementById('retry-feedback');
+  button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
+  button.textContent = 'Запускаем…';
+  try {
+    await api(`/bot/api/v1/editions/${encodeURIComponent(editionId)}/retry`, {
+      method: 'POST',
+      body: '{}',
+    });
+    button.textContent = 'Запущено';
+    if (feedback) feedback.textContent = 'Публикация запущена. Пост уйдёт в ближайшие секунды.';
+    await loadOverview(true);
+  } catch (error) {
+    button.disabled = false;
+    button.removeAttribute('aria-busy');
+    button.textContent = 'Повторить';
+    if (feedback) feedback.textContent = retryFeedback(error.body?.error);
+  }
 }
 
 async function editorialAction(button, request, successText) {
@@ -1547,14 +1676,18 @@ async function loadOverview(manual = false) {
   if (project) query.set('project', project);
   if (status) query.set('status', status);
   try {
-    const [overview, incidents, vk] = await Promise.all([
+    const [overview, incidents, vk, weekly] = await Promise.all([
       api(`/bot/api/v1/overview?${query}`),
       api(
         `/bot/api/v1/incidents?${project ? `project=${encodeURIComponent(project)}&` : ''}status=open`,
       ),
-      api('/bot/api/v1/vk/status').catch((error) => {
+      api('/bot/api/v1/vk/legacy/status').catch((error) => {
         if (error.status === 401) throw error;
         return { unavailable: true };
+      }),
+      api('/bot/api/v1/weekly-preparation').catch((error) => {
+        if (error.status === 401) throw error;
+        return null;
       }),
     ]);
     if (state.dataVersion && overview.data_version < state.dataVersion && !manual) {
@@ -1579,8 +1712,9 @@ async function loadOverview(manual = false) {
     }
     if (requestId !== overviewRequest || requestedSearch !== location.search) return;
     state.vk = vk;
+    state.weekly = weekly?.week && Array.isArray(weekly.posts) ? weekly : null;
     renderOverview(overview, incidents, '', tabBundle);
-    state.backoffMs = 30000;
+    state.backoffMs = weekly?.running ? 3000 : 30000;
   } catch (error) {
     if (requestId !== overviewRequest || requestedSearch !== location.search) return;
     if (error.status === 401) {

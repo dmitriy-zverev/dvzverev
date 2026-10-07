@@ -345,6 +345,16 @@ export async function sendTelegramAnimation(config, entry, caption = '', fetchIm
 async function prepareImages(config, state, entry, { generateImage, uploadImage, notify }) {
   if (!entry.image) return;
   const image = entry.image;
+  // A queued legacy GIF must not survive switching this destination to photos.
+  if (
+    config.staticPhoto &&
+    (image.vk?.attachment?.startsWith('doc') ||
+      (image.status === 'ready' && !(await cachedCover(config, entry.postId))))
+  ) {
+    image.status = 'pending';
+    delete image.vk;
+    await saveState(config, state);
+  }
   const failure = async (target, reason, code = null, model = null, logId = null, error = null) => {
     const event = {
       platform: target,
@@ -713,6 +723,24 @@ export async function publish(
   if (!release) return { status: 'locked' };
   try {
     const state = await readState(config);
+    const weeklySlot = scheduledTask?.slotKey || (!manual && dueSlot(config, now));
+    if (
+      !manual &&
+      config.weeklyImages &&
+      weeklySlot &&
+      config.mediaTimes?.includes(weeklySlot.match(/@(\d{2}:\d{2})\[/)?.[1])
+    ) {
+      const { weeklyDelivery } = await import('./cabinet/weekly-delivery.mjs');
+      const result = await weeklyDelivery(config, weeklySlot, now);
+      if (
+        result.entry &&
+        !state.entries.some((e) => e.slot === weeklySlot && e.platform === 'vk')
+      ) {
+        state.entries.push(result.entry);
+        await saveState(config, state);
+      }
+      return { status: result.status };
+    }
     if (
       config.telegramEnabled !== false &&
       (!/^\d+:[A-Za-z0-9_-]+$/.test(config.token) || !config.chatId.trim()) &&
@@ -1111,6 +1139,80 @@ export async function retryGenerationSlot(config, task, now = new Date()) {
     };
     await saveState(config, state);
     return { status: 'queued', slot: task.slotKey };
+  } finally {
+    await release();
+  }
+}
+
+const BLOCKED_RETRY_STATUSES = new Set(['sent', 'uncertain', 'sending']);
+const CONFIGURATION_PAUSE = new Set(['token_or_permissions', 'invalid_configuration']);
+
+// Republish a failed slot immediately. Generation failures start a new generation.
+// A saved post that never left the server is queued for delivery. Sent and
+// uncertain receipts stay closed so a click cannot duplicate a live post.
+export async function retryUnpublishedSlot(config, slotKey, task = {}, now = new Date()) {
+  await mkdir(dirname(config.statePath), { recursive: true });
+  const release = await acquireLock(`${config.statePath}.lock`);
+  if (!release) return { status: 'locked' };
+  try {
+    const state = await readState(config);
+    const entries = state.entries.filter((entry) => entry.slot === slotKey);
+    if (!entries.length) return { status: 'not_found' };
+    if (entries.some((entry) => BLOCKED_RETRY_STATUSES.has(entry.status)))
+      return { status: 'not_recoverable' };
+    if (state.pendingGeneration) return { status: 'generation_pending' };
+    const generationOnly = entries.every(
+      (entry) => entry.reason === 'generation_exhausted' && entry.status === 'exhausted',
+    );
+    if (generationOnly) {
+      const stored = entries.find((entry) => entry.scheduledTask)?.scheduledTask || {};
+      const event = {
+        platform: 'openrouter',
+        reason: 'operator_generation_recovery',
+        slot: slotKey,
+        status: 'queued',
+      };
+      await logError(config, event);
+      for (const entry of entries) {
+        entry.generationRecovered = true;
+        entry.recoveredAt = now.toISOString();
+      }
+      state.pendingGeneration = {
+        id: `llm-${randomUUID()}`,
+        slot: slotKey,
+        attempts: 0,
+        errors: [],
+        status: 'retry_wait',
+        retryAt: now.toISOString(),
+        scheduledTask: { ...stored, ...task, slotKey },
+      };
+      await saveState(config, state);
+      return { status: 'queued', slot: slotKey };
+    }
+    const targets = entries.filter(
+      (entry) =>
+        ['failed', 'exhausted'].includes(entry.status) &&
+        entry.reason !== 'generation_exhausted' &&
+        (typeof entry.vkText === 'string' || typeof entry.html === 'string'),
+    );
+    if (!targets.length) return { status: 'not_recoverable' };
+    for (const entry of targets) {
+      const platform = entry.platform || 'telegram';
+      const pause = state.pauses[platform];
+      if (pause && CONFIGURATION_PAUSE.has(pause.reason))
+        return { status: 'paused', platform };
+    }
+    for (const entry of targets) {
+      const platform = entry.platform || 'telegram';
+      entry.status = 'retry_wait';
+      entry.attempts = 0;
+      entry.retryAt = now.toISOString();
+      entry.operatorRetryAt = now.toISOString();
+      delete entry.reason;
+      delete state.cooldowns[platform];
+    }
+    await saveState(config, state);
+    return { status: 'queued', slot: slotKey };
   } finally {
     await release();
   }

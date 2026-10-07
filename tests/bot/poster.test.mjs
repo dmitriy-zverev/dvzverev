@@ -25,6 +25,7 @@ import {
   clearRuntimeFailure,
   publicationBackoffSeconds,
   retryGenerationSlot,
+  retryUnpublishedSlot,
 } from '../../bot/core.mjs';
 import { GenerationFailure } from '../../bot/openrouter.mjs';
 
@@ -98,6 +99,72 @@ test('explicit generation recovery keeps failures and cannot reopen delivered sl
   assert.equal(state.entries[0].status, 'exhausted');
   assert.equal(state.entries[0].generationRecovered, true);
   assert.equal((await retryGenerationSlot(config, task)).status, 'delivery_exists');
+});
+
+test('unpublished slot retry queues generation now and refuses a live receipt', async (t) => {
+  const config = { ...(await setup(t)), postSource: 'openrouter', maxAttempts: 1 };
+  const task = { slotKey: '2026-10-07@18:00[Europe/Moscow]', topic: 'Сейчас', brief: 'Коротко' };
+  const failed = await publish(config, {
+    scheduledTask: task,
+    notify: async () => {},
+    generate: async () => {
+      throw new GenerationFailure('invalid_generated_literary_post');
+    },
+  });
+  assert.equal(failed.status, 'exhausted');
+  const queued = await retryUnpublishedSlot(config, task.slotKey, task);
+  assert.equal(queued.status, 'queued');
+  const state = await readState(config);
+  assert.equal(state.pendingGeneration.slot, task.slotKey);
+  assert.equal(state.pendingGeneration.scheduledTask.topic, 'Сейчас');
+  assert.equal(state.pendingGeneration.retryAt <= new Date().toISOString(), true);
+  assert.equal(state.entries[0].generationRecovered, true);
+  assert.equal(state.entries[0].status, 'exhausted');
+  assert.equal((await retryUnpublishedSlot(config, task.slotKey, task)).status, 'generation_pending');
+});
+
+test('unpublished delivery retry sends the saved post now and never reopens sent or uncertain', async (t) => {
+  const config = {
+    ...(await setup(t)),
+    telegramEnabled: false,
+    vkGroupId: '194579254',
+  };
+  const slot = '2026-10-07@18:00[Europe/Moscow]';
+  await mkdir(join(config.statePath, '..'), { recursive: true });
+  const base = {
+    version: 1,
+    chatId: config.chatId,
+    vkGroupId: '194579254',
+    pauses: {},
+    cooldowns: { vk: '2099-01-01T00:00:00.000Z' },
+    deliveryFailureStreaks: {},
+  };
+  const entry = {
+    slot,
+    postId: 'llm-1',
+    platform: 'vk',
+    status: 'exhausted',
+    reason: 'vk_rejected_post',
+    attempts: 3,
+    vkText: 'Текст поста',
+    vkGroupId: '194579254',
+    html: 'Текст поста',
+  };
+  await writeFile(config.statePath, JSON.stringify({ ...base, entries: [{ ...entry, status: 'sent' }] }));
+  assert.equal((await retryUnpublishedSlot(config, slot, { slotKey: slot })).status, 'not_recoverable');
+  await writeFile(
+    config.statePath,
+    JSON.stringify({ ...base, entries: [{ ...entry, status: 'uncertain' }] }),
+  );
+  assert.equal((await retryUnpublishedSlot(config, slot, { slotKey: slot })).status, 'not_recoverable');
+  await writeFile(config.statePath, JSON.stringify({ ...base, entries: [entry] }));
+  assert.equal((await retryUnpublishedSlot(config, slot, { slotKey: slot })).status, 'queued');
+  const state = await readState(config);
+  assert.equal(state.entries[0].status, 'retry_wait');
+  assert.equal(state.entries[0].attempts, 0);
+  assert.equal(state.entries[0].html, 'Текст поста');
+  assert.equal(state.cooldowns.vk, undefined);
+  assert.equal(Date.parse(state.entries[0].retryAt) <= Date.now(), true);
 });
 
 test('CLI preview works without credentials and does not write state', async (t) => {

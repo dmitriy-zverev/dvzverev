@@ -28,7 +28,7 @@ RUN corepack enable pnpm && pnpm install --prod --frozen-lockfile
 FROM alpine:3.24
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 NODE_OPTIONS=--max-old-space-size=96
-RUN apk add --no-cache python3 py3-pillow libstdc++ zlib ca-certificates \
+RUN apk add --no-cache python3 py3-pillow font-dejavu libstdc++ zlib ca-certificates \
     && addgroup -g 1000 node && adduser -D -u 1000 -G node node \
     && mkdir -p /app/data /app/content \
     && chown -R node:node /app \

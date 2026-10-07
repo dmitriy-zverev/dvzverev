@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { getMeta, bumpDataVersion, withTransaction } from './db.mjs';
 import {
   OPERATOR_STATUS,
+  canRetryPublication,
   summaryBucket,
   destinationTitle,
   matchesStatusFilter,
@@ -74,10 +75,11 @@ function readOverviewSnapshot(db, { week, projectFilter, statusFilter }) {
       `${DELIVERY_SNAPSHOT}
        SELECT s.*, p.title AS project_title, e.aggregate_status, e.topic AS edition_topic,
               e.body_text, e.body_removed_at, e.content_expires_at, d.status AS delivery_status,
-              d.external_id, d.platform, d.vk_group_id
+              d.external_id, d.platform, d.vk_group_id, w.status AS weekly_status
        FROM schedule_slots s
        JOIN projects p ON p.project_id = s.project_id
        LEFT JOIN editions e ON e.edition_id = s.edition_id
+       LEFT JOIN vk_weekly_posts w ON w.plan_id = s.plan_id
        LEFT JOIN current_deliveries d ON d.edition_id = s.edition_id AND d.destination_id = s.destination_id
        WHERE s.slot_utc >= ? AND s.slot_utc < ?${projectClause}
        ORDER BY s.slot_utc ASC, s.project_id ASC`,
@@ -197,6 +199,7 @@ function mapAdHocCard(row, timeZone) {
     brief: null,
     status,
     statusLabel: operator.label,
+    weeklyStatus: row.weekly_status || null,
     statusIcon: operator.icon,
     contentPreview,
     vkUrl,
@@ -341,7 +344,7 @@ export function getEdition(db, editionId) {
   const primaryDelivery = deliveries[0];
   const release = plan ? null : classifyReleaseSource(edition.slot_key, primaryDelivery?.post_id);
   const expired = isPayloadExpired(edition);
-  return {
+  const detail = {
     edition: {
       id: edition.edition_id,
       projectId: edition.project_id,
@@ -390,6 +393,8 @@ export function getEdition(db, editionId) {
       createdAt: row.created_at,
     })),
   };
+  detail.retryable = canRetryPublication(detail);
+  return detail;
 }
 
 export function listIncidents(db, { project, status = 'open', cursor = 0, limit = 30 }) {
@@ -456,6 +461,11 @@ export async function patchPlan(
     .prepare('SELECT edition_id, plan_status FROM schedule_slots WHERE plan_id = ?')
     .get(planId);
   if (sqlitePlan?.edition_id) return { error: 'already_started', status: 409 };
+  const weekly = db
+    .prepare('SELECT status,post_json FROM vk_weekly_posts WHERE plan_id=?')
+    .get(planId);
+  if (weekly && (weekly.post_json || weekly.status === 'preparing' || weekly.status === 'posting'))
+    return { error: 'already_started', status: 409 };
 
   if (redisConfigured(env)) {
     const redis = await getRedis(env);

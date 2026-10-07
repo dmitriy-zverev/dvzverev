@@ -91,7 +91,11 @@ export async function runtimeConfigForProject(service, projectId, env, { configR
     alertChatId,
     vkToken,
     vkGroupId,
-    vkPhotosToken: '',
+    vkPhotosToken: vk?.destination.media?.photosCredentialEnv
+      ? env[vk.destination.media.photosCredentialEnv] || ''
+      : '',
+    staticPhoto: vk?.destination.media?.uploadMode === 'photo',
+    weeklyImages: vk?.destination.media?.scheduling === 'vk-weekly',
     imagesEnabled: telegramMedia,
     mediaTimes: vk?.destination.media?.times || telegram?.destination.media?.times || null,
     coverMode: vk?.destination.media?.kind || telegram?.destination.media?.kind || 'image',
@@ -105,7 +109,10 @@ export async function runtimeConfigForProject(service, projectId, env, { configR
       vk?.destination.media?.maxAttempts || telegram?.destination.media?.maxAttempts || 1,
     videoModel: vk?.destination.media?.model || 'bytedance/seedance-1-5-pro',
     vkImagesEnabled: vkMedia,
-    imageModel: env.OPENROUTER_IMAGE_MODEL || DEFAULT_IMAGE_MODEL,
+    imageModel:
+      (vk?.destination.media?.kind === 'image' && vk.destination.media.model) ||
+      env.OPENROUTER_IMAGE_MODEL ||
+      DEFAULT_IMAGE_MODEL,
     vkEnabled: Boolean(vk),
     vkConfigError: Boolean(vk) && (!vkToken || !/^[1-9]\d*$/.test(vkGroupId)),
     maxAttempts: 3,

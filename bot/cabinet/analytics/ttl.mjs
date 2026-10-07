@@ -48,6 +48,10 @@ export function runAnalyticsCleanup(
   };
 
   withTransaction(db, () => {
+    db.prepare(
+      `UPDATE vk_weekly_posts SET post_json=NULL WHERE plan_id IN
+      (SELECT plan_id FROM schedule_slots WHERE slot_utc < ?)`,
+    ).run(cutoff30d);
     const expiredEditions = db
       .prepare(
         `SELECT e.*, d.delivery_id, d.destination_id, d.platform, d.external_id, d.vk_group_id, d.status AS delivery_status

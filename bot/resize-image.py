@@ -10,7 +10,11 @@ with Image.open(sys.argv[1]) as image:
     image = ImageOps.exif_transpose(image).convert('RGB')
     # Preserve the entire composition; add a quiet border if output is not 16:9.
     image = ImageOps.pad(image, (1280, 720), method=Image.Resampling.LANCZOS, color='#071329')
-    # VK renders animated GIF documents as media, while JPG documents are file links.
+    if len(sys.argv) > 3 and sys.argv[3] == 'png':
+        image.save(sys.argv[2], format='PNG', optimize=True)
+        os.chmod(sys.argv[2], 0o600)
+        sys.exit(0)
+    # Legacy GIF documents remain supported for existing queued releases.
     first = image.convert('P', palette=Image.Palette.ADAPTIVE, colors=128)
     second = first.copy()
     # Keep two frames even when the illustration is static (Pillow merges identical frames).

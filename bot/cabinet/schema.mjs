@@ -1,6 +1,25 @@
 export const SCHEMA_VERSION = 5;
 
 export const MIGRATION_SQL = `
+CREATE TABLE IF NOT EXISTS vk_weekly_posts (
+  plan_id TEXT PRIMARY KEY,
+  week_start TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  post_json TEXT,
+  attachment TEXT,
+  post_id INTEGER,
+  group_id TEXT,
+  error TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS vk_weekly_jobs (
+  week_start TEXT PRIMARY KEY,
+  owner TEXT,
+  status TEXT NOT NULL,
+  lease_until INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS cabinet_meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
