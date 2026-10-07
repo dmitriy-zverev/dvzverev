@@ -10,6 +10,47 @@ import { getOAuthBroker } from '../../bot/vk-oauth/routes.mjs';
 import { openCabinetDb } from '../../bot/cabinet/db.mjs';
 import { createSession, ensurePasswordHash } from '../../bot/cabinet/auth.mjs';
 import { startCabinetServer } from '../../bot/cabinet/server.mjs';
+import { createRefreshTick } from '../../bot/vk-oauth/refresh.mjs';
+
+test('background refresh skips disconnected accounts and backs off failed refreshes', async () => {
+  let time = 0,
+    calls = 0,
+    reports = 0,
+    connected = false,
+    fail = true;
+  const tick = createRefreshTick(
+    {
+      status: () => ({ connected }),
+      accessToken: async () => {
+        calls++;
+        if (fail) throw new Error('vk_oauth_exchange_rejected');
+      },
+    },
+    async () => {
+      reports++;
+    },
+    () => time,
+  );
+  await tick();
+  assert.equal(calls, 0);
+  connected = true;
+  await tick();
+  await tick();
+  assert.equal(calls, 1);
+  time = 60000;
+  await tick();
+  assert.equal(calls, 2);
+  time = 120000;
+  await tick();
+  assert.equal(calls, 2);
+  time = 180000;
+  fail = false;
+  await tick();
+  assert.equal(calls, 3);
+  await tick();
+  assert.equal(calls, 4);
+  assert.equal(reports, 2);
+});
 
 async function fixture(t, fetcher) {
   const dir = await mkdtemp(join(tmpdir(), 'vk-oauth-test-'));

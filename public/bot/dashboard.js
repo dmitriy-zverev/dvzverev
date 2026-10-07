@@ -30,6 +30,7 @@ const state = {
   backoffMs: 30000,
   timer: null,
   dataVersion: null,
+  vk: null,
 };
 
 function params() {
@@ -199,6 +200,7 @@ function renderSiteHeader(openCount = 0, data = null) {
         <div class="cabinet-header-actions">
           ${data ? renderStaleIndicator(Boolean(data.service?.stale)) : ''}
           ${data ? renderHeartbeatPill(data) : ''}
+          <a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/vk/login">${state.vk?.connected ? 'Переподключить VK' : 'Войти в VK'}</a>
           <a class="cabinet-header-home" href="/">На сайт</a>
           <button type="button" class="cabinet-header-logout" id="logout">Выйти</button>
         </div>
@@ -214,6 +216,7 @@ function renderServiceSection(data) {
         <h2>Сервис</h2>
         <button type="button" class="panel-refresh" id="refresh">Обновить</button>
       </div>
+      ${renderVkConnection()}
       <div class="service-health ${heartbeat.ok ? 'is-healthy' : 'is-degraded'}"><span class="health-light" aria-hidden="true"></span><div><strong>${heartbeat.ok ? 'Планировщик на связи' : 'Нет подтверждения работы планировщика'}</strong><p class="meta">${heartbeat.ok ? 'Сигнал работы получен. Результаты публикаций смотрите в календаре.' : 'Проверьте контейнер и журнал ошибок перед следующей публикацией.'}</p></div></div>
       <div class="service-metrics"><article class="card"><h3>Последний сигнал</h3><p>${escapeText(editorialDate(heartbeat.updatedAt))}</p>
         ${heartbeat.ageSeconds != null ? `<p class="meta">Получен ${escapeText(heartbeat.ageSeconds)} с назад</p>` : ''}
@@ -236,6 +239,16 @@ function renderServiceSection(data) {
           : ''
       }
     </section>`;
+}
+
+function renderVkConnection() {
+  const vk = state.vk;
+  const connected = vk?.connected;
+  return `<article class="card vk-connection" aria-label="Подключение VK">
+    <div><h3>Аккаунт VK</h3><p>${connected ? `Подключён · ID ${escapeText(vk.userId)}` : vk?.unavailable ? 'Не удалось проверить подключение' : 'Аккаунт не подключён'}</p>
+    ${connected ? `<p class="meta">${vk.refreshAvailable ? 'Автоматическое обновление токена включено' : 'Для обновления токена нужен повторный вход'} · действует до ${escapeText(editorialDate(vk.expiresAt))}</p><p class="meta">Выданные права: ${escapeText(vk.grantedScope || 'не указаны VK')}. Вход не подтверждает доступ к публикациям.</p>` : '<p class="meta">Войдите через VK, чтобы сохранить подключение на сервере.</p>'}</div>
+    <a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/vk/login">${connected ? 'Переподключить VK' : 'Войти в VK'}</a>
+  </article>`;
 }
 
 function renderIncidentsSection(incidents, projects = []) {
@@ -1533,11 +1546,15 @@ async function loadOverview(manual = false) {
   if (project) query.set('project', project);
   if (status) query.set('status', status);
   try {
-    const [overview, incidents] = await Promise.all([
+    const [overview, incidents, vk] = await Promise.all([
       api(`/bot/api/v1/overview?${query}`),
       api(
         `/bot/api/v1/incidents?${project ? `project=${encodeURIComponent(project)}&` : ''}status=open`,
       ),
+      api('/bot/api/v1/vk/status').catch((error) => {
+        if (error.status === 401) throw error;
+        return { unavailable: true };
+      }),
     ]);
     if (state.dataVersion && overview.data_version < state.dataVersion && !manual) {
       overview.service = { ...(overview.service || {}), stale: true };
@@ -1560,6 +1577,7 @@ async function loadOverview(manual = false) {
       }
     }
     if (requestId !== overviewRequest || requestedSearch !== location.search) return;
+    state.vk = vk;
     renderOverview(overview, incidents, '', tabBundle);
     state.backoffMs = 30000;
   } catch (error) {

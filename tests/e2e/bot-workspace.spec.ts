@@ -9,6 +9,14 @@ async function workspace(page: Page, invalid = false, anomalies = false) {
     const path = new URL(route.request().url()).pathname;
     let body: unknown = { items: [], series: [] };
     if (path.endsWith('/auth/session')) body = { authenticated: true };
+    if (path.endsWith('/vk/status'))
+      body = {
+        connected: true,
+        userId: 83357715,
+        expiresAt: '2026-10-07T13:00:00Z',
+        refreshAvailable: true,
+        grantedScope: 'vkid.personal_info',
+      };
     if (path.endsWith('/overview'))
       body = {
         week: { start: '2026-10-05', end: '2026-10-11', timezone: 'Europe/Moscow' },
@@ -102,6 +110,21 @@ test('analytics navigation makes one request and preserves percentage and unknow
   await expect(page.locator('.post-source')).toHaveAttribute('href', 'https://vk.ru/wall-123_1');
   expect(overviewRequests - before).toBe(1);
   await expect(page.locator('.posts-pagination')).toBeVisible();
+});
+
+test('VK login is visible and service shows refresh status without claiming posting rights', async ({
+  page,
+}) => {
+  await workspace(page);
+  await page.goto('/bot/?tab=service');
+  await expect(page.locator('.cabinet-header .vk-login')).toHaveText('Переподключить VK');
+  await expect(page.locator('.cabinet-header .vk-login')).toHaveAttribute('href', /\/vk\/login$/);
+  await expect(page.locator('.vk-connection')).toContainText(
+    'Автоматическое обновление токена включено',
+  );
+  await expect(page.locator('.vk-connection')).toContainText(
+    'Вход не подтверждает доступ к публикациям',
+  );
 });
 
 for (const width of [375, 1280]) {

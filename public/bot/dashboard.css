@@ -1157,6 +1157,22 @@ body:has(.cabinet:not(.cabinet--gate)) {
   text-decoration: underline;
 }
 
+.vk-login {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.vk-connection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
 .cabinet-header-actions {
   grid-area: actions;
   display: flex;

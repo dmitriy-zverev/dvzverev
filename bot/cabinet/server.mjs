@@ -27,7 +27,8 @@ import { createAdHocTask, discardTask } from '../redis/schedule.mjs';
 import { upsertPlanFromRedisTask } from '../redis/sqlite-bridge.mjs';
 import { createLargeBodyReader, handleAnalyticsRoute } from './analytics/routes.mjs';
 import { handleEditorialRoute } from './editorial/routes.mjs';
-import { handleVkOAuthRoute } from '../vk-oauth/routes.mjs';
+import { handleVkOAuthRoute, getOAuthBroker, reportOAuthError } from '../vk-oauth/routes.mjs';
+import { createRefreshTick, startRefreshWorker } from '../vk-oauth/refresh.mjs';
 
 const API_PREFIX = '/bot/api/v1';
 const readBodyLarge = createLargeBodyReader();
@@ -463,6 +464,11 @@ export function startCabinetServer(env = process.env) {
     });
   });
   server.listen(port, env.BOT_CABINET_HOST || 'localhost');
+  if (env.VK_OAUTH_ENABLED === 'true') {
+    const tick = createRefreshTick(getOAuthBroker(env), (error) => reportOAuthError(env, error));
+    const stop = startRefreshWorker(tick);
+    server.once('close', stop);
+  }
   return server;
 }
 

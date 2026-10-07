@@ -141,35 +141,7 @@ export async function handleVkOAuthRoute({
     json(response, 404, { error: 'not_found' }, cors);
     return true;
   } catch (error) {
-    const notifyConfig = {
-      logDir: env.BOT_LOG_DIR || 'bot/data/logs',
-      statePath: resolve(env.BOT_LOG_DIR || 'bot/data/logs', 'vk-oauth-notify.json'),
-      token: env.TELEGRAM_BOT_TOKEN || '',
-      alertChatId: env.BOT_ALERT_CHAT_ID || '',
-    };
-    const logId = await logError(
-      notifyConfig,
-      { platform: 'vk-oauth', reason: 'vk_oauth_operation_failed' },
-      new Error(
-        /^vk_[a-z0-9_]+$/.test(error.message) ? error.message : 'vk_oauth_internal_failure',
-      ),
-    );
-    if (notifyConfig.token && notifyConfig.alertChatId) {
-      try {
-        await sendNotification(
-          notifyConfig,
-          sendTelegram,
-          `<b>Ошибка VK OAuth</b>\nКод: ${/^vk_[a-z0-9_]+$/.test(error.message) ? error.message : 'vk_oauth_internal_failure'}\nЖурнал: ${logId}\nПроверьте операцию в кабинете.`,
-          (failure) => publicationBackoffSeconds(failure, 1),
-        );
-      } catch {
-        await logError(
-          notifyConfig,
-          { platform: 'vk-oauth', reason: 'vk_oauth_alert_failed' },
-          new Error('vk_oauth_alert_failed'),
-        );
-      }
-    }
+    await reportOAuthError(env, error);
     json(
       response,
       error.status || 400,
@@ -181,5 +153,35 @@ export async function handleVkOAuthRoute({
       cors,
     );
     return true;
+  }
+}
+
+export async function reportOAuthError(env, error) {
+  const notifyConfig = {
+    logDir: env.BOT_LOG_DIR || 'bot/data/logs',
+    statePath: resolve(env.BOT_LOG_DIR || 'bot/data/logs', 'vk-oauth-notify.json'),
+    token: env.TELEGRAM_BOT_TOKEN || '',
+    alertChatId: env.BOT_ALERT_CHAT_ID || '',
+  };
+  const logId = await logError(
+    notifyConfig,
+    { platform: 'vk-oauth', reason: 'vk_oauth_operation_failed' },
+    new Error(/^vk_[a-z0-9_]+$/.test(error.message) ? error.message : 'vk_oauth_internal_failure'),
+  );
+  if (notifyConfig.token && notifyConfig.alertChatId) {
+    try {
+      await sendNotification(
+        notifyConfig,
+        sendTelegram,
+        `<b>Ошибка VK OAuth</b>\nКод: ${/^vk_[a-z0-9_]+$/.test(error.message) ? error.message : 'vk_oauth_internal_failure'}\nЖурнал: ${logId}\nПроверьте операцию в кабинете.`,
+        (failure) => publicationBackoffSeconds(failure, 1),
+      );
+    } catch {
+      await logError(
+        notifyConfig,
+        { platform: 'vk-oauth', reason: 'vk_oauth_alert_failed' },
+        new Error('vk_oauth_alert_failed'),
+      );
+    }
   }
 }
