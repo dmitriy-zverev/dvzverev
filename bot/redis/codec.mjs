@@ -15,6 +15,8 @@ export function encodeTask(task) {
     m: task.expectedMedia ?? null,
     a: task.adHoc ? 1 : 0,
     w: task.weekStart,
+    ...(task.rubricRevision != null ? { rv: task.rubricRevision } : {}),
+    ...(task.rubricId ? { ri: task.rubricId, ra: Boolean(task.rubricLegacyAllowed) } : {}),
   });
 }
 
@@ -29,6 +31,8 @@ export function decodeTask(raw) {
   if (!parsed?.i || !parsed?.p || !parsed?.d || !parsed?.u) return null;
   return {
     id: parsed.i,
+    ...(parsed.rv != null ? { rubricRevision: parsed.rv } : {}),
+    ...(parsed.ri ? { rubricId: parsed.ri, rubricLegacyAllowed: Boolean(parsed.ra) } : {}),
     projectId: parsed.p,
     destinationId: parsed.d,
     platform: parsed.pl || 'vk',

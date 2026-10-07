@@ -16,6 +16,8 @@ export { formatPost, formatVkPost } from './content.mjs';
 import { mkdir, readFile, rm } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { openCabinetDb } from './cabinet/db.mjs';
+import { assertSlotCurrent, applyRubricConfig } from './cabinet/rubrics.mjs';
 import { acquireLock } from './lock.mjs';
 import {
   generateCover,
@@ -576,13 +578,30 @@ async function alert(config, state, event, notify) {
 }
 
 async function generateForSlot(config, state, slot, now, generate, notify, scheduledTask = null) {
+  if (config.rubricsManaged && !slot.startsWith('manual:')) {
+    const db = openCabinetDb({ BOT_CABINET_DB_PATH: config.cabinetDbPath });
+    try {
+      const plan = db
+        .prepare('SELECT * FROM schedule_slots WHERE project_id=? AND slot_key=?')
+        .get(config.projectId, slot);
+      if (plan) config = applyRubricConfig(config, assertSlotCurrent(db, plan));
+    } finally {
+      db.close();
+    }
+  }
   const job = (state.pendingGeneration ||= {
     id: `llm-${randomUUID()}`,
     slot,
     attempts: 0,
     errors: [],
     scheduledTask,
+    rubricRevision: config.rubricRevision,
+    rubricId: config.rubricId,
   });
+  if (config.rubricsManaged) {
+    job.rubricId = config.rubricId;
+    job.rubricRevision = config.rubricRevision;
+  }
   const editorialTask = job.scheduledTask || scheduledTask;
   const models = config.openrouterModels?.length
     ? config.openrouterModels
@@ -718,11 +737,88 @@ export async function publish(
     scheduledTask = null,
   } = {},
 ) {
+  let rubricSlot = null;
+  const checkRubric = (key = null) => {
+    if (!config.rubricsManaged || manual) return null;
+    const db = openCabinetDb({ BOT_CABINET_DB_PATH: config.cabinetDbPath });
+    try {
+      const slot = key
+        ? db
+            .prepare('SELECT * FROM schedule_slots WHERE project_id=? AND slot_key=?')
+            .get(config.projectId, key)
+        : scheduledTask
+          ? db.prepare('SELECT * FROM schedule_slots WHERE plan_id=?').get(scheduledTask.id)
+          : db
+              .prepare('SELECT * FROM schedule_slots WHERE project_id=? AND slot_key=?')
+              .get(config.projectId, dueSlot(config, now));
+      if (!slot) return null;
+      if (rubricSlot && slot.plan_id === rubricSlot.plan_id && slot.version !== rubricSlot.version)
+        throw new Error('rubric_slot_cancelled');
+      const rubric = assertSlotCurrent(db, slot);
+      if (
+        scheduledTask?.id === slot.plan_id &&
+        scheduledTask.version != null &&
+        scheduledTask.version !== slot.version
+      )
+        throw new Error('rubric_slot_cancelled');
+      rubricSlot = slot;
+      return rubric;
+    } finally {
+      db.close();
+    }
+  };
+  try {
+    config = applyRubricConfig(config, checkRubric());
+  } catch (error) {
+    if (error.message === 'rubric_slot_cancelled') return { status: 'cancelled' };
+    throw error;
+  }
   await mkdir(dirname(config.statePath), { recursive: true });
   const release = await acquireLock(`${config.statePath}.lock`);
   if (!release) return { status: 'locked' };
   try {
     const state = await readState(config);
+    if (config.rubricsManaged && !manual) {
+      const db = openCabinetDb({ BOT_CABINET_DB_PATH: config.cabinetDbPath });
+      try {
+        for (const saved of [
+          ...state.entries,
+          ...(state.pendingGeneration ? [state.pendingGeneration] : []),
+        ]) {
+          if (
+            ['sent', 'partially_sent', 'uncertain', 'sending'].includes(saved.status) ||
+            saved.generationRecovered ||
+            saved.slot?.startsWith('manual:')
+          )
+            continue;
+          const slot = db
+            .prepare('SELECT * FROM schedule_slots WHERE project_id=? AND slot_key=?')
+            .get(config.projectId, saved.slot);
+          if (!slot) continue;
+          let stale = false;
+          try {
+            const rubric = assertSlotCurrent(db, slot);
+            stale = Boolean(
+              rubric &&
+              ((saved.rubricRevision || 1) !== rubric.revision ||
+                (saved.rubricId ? saved.rubricId !== rubric.id : !rubric.adoptLegacy)),
+            );
+          } catch {
+            stale = true;
+          }
+          if (stale) {
+            if (saved === state.pendingGeneration) delete state.pendingGeneration;
+            else {
+              saved.status = 'failed';
+              saved.reason = 'rubric_slot_cancelled';
+              saved.generationRecovered = true;
+            }
+          }
+        }
+      } finally {
+        db.close();
+      }
+    }
     const weeklySlot = scheduledTask?.slotKey || (!manual && dueSlot(config, now));
     if (
       !manual &&
@@ -731,7 +827,15 @@ export async function publish(
       config.mediaTimes?.includes(weeklySlot.match(/@(\d{2}:\d{2})\[/)?.[1])
     ) {
       const { weeklyDelivery } = await import('./cabinet/weekly-delivery.mjs');
-      const result = await weeklyDelivery(config, weeklySlot, now);
+      const result = await weeklyDelivery(
+        config,
+        weeklySlot,
+        now,
+        fetch,
+        config.cabinetDbPath
+          ? { ...process.env, BOT_CABINET_DB_PATH: config.cabinetDbPath }
+          : process.env,
+      );
       if (
         result.entry &&
         !state.entries.some((e) => e.slot === weeklySlot && e.platform === 'vk')
@@ -822,8 +926,13 @@ export async function publish(
                   retryAt: state.pendingGeneration.retryAt,
                 }
               : { status: 'exhausted', platform: 'openrouter', reason: 'generation_exhausted' };
-        } catch {
-          if (useLlm) throw new Error('Generation state could not be persisted');
+        } catch (error) {
+          if (error.message === 'rubric_slot_cancelled') {
+            if (state.pendingGeneration?.slot === slot) delete state.pendingGeneration;
+            await saveState(config, state);
+            return { status: 'cancelled' };
+          }
+          if (useLlm) throw new Error('Generation state could not be persisted', { cause: error });
           state.pauses.queue = {
             platform: 'queue',
             reason: 'invalid_queue',
@@ -835,6 +944,8 @@ export async function publish(
         if ((useLlm && post) || (!useLlm && !state.pauses.queue)) {
           entry = {
             slot,
+            rubricRevision: state.pendingGeneration?.rubricRevision || config.rubricRevision,
+            rubricId: state.pendingGeneration?.rubricId || config.rubricId,
             status: post
               ? useLlm || mediaForSlot(config, slot, now)
                 ? 'retry_wait'
@@ -936,11 +1047,30 @@ export async function publish(
           postId: entry.postId,
           retryAt: entry.retryAt || state.cooldowns.telegram,
         };
+      try {
+        checkRubric(entry.slot);
+      } catch (error) {
+        if (error.message !== 'rubric_slot_cancelled') throw error;
+        entry.status = 'failed';
+        entry.reason = 'rubric_slot_cancelled';
+        await saveState(config, state);
+        return { status: 'cancelled' };
+      }
       entry.status = 'sending';
       entry.attempts = (entry.attempts || 0) + 1;
       delete entry.retryAt;
       await saveState(config, state);
       const started = Date.now();
+      try {
+        checkRubric(entry.slot);
+      } catch (error) {
+        if (error.message !== 'rubric_slot_cancelled') throw error;
+        entry.status = 'failed';
+        entry.reason = 'rubric_slot_cancelled';
+        entry.generationRecovered = true;
+        await saveState(config, state);
+        return { status: 'cancelled' };
+      }
       try {
         if (entry.platform === 'vk') {
           entry.vkPostId = await sendVK(config, entry);
@@ -1199,8 +1329,7 @@ export async function retryUnpublishedSlot(config, slotKey, task = {}, now = new
     for (const entry of targets) {
       const platform = entry.platform || 'telegram';
       const pause = state.pauses[platform];
-      if (pause && CONFIGURATION_PAUSE.has(pause.reason))
-        return { status: 'paused', platform };
+      if (pause && CONFIGURATION_PAUSE.has(pause.reason)) return { status: 'paused', platform };
     }
     for (const entry of targets) {
       const platform = entry.platform || 'telegram';

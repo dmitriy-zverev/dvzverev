@@ -34,6 +34,32 @@ async function setup(t) {
   };
 }
 const entry = { postId: 'video-test', image: { text: 'Memory of an unwritten letter' } };
+
+test('short wall video keeps MP4 and uses cached output without GIF conversion or a second paid job', async (t) => {
+  const config = { ...(await setup(t)), videoOutput: true };
+  const mock = provider();
+  const mp4 = Buffer.from([0, 0, 0, 16, 102, 116, 121, 112, 105, 115, 111, 109, 0, 0, 0, 0]);
+  const fetchImpl = async (url, init) =>
+    url.includes('/content')
+      ? { ok: true, body: [mp4], headers: { get: () => null } }
+      : mock.fetch(url, init);
+  await assert.rejects(generateVideoCover(config, entry, { fetchImpl }), ImagePending);
+  const result = await generateVideoCover(config, entry, {
+    fetchImpl,
+    convert: async () => {
+      throw new Error('Must preserve MP4');
+    },
+  });
+  assert.equal(result.format, 'mp4');
+  assert.ok(result.path.endsWith('.mp4'));
+  assert.deepEqual(await readFile(result.path), mp4);
+  await generateVideoCover(config, entry, {
+    fetchImpl: async () => {
+      throw new Error('Must use cached MP4');
+    },
+  });
+  assert.equal(mock.posts, 1);
+});
 function provider() {
   let posts = 0;
   return {

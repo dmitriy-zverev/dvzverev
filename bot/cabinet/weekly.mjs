@@ -5,7 +5,10 @@ import { addDaysYmd, isoWeekStart, localSlotToUtc, zonedParts } from './time.mjs
 import { materializeScheduleSlots } from './sync.mjs';
 import { loadAppConfig } from '../app-config.mjs';
 import { generatePost } from '../openrouter.mjs';
-import { generateCover, uploadVkPhoto } from '../images.mjs';
+import { generateCover, uploadVkPhoto, ImagePending, coverPath } from '../images.mjs';
+import { generateVideoCover } from '../videos.mjs';
+import { assertSlotCurrent, applyRubricConfig } from './rubrics.mjs';
+import { ensureRubrics } from './rubrics.mjs';
 import { formatVkPost } from '../content.mjs';
 import { getWeeklyVkClient } from '../vk-oauth/legacy.mjs';
 import { reportOAuthError } from '../vk-oauth/routes.mjs';
@@ -21,21 +24,27 @@ export function nextWeek(now = new Date()) {
   };
 }
 
-export function weeklySnapshot(db, now = new Date()) {
+export function weeklySnapshot(db, now = new Date(), current = false) {
   db.prepare(
     `UPDATE vk_weekly_posts SET post_json=NULL WHERE plan_id IN
     (SELECT plan_id FROM schedule_slots WHERE slot_utc < ?)`,
   ).run(new Date(now.getTime() - 30 * 86400000).toISOString());
   const week = nextWeek(now);
+  if (current) {
+    week.start = addDaysYmd(week.start, -7);
+    week.end = addDaysYmd(week.start, 6);
+    week.from = now.toISOString();
+    week.to = localSlotToUtc(addDaysYmd(week.start, 7), '00:00', 'Europe/Moscow').toISOString();
+  }
   const job = db.prepare('SELECT * FROM vk_weekly_jobs WHERE week_start = ?').get(week.start);
   const running = job?.status === 'running' && job.lease_until > now.getTime();
   const rows = db
     .prepare(
       `SELECT s.plan_id, s.project_id, p.title, s.destination_id, s.slot_utc,
-      s.topic, s.brief, w.status, w.post_id, w.group_id, w.error
+      s.topic, s.brief, s.expected_media, w.status, w.post_id, w.group_id, w.error
     FROM schedule_slots s JOIN projects p USING(project_id)
     LEFT JOIN vk_weekly_posts w USING(plan_id)
-    WHERE s.slot_utc >= ? AND s.slot_utc < ? AND s.publication_kind = 'image'
+    WHERE s.slot_utc >= ? AND s.slot_utc < ? AND s.publication_kind IN ('image','video')
       AND s.plan_status != 'cancelled' AND p.enabled = 1
     ORDER BY s.slot_utc, s.project_id`,
     )
@@ -46,6 +55,7 @@ export function weeklySnapshot(db, now = new Date()) {
     title: r.title,
     date: r.slot_utc,
     topic: r.topic,
+    media: r.expected_media,
     status: r.status === 'posting' && !running ? 'uncertain' : r.status || 'pending',
     error: r.error,
     url: r.post_id ? `https://vk.ru/wall-${r.group_id}_${r.post_id}` : null,
@@ -65,11 +75,12 @@ export function weeklySnapshot(db, now = new Date()) {
   };
 }
 
-export async function ensureWeeklySnapshot(db, env, now = new Date()) {
+export async function ensureWeeklySnapshot(db, env, now = new Date(), current = false) {
   const app = await loadAppConfig(env);
   if (app.mode !== 'multi') throw new Error('vk_weekly_multi_config_required');
+  ensureRubrics(db, app.service, now);
   materializeScheduleSlots(db, app.service, env, now);
-  return weeklySnapshot(db, now);
+  return weeklySnapshot(db, now, current);
 }
 
 // A durable lease protects all HTTP requests and replicas, not just this process.
@@ -122,7 +133,7 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
       .prepare(
         `SELECT s.* FROM schedule_slots s JOIN projects p USING(project_id)
       LEFT JOIN vk_weekly_posts w USING(plan_id) WHERE s.slot_utc>=? AND s.slot_utc<?
-      AND s.publication_kind='image' AND s.plan_status!='cancelled' AND p.enabled=1
+      AND s.publication_kind IN ('image','video') AND s.plan_status!='cancelled' AND p.enabled=1
       AND (w.status IS NULL OR w.status NOT IN ('scheduled','sent','uncertain','posting'))
       ORDER BY s.slot_utc,s.project_id`,
       )
@@ -131,6 +142,7 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
         localSlotToUtc(addDaysYmd(week, 7), '00:00', 'Europe/Moscow').toISOString(),
       );
     for (const slot of rows) {
+      if (Date.parse(slot.slot_utc) <= Date.now()) continue;
       if (!owned()) throw new Error('vk_weekly_lease_lost');
       let dispatching = false;
       let created = false;
@@ -142,16 +154,25 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
       bumpDataVersion(db);
       try {
         const token = await client.accessToken();
+        const rubric = assertSlotCurrent(db, slot);
+        const video = slot.expected_media === 'video';
+        if (video && !client.status?.().canVideo) throw new Error('vk_video_permission_required');
         const config = {
-          ...(await app.resolveProjectConfig(slot.project_id)),
+          ...applyRubricConfig(await app.resolveProjectConfig(slot.project_id), rubric),
           vkPhotosToken: token,
-          staticPhoto: true,
-          coverMode: 'image',
+          staticPhoto: !video,
+          videoOutput: video,
+          coverMode: video ? 'video' : 'image',
           editorialPlan: { topic: slot.topic || '', brief: slot.brief || '' },
         };
         config.openrouterPrompt += `\nРедакторский план имеет приоритет в рамках достоверности и обязательного формата: ${JSON.stringify(config.editorialPlan)}`;
         let stored = db.prepare('SELECT * FROM vk_weekly_posts WHERE plan_id=?').get(slot.plan_id);
-        const id = 'weekly-' + createHash('sha256').update(slot.plan_id).digest('hex').slice(0, 32);
+        const id =
+          'weekly-' +
+          createHash('sha256')
+            .update(`${slot.plan_id}:${rubric?.revision || 1}`)
+            .digest('hex')
+            .slice(0, 32);
         const recent = db
           .prepare(
             'SELECT post_json FROM vk_weekly_posts WHERE post_json IS NOT NULL AND plan_id IN (SELECT plan_id FROM schedule_slots WHERE project_id=?) ORDER BY updated_at DESC LIMIT 30',
@@ -176,10 +197,38 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
         );
         let attachment = stored.attachment;
         if (!attachment) {
-          const image = await cover(config, { postId: id, image: { text: message } });
-          const uploaded = await upload(config, { postId: id, vkGroupId: config.vkGroupId, image });
+          let image;
+          if (video) {
+            for (let attempt = 0; attempt < 90; attempt++) {
+              assertSlotCurrent(db, slot);
+              if (!owned()) throw new Error('vk_weekly_lease_lost');
+              try {
+                image = await (dependencies.video || generateVideoCover)(config, {
+                  postId: id,
+                  image: { text: message },
+                });
+                break;
+              } catch (error) {
+                if (!(error instanceof ImagePending)) throw error;
+                await pause(10000);
+              }
+            }
+            if (!image) throw new Error('vk_video_generation_timeout');
+          } else image = await cover(config, { postId: id, image: { text: message } });
+          const uploaded = video
+            ? await client.uploadVideo(
+                'group',
+                config.vkGroupId,
+                image.path || coverPath(config, id),
+                rubric?.name || 'Видеоистория',
+              )
+            : await upload(config, { postId: id, vkGroupId: config.vkGroupId, image });
           attachment = typeof uploaded === 'string' ? uploaded : uploaded.attachment;
-          if (!/^photo-?\d+_\d+(?:_[\w-]+)?$/.test(attachment || ''))
+          if (
+            !(video ? /^video-?\d+_\d+(?:_[\w-]+)?$/ : /^photo-?\d+_\d+(?:_[\w-]+)?$/).test(
+              attachment || '',
+            )
+          )
             throw new Error('vk_photo_save_invalid');
           db.prepare('UPDATE vk_weekly_posts SET attachment=? WHERE plan_id=?').run(
             attachment,
@@ -188,6 +237,9 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
         }
         await client.accessToken();
         if (!owned()) throw new Error('vk_weekly_lease_lost');
+        assertSlotCurrent(db, slot);
+        if (Date.parse(slot.slot_utc) <= Date.now() + 60000)
+          throw new Error('vk_weekly_slot_too_late');
         db.prepare(
           "UPDATE vk_weekly_posts SET status='posting',attempts=attempts+1,updated_at=? WHERE plan_id=?",
         ).run(new Date().toISOString(), slot.plan_id);
@@ -216,8 +268,8 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
           saved.date !== Math.floor(Date.parse(slot.slot_utc) / 1000) ||
           !saved.attachments?.some(
             (a) =>
-              a.type === 'photo' &&
-              `photo${a.photo?.owner_id}_${a.photo?.id}` ===
+              a.type === (video ? 'video' : 'photo') &&
+              `${video ? 'video' : 'photo'}${a[a.type]?.owner_id}_${a[a.type]?.id}` ===
                 attachment.split('_').slice(0, 2).join('_'),
           )
         )
@@ -231,7 +283,8 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
             .digest('hex')
             .slice(0, 32);
           db.prepare(
-            `INSERT OR IGNORE INTO editions(edition_id,project_id,slot_key,plan_id,format,topic,brief,body_text,aggregate_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,'ready',?,?)`,
+            `INSERT INTO editions(edition_id,project_id,slot_key,plan_id,format,topic,brief,body_text,aggregate_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,'ready',?,?)
+             ON CONFLICT(edition_id) DO UPDATE SET body_text=excluded.body_text,topic=excluded.topic,brief=excluded.brief,aggregate_status='ready',updated_at=excluded.updated_at`,
           ).run(
             editionId,
             slot.project_id,
@@ -248,7 +301,8 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
             "UPDATE schedule_slots SET edition_id=?,plan_status='ready',updated_at=? WHERE plan_id=?",
           ).run(editionId, stamp, slot.plan_id);
           db.prepare(
-            `INSERT OR IGNORE INTO deliveries(delivery_id,edition_id,project_id,destination_id,platform,status,post_id,external_id,vk_group_id,created_at,updated_at) VALUES (?,?,?,?,'vk','planned',?,?,?,?,?)`,
+            `INSERT INTO deliveries(delivery_id,edition_id,project_id,destination_id,platform,status,post_id,external_id,vk_group_id,created_at,updated_at) VALUES (?,?,?,?,'vk','planned',?,?,?,?,?)
+             ON CONFLICT(delivery_id) DO UPDATE SET edition_id=excluded.edition_id,status='planned',post_id=excluded.post_id,external_id=excluded.external_id,updated_at=excluded.updated_at`,
           ).run(
             `${slot.slot_key}:${slot.destination_id}:vk`,
             editionId,

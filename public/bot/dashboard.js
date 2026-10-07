@@ -1,4 +1,5 @@
 import { createOzonComposer } from './ozon.js';
+import { createRubricManager } from './rubrics.js';
 
 const app = document.getElementById('app');
 if (!app || !('apiBase' in app.dataset)) {
@@ -25,6 +26,20 @@ function resolveApiBase(raw) {
 }
 
 const apiBase = resolveApiBase(app.dataset.apiBase);
+const rubricManager = createRubricManager({
+  api,
+  escapeText,
+  refresh: (result) => {
+    if (result?.removed && params().get('rubric') === result.id) setParam('rubric', '');
+    return loadOverview(true);
+  },
+  apiBase: apiBase + '/bot/api/v1',
+  selectProject: (id) => {
+    setParam('project', id);
+    setParam('rubric', '');
+    loadOverview(true);
+  },
+});
 const ozonComposer = createOzonComposer({
   api,
   apiBase,
@@ -131,6 +146,7 @@ function activeTab() {
       'incidents',
       'service',
       'editorial',
+      'rubrics',
       'analytics',
       'analytics-posts',
       'analytics-imports',
@@ -194,6 +210,7 @@ function renderCabinetTabs(openCount = 0) {
   return `
     <nav class="cabinet-tabs" aria-label="Разделы">
       <button type="button" class="cabinet-tab${tab === 'week' ? ' is-active' : ''}" data-tab="week" aria-current="${tab === 'week' ? 'page' : 'false'}">Неделя</button>
+      <button type="button" class="cabinet-tab${tab === 'rubrics' ? ' is-active' : ''}" data-tab="rubrics" aria-current="${tab === 'rubrics' ? 'page' : 'false'}">Рубрики</button>
       <button type="button" class="cabinet-tab${editorialActive ? ' is-active' : ''}" data-tab="editorial" aria-current="${editorialActive ? 'page' : 'false'}">Редакция</button>
       <button type="button" class="cabinet-tab${analyticsActive ? ' is-active' : ''}" data-tab="analytics" aria-current="${analyticsActive ? 'page' : 'false'}">Аналитика</button>
       <button type="button" class="cabinet-tab${tab === 'incidents' ? ' is-active' : ''}" data-tab="incidents" aria-current="${tab === 'incidents' ? 'page' : 'false'}">Инциденты${badge}</button>
@@ -213,7 +230,7 @@ function renderSiteHeader(openCount = 0, data = null) {
           <button type="button" class="cabinet-header-home" id="ozon-open">Выпустить рекламный пост</button>
           ${data ? renderStaleIndicator(Boolean(data.service?.stale)) : ''}
           ${data ? renderHeartbeatPill(data) : ''}
-          <a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/vk/legacy/login">${state.vk?.connected ? 'Переподключить VK' : 'Войти в VK'}</a>
+          <a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/bot/api/v1/vk/legacy/login">${state.vk?.connected ? 'Переподключить VK' : 'Войти в VK'}</a>
           <a class="cabinet-header-home" href="/">На сайт</a>
           <button type="button" class="cabinet-header-logout" id="logout">Выйти</button>
         </div>
@@ -260,7 +277,7 @@ function renderVkConnection() {
   return `<article class="card vk-connection" aria-label="Подключение VK">
     <div><h3>Аккаунт VK</h3><p>${connected ? `Подключён · ID ${escapeText(vk.userId)}` : vk?.unavailable ? 'Не удалось проверить подключение' : 'Аккаунт не подключён'}</p>
     ${connected ? `<p class="meta">${vk.refreshAvailable ? 'Автоматическое обновление токена включено' : 'Для обновления токена нужен повторный вход'} · действует до ${escapeText(editorialDate(vk.expiresAt))}</p><p class="meta">Выданные права: ${escapeText(vk.grantedScope || 'не указаны VK')}. ${vk.canPrepare ? 'Права wall, photos и groups проверены' : 'Вход не подтверждает доступ к публикациям'}.</p>` : '<p class="meta">Войдите через VK, чтобы сохранить подключение на сервере.</p>'}</div>
-    <a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/vk/legacy/login">${connected ? 'Переподключить VK' : 'Войти в VK'}</a>
+    <a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/bot/api/v1/vk/legacy/login">${connected ? 'Переподключить VK' : 'Войти в VK'}</a>
   </article>`;
 }
 
@@ -456,6 +473,7 @@ function renderAnalyticsSection(bundle) {
 
 function renderLogin(message = '') {
   ozonComposer.close();
+  rubricManager.reset();
   closeModal();
   app.className = 'cabinet cabinet--gate';
   app.innerHTML = `
@@ -924,7 +942,12 @@ function renderWeeklyPreparation() {
   const batch = state.weekly;
   if (!batch)
     return `<section class="weekly-prepare"><p role="status">Не удалось проверить подготовку следующей недели.</p><p class="meta">Обновите страницу. Публикации не запускаются без проверки расписания.</p></section>`;
-  const connected = batch.vk?.canPrepare;
+  if (!batch.total && !batch.current?.total)
+    return `<section class="weekly-prepare"><p class="weekly-eyebrow">Недельная подготовка</p><h2>Медиа-публикаций пока нет</h2><p class="weekly-description">Добавьте рубрику с фото или коротким видео. Её публикации появятся здесь для подготовки на неделю.</p><button type="button" id="prepare-rubrics">Настроить рубрики →</button></section>`;
+  const needsVideo = [...batch.posts, ...(batch.current?.posts || [])].some(
+    (p) => p.media === 'video' && !['scheduled', 'sent'].includes(p.status),
+  );
+  const connected = batch.vk?.canPrepare && (!needsVideo || batch.vk?.canVideo);
   const busy = batch.running || state.preparing;
   const ready = batch.ready;
   const percent = batch.total ? Math.round((ready / batch.total) * 100) : 0;
@@ -935,14 +958,16 @@ function renderWeeklyPreparation() {
       timeZone: 'Europe/Moscow',
     }).format(new Date(value + 'T12:00:00Z'));
   const projects = [...new Set(batch.posts.map((post) => post.projectId))];
-  const errors = batch.posts.filter((post) => ['failed', 'uncertain'].includes(post.status));
+  const errors = [...batch.posts, ...(batch.current?.posts || [])].filter((post) =>
+    ['failed', 'uncertain'].includes(post.status),
+  );
   return `<section class="weekly-prepare${batch.complete ? ' is-complete' : ''}" aria-labelledby="prepare-title">
     <div class="weekly-prepare-main">
       <div class="weekly-prepare-copy"><p class="weekly-eyebrow">Следующая неделя · VK</p><h2 id="prepare-title">${date(batch.week.start)} — ${date(batch.week.end)}</h2>
-      <p class="weekly-description">Вечерние посты с фотографиями — в отложенные VK.<br>Текстовые публикации выходят по обычному расписанию.</p></div>
+      <p class="weekly-description">Фото и короткие видео рубрик — в отложенные VK.<br>Текстовые публикации выходят по расписанию рубрик.</p></div>
       <div class="weekly-prepare-action">
         <span class="weekly-auth ${connected ? 'is-connected' : ''}"><span aria-hidden="true">${connected ? '●' : '○'}</span> ${connected ? 'VK подключён' : 'Нужен вход в VK'}</span>
-        ${!connected && !batch.complete && !busy ? `<a class="weekly-primary" href="${escapeAttr(apiBase)}/vk/legacy/login">Войти в VK <span aria-hidden="true">↗</span></a>` : `<button class="weekly-primary" type="button" id="prepare-week" ${busy || batch.complete || !batch.missing || !connected ? 'disabled' : ''} aria-busy="${Boolean(busy)}">${busy ? 'Подготавливаем посты…' : batch.complete ? 'Неделя подготовлена ✓' : 'Подготовить посты'}<span aria-hidden="true">${!busy && !batch.complete && batch.missing ? ` · ${batch.missing}` : ''}</span></button>`}
+        ${!connected && !batch.complete && !busy ? `<a class="weekly-primary" href="${escapeAttr(apiBase)}/bot/api/v1/vk/legacy/login">Войти в VK <span aria-hidden="true">↗</span></a>` : `<button class="weekly-primary" type="button" id="prepare-week" ${busy || batch.complete || !batch.missing || !connected ? 'disabled' : ''} aria-busy="${Boolean(busy)}">${busy ? 'Подготавливаем посты…' : batch.complete ? 'Неделя подготовлена ✓' : 'Подготовить посты'}<span aria-hidden="true">${!busy && !batch.complete && batch.missing ? ` · ${batch.missing}` : ''}</span></button>`}
         <p class="weekly-action-note">${batch.complete ? 'Все фотографии и записи сохранены во VK' : busy ? 'Можно закрыть страницу — подготовка продолжится' : !connected ? 'После входа вернём вас сюда' : batch.uncertain && !batch.missing ? 'Проверьте записи с неизвестным результатом' : 'Генерация и отправка только оставшихся записей'}</p>
       </div>
     </div>
@@ -968,24 +993,32 @@ function renderWeeklyPreparation() {
             .join('')}</div></details>`
         : ''
     }
+    ${batch.current ? `<div class="weekly-current"><div><strong>Дополнить текущую неделю</strong><p class="meta">${batch.current.ready} из ${batch.current.total} готово · ${batch.current.missing} осталось. Только ещё не вышедшие посты.</p></div><button type="button" id="prepare-current" ${batch.current.running || !batch.current.missing || !connected ? 'disabled' : ''}>${batch.current.running ? 'Готовим…' : 'Дополнить неделю'}</button></div>` : ''}
   </section>`;
 }
 
-async function prepareWeek() {
-  if (state.preparing || state.weekly?.running || !state.weekly?.missing) return;
+async function prepareWeek(current = false) {
+  const batch = current ? state.weekly?.current : state.weekly;
+  if (state.preparing || batch?.running || !batch?.missing) return;
   state.preparing = true;
   state.preparationError = null;
-  const button = document.getElementById('prepare-week');
+  const button = document.getElementById(current ? 'prepare-current' : 'prepare-week');
   if (button) {
     button.disabled = true;
     button.textContent = 'Подготавливаем посты…';
   }
   try {
-    state.weekly = await api('/bot/api/v1/weekly-preparation', { method: 'POST', body: '{}' });
+    const result = await api('/bot/api/v1/weekly-preparation' + (current ? '?scope=current' : ''), {
+      method: 'POST',
+      body: '{}',
+    });
+    if (!current) state.weekly = result;
   } catch (error) {
     state.preparationError =
       error.status === 409
-        ? 'Сначала войдите в VK с необходимыми правами.'
+        ? error.body?.error === 'vk_video_permission_required'
+          ? 'Войдите в VK повторно и разрешите доступ к видео.'
+          : 'Сначала войдите в VK с необходимыми правами.'
         : 'Запуск не подтверждён. Обновите страницу, чтобы проверить состояние подготовки.';
   } finally {
     state.preparing = false;
@@ -1080,6 +1113,7 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
               )
               .join('')}
           </select>
+          <select id="rubric-filter" aria-label="Рубрика"><option value="">Все рубрики</option><option value="none" ${params().get('rubric') === 'none' ? 'selected' : ''}>Без рубрики</option>${(data.rubrics || []).map((r) => `<option value="${escapeAttr(r.id)}" ${params().get('rubric') === r.id ? 'selected' : ''}>${escapeText(r.name)}</option>`).join('')}</select>
         </div>
         <button type="button" class="toolbar-refresh" id="refresh">Обновить</button>
       </div>
@@ -1136,6 +1170,7 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
     ${renderSiteHeader(openCount, data)}
     ${errorMessage ? `<div class="error-banner" role="alert">${escapeText(errorMessage)}</div>` : ''}
     ${weekPanel}
+    ${tab === 'rubrics' ? rubricManager.render(data, project) : ''}
     ${editorialPanel}
     ${analyticsPanel}
     ${incidentsPanel}
@@ -1159,7 +1194,17 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
 
   document.getElementById('logout').onclick = () => logout();
   document.getElementById('ozon-open').onclick = () => ozonComposer.open();
-  document.getElementById('prepare-week')?.addEventListener('click', prepareWeek);
+  document.getElementById('prepare-week')?.addEventListener('click', () => prepareWeek());
+  document.getElementById('prepare-current')?.addEventListener('click', () => prepareWeek(true));
+  document.getElementById('prepare-rubrics')?.addEventListener('click', () => {
+    setParam('tab', 'rubrics');
+    loadOverview(true);
+  });
+  if (tab === 'rubrics') rubricManager.bind(app, data, project);
+  document.getElementById('rubric-filter')?.addEventListener('change', (event) => {
+    setParam('rubric', event.target.value);
+    loadOverview(true);
+  });
   const openServiceTab = () => {
     if (tab === 'service') return;
     setParam('tab', 'service');
@@ -1182,6 +1227,7 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
     document.getElementById('today-week').onclick = () => setParam('week', '');
     document.getElementById('project-filter').onchange = (event) => {
       setParam('project', event.target.value);
+      setParam('rubric', '');
       loadOverview(true);
     };
     document.getElementById('status-filter').onchange = (event) => {
@@ -1213,7 +1259,7 @@ function renderCard(card) {
   const channel = slotChannelLabel(card);
   const project = card.projectTitle || '—';
   const kind = `${card.publicationKind || 'text'}${card.expectedMedia ? ` / ${card.expectedMedia}` : ''}`;
-  const tip = `${card.time} · ${channel} · ${project} · ${card.statusLabel}`;
+  const tip = `${card.time} · ${channel} · ${project} · ${card.statusLabel}${card.rubricLabel ? ' · Рубрика: ' + card.rubricLabel : ''}`;
   const adHocClass = card.adHoc ? ' slot--adhoc' : '';
   const statusShort = slotStatusShortLabel(card);
   const statusFull = card.statusLabel || statusShort;
@@ -1252,6 +1298,7 @@ function renderCard(card) {
       <span class="slot-project">${escapeText(project)}</span>
     </span>
     ${releaseLine}
+    ${card.rubricLabel ? `<span class="slot-rubric" title="${escapeAttr(card.rubricLabel)}" style="--rubric-color:${/^#[a-f0-9]{6}$/i.test(card.rubricColor || '') ? card.rubricColor : '#806bba'}">${escapeText(card.rubricLabel)}</span>` : ''}
   </button>`;
 }
 
@@ -1675,6 +1722,7 @@ async function loadOverview(manual = false) {
   if (week) query.set('week', week);
   if (project) query.set('project', project);
   if (status) query.set('status', status);
+  if (params().get('rubric')) query.set('rubric', params().get('rubric'));
   try {
     const [overview, incidents, vk, weekly] = await Promise.all([
       api(`/bot/api/v1/overview?${query}`),
@@ -1714,7 +1762,7 @@ async function loadOverview(manual = false) {
     state.vk = vk;
     state.weekly = weekly?.week && Array.isArray(weekly.posts) ? weekly : null;
     renderOverview(overview, incidents, '', tabBundle);
-    state.backoffMs = weekly?.running ? 3000 : 30000;
+    state.backoffMs = weekly?.running || weekly?.current?.running ? 3000 : 30000;
   } catch (error) {
     if (requestId !== overviewRequest || requestedSearch !== location.search) return;
     if (error.status === 401) {

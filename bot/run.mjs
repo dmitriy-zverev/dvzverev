@@ -161,6 +161,7 @@ async function runMultiProjectScheduler(app, stoppingRef) {
                 continue;
               }
               const taskResult = await publish(projectConfig, { scheduledTask: task });
+              if (taskResult.status === 'cancelled') await completeRedisTask(task.id, 'cancelled');
               await reconcileProjectTasks(redis, id, await readState(projectConfig));
               if (taskResult.status !== 'locked') {
                 console.log(JSON.stringify({ projectId: id, redisTaskId: task.id, ...taskResult }));

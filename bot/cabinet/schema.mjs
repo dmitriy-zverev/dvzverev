@@ -196,3 +196,19 @@ CREATE TABLE IF NOT EXISTS batch_members (
 
 CREATE INDEX IF NOT EXISTS batch_members_batch ON batch_members(batch_id, slot_utc);
 `;
+
+export const RUBRIC_SCHEMA = `
+CREATE TABLE IF NOT EXISTS schedule_rubrics (
+ id TEXT PRIMARY KEY, project_id TEXT NOT NULL, config_json TEXT NOT NULL,
+ revision INTEGER NOT NULL DEFAULT 1, state TEXT NOT NULL DEFAULT 'active',
+ pending_json TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rubric_slots (
+ plan_id TEXT PRIMARY KEY REFERENCES schedule_slots(plan_id), rubric_id TEXT NOT NULL,
+ label TEXT NOT NULL, color TEXT NOT NULL, revision INTEGER NOT NULL, hidden INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS rubric_slots_rubric ON rubric_slots(rubric_id);
+CREATE TABLE IF NOT EXISTS rubric_mutation_locks (
+ rubric_id TEXT PRIMARY KEY, owner TEXT NOT NULL, lease_until INTEGER NOT NULL
+);
+`;

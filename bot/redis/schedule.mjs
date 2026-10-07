@@ -222,6 +222,15 @@ export async function materializeWeek(
             adHoc: false,
           });
           if (existingSeed?.edition_id) continue;
+          if (existingSeed?.publication_kind) task.publicationKind = existingSeed.publication_kind;
+          if (existingSeed?.rubric_revision) task.rubricRevision = existingSeed.rubric_revision;
+          if (existingSeed?.rubric_id) {
+            task.rubricId = existingSeed.rubric_id;
+            task.rubricLegacyAllowed = Boolean(
+              JSON.parse(existingSeed.rubric_config || '{}').adoptLegacy,
+            );
+          }
+          if (existingSeed?.expected_media) task.expectedMedia = existingSeed.expected_media;
           await saveTask(redis, task);
           inserted += 1;
         }

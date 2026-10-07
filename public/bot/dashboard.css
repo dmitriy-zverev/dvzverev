@@ -18,6 +18,394 @@
     sans-serif;
 }
 
+.rubrics-workspace {
+  margin: 32px auto;
+  color: #20364a;
+}
+.rubric-page-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+}
+.cabinet--workspace .rubric-page-actions select {
+  width: auto;
+  max-width: 240px;
+}
+.cabinet--workspace .rubric-page-actions .weekly-primary {
+  background: #294e70;
+  color: white;
+  border-color: #294e70;
+}
+.cabinet--workspace .rubric-card-heading h3 {
+  margin: 0;
+  font-size: 19px;
+}
+.rubrics-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+.rubrics-intro h1 {
+  margin: 6px 0 12px;
+  font-size: clamp(32px, 4vw, 48px);
+  letter-spacing: -0.045em;
+}
+.rubrics-intro p {
+  color: #526577;
+}
+.rubrics-guidance {
+  display: flex;
+  gap: 28px;
+  padding: 18px 0;
+  border-block: 1px solid var(--border);
+  color: #526577;
+  font-size: 13px;
+}
+.rubric-group {
+  margin: 32px 0 40px;
+}
+.rubric-group-heading {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.rubric-group-heading h2 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.025em;
+}
+.rubric-group-heading > span {
+  color: #526577;
+  font-size: 13px;
+  flex: 1;
+}
+.rubric-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.rubric-card {
+  background: white;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--rubric-color);
+  border-radius: 12px;
+  padding: 24px;
+  overflow-wrap: anywhere;
+}
+.rubric-card-heading {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.rubric-card-heading h3 {
+  margin: 0;
+  flex: 1;
+  font-size: 19px;
+}
+.rubric-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rubric-color);
+  flex: none;
+}
+.rubric-media {
+  font-size: 12px;
+  color: #526577;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 8px;
+}
+.rubric-rhythm {
+  font-size: 13px;
+  color: #526577;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 18px;
+}
+.rubric-rhythm strong {
+  color: #20364a;
+  font-size: 18px;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.rubric-description {
+  min-height: 50px;
+  color: #526577;
+  font-size: 14px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.rubric-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+.rubric-card-footer button {
+  flex: none;
+}
+.slot-rubric {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 7px;
+  margin-top: 8px;
+  border-left: 3px solid var(--rubric-color);
+  border-radius: 3px;
+  color: #20364a;
+  background: #edf1f5;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.rubric-dialog {
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: 0 24px 100px rgb(20 35 50 / 25%);
+  color: #20364a;
+}
+.rubric-dialog::backdrop {
+  background: rgb(20 35 50 / 45%);
+}
+.rubric-dialog-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 16px;
+  padding: 24px 28px;
+  border-bottom: 1px solid var(--border);
+}
+.rubric-dialog-head h2 {
+  margin: 8px 0 0;
+  font-size: 25px;
+  letter-spacing: -0.035em;
+}
+.rubric-dialog button {
+  font: inherit;
+  min-height: 44px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 16px;
+}
+.rubric-dialog button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.rubric-fields {
+  display: grid;
+  gap: 22px;
+  padding: 26px 28px;
+}
+.rubric-fields > label,
+.rubric-name-row > label {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.rubric-dialog :is(input:not([type='checkbox']), select, textarea) {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px;
+  font: inherit;
+  color: #20364a;
+  background: #f9fbfc;
+  border: 1px solid #cbd5df;
+  border-radius: 8px;
+}
+.rubric-dialog :is(input, select, textarea, button):focus-visible {
+  outline: 2px solid #2f5f95;
+  outline-offset: 3px;
+}
+.rubric-dialog textarea {
+  resize: vertical;
+  line-height: 1.55;
+  font-weight: 400;
+}
+.rubric-dialog .meta {
+  font-weight: 400;
+}
+.rubric-name-row {
+  display: grid;
+  grid-template-columns: 1fr 70px;
+  gap: 16px;
+}
+.rubric-name-row input[type='color'] {
+  padding: 5px;
+  height: 46px;
+}
+.rubric-days {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.rubric-days legend {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+.rubric-days label {
+  position: relative;
+  cursor: pointer;
+}
+.rubric-days input {
+  position: absolute;
+  opacity: 0;
+}
+.rubric-days span {
+  display: grid;
+  place-items: center;
+  height: 44px;
+  width: 52px;
+  border: 1px solid #cbd5df;
+  border-radius: 8px;
+}
+.rubric-days input:checked + span {
+  background: #294e70;
+  color: white;
+  border-color: #294e70;
+}
+.rubric-days input:focus-visible + span {
+  outline: 2px solid #2f5f95;
+  outline-offset: 3px;
+}
+.rubric-media-note {
+  padding: 18px;
+  background: #edf5f4;
+  border-left: 3px solid #348579;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.rubric-enabled {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+}
+.rubric-enabled input {
+  width: 18px;
+  height: 18px;
+}
+.rubric-change-note {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #526577;
+  margin: 0;
+}
+.rubric-error {
+  color: var(--danger);
+  margin: 0;
+  line-height: 1.6;
+}
+.rubric-dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 28px;
+  border-top: 1px solid var(--border);
+  background: #f9fbfc;
+}
+.rubric-dialog .weekly-primary {
+  background: #294e70;
+  color: white;
+}
+.rubric-delete {
+  color: #b3261e;
+  background: white;
+}
+.rubric-delete-confirm {
+  padding: 24px 28px;
+  background: #fff4f3;
+  border-top: 1px solid #edc9c5;
+  line-height: 1.6;
+}
+.rubric-delete-confirm button {
+  margin: 8px 8px 0 0;
+}
+.weekly-current {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+  margin-top: 20px;
+}
+.weekly-current .meta {
+  margin-bottom: 0;
+}
+.weekly-current button {
+  flex: none;
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid #b6c8d9;
+  border-radius: 8px;
+  background: #f7f9fb;
+  color: #294e70;
+}
+[hidden] {
+  display: none !important;
+}
+@media (max-width: 700px) {
+  .rubrics-intro,
+  .rubric-group-heading,
+  .weekly-current {
+    align-items: start;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .rubrics-guidance {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .rubric-list {
+    grid-template-columns: 1fr;
+  }
+  .rubric-card {
+    padding: 20px;
+  }
+  .rubric-dialog-head,
+  .rubric-fields,
+  .rubric-dialog-footer,
+  .rubric-delete-confirm {
+    padding: 20px;
+  }
+  .rubric-dialog-footer {
+    flex-wrap: wrap;
+  }
+  .rubric-days span {
+    width: 100%;
+  }
+  .rubric-days {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+    min-width: 0;
+  }
+}
+
 /* Workspace screens share a visual system; the weekly calendar stays unchanged. */
 .cabinet--workspace {
   --workspace-ink: #20364a;
@@ -1359,6 +1747,8 @@ body:has(.cabinet:not(.cabinet--gate)) {
   gap: 0.4rem;
   flex: 0 1 auto;
   margin-left: auto;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .toolbar-group {
@@ -1406,6 +1796,9 @@ body:has(.cabinet:not(.cabinet--gate)) {
 
 .toolbar-filters {
   gap: 0.35rem;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .toolbar .toolbar-filters select {
@@ -1444,6 +1837,10 @@ body:has(.cabinet:not(.cabinet--gate)) {
     flex: 1 1 calc(50% - 0.2rem);
     max-width: none;
     min-width: 0;
+  }
+  .toolbar .toolbar-filters #rubric-filter {
+    flex: 1 1 100%;
+    max-width: none;
   }
 
   .toolbar-refresh {

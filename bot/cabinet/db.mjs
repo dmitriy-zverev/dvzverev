@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { MIGRATION_SQL, MIGRATION_V2_SQL, SCHEMA_VERSION } from './schema.mjs';
+import { MIGRATION_SQL, MIGRATION_V2_SQL, SCHEMA_VERSION, RUBRIC_SCHEMA } from './schema.mjs';
 import { applyMigrationV3, applyMigrationV4, applyMigrationV5 } from './migrate-steps.mjs';
 
 export function cabinetDbPath(env = process.env) {
@@ -22,6 +22,7 @@ export function openCabinetDb(env = process.env, options = undefined) {
 
 function migrate(db) {
   db.exec(MIGRATION_SQL);
+  db.exec(RUBRIC_SCHEMA);
   const row = db.prepare('SELECT value FROM cabinet_meta WHERE key = ?').get('schema_version');
   const currentVersion = row ? Number(row.value) : 0;
   if (currentVersion < 2) {

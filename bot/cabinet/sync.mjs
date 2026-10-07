@@ -19,12 +19,14 @@ import { upsertPostFeatures, inferMediaActual } from './analytics/features.mjs';
 import { runAnalyticsCleanup } from './analytics/ttl.mjs';
 import { runEditorialScheduler } from './editorial/scheduler.mjs';
 import { syncEditorialMemory } from './editorial/memory.mjs';
+import { rubricService, rubricForDate, bindRubricSlot } from './rubrics.mjs';
 
 const MATERIALIZE_DAYS_FORWARD = 14;
 const MATERIALIZE_DAYS_BACK = 7;
 const SLOT_WINDOW_MINUTES = 5;
 
 export function materializeScheduleSlots(db, service, env, now = new Date()) {
+  service = rubricService(db, service);
   const configVersion = db
     .prepare('SELECT value FROM cabinet_meta WHERE key = ?')
     .get('service_config_version')?.value;
@@ -48,6 +50,7 @@ export function materializeScheduleSlots(db, service, env, now = new Date()) {
           const destination = service.destinations?.[destinationId];
           if (!destination) continue;
           for (const time of times) {
+            const rubric = rubricForDate(db, projectId, dateYmd, time);
             const key = slotKey(dateYmd, time, timezone);
             const slotUtc = localSlotToUtc(dateYmd, time, timezone).toISOString();
             const publication = publicationKind(
@@ -55,6 +58,10 @@ export function materializeScheduleSlots(db, service, env, now = new Date()) {
               key,
               destination,
             );
+            if (rubric) {
+              publication.kind = rubric.media;
+              publication.media = rubric.media === 'text' ? null : rubric.media;
+            }
             const existing = db
               .prepare(
                 'SELECT plan_id, plan_status, edition_id, config_version FROM schedule_slots WHERE project_id = ? AND destination_id = ? AND slot_utc = ?',
@@ -62,6 +69,7 @@ export function materializeScheduleSlots(db, service, env, now = new Date()) {
               .get(projectId, destinationId, slotUtc);
             if (existing?.edition_id) continue;
             if (
+              !rubric &&
               existing &&
               !['planned', 'missed'].includes(existing.plan_status) &&
               existing.config_version === configVersion
@@ -83,7 +91,8 @@ export function materializeScheduleSlots(db, service, env, now = new Date()) {
             ) {
               planStatus = 'planned';
             } else if (existing) {
-              planStatus = existing.plan_status;
+              planStatus =
+                rubric && existing.plan_status === 'cancelled' ? 'planned' : existing.plan_status;
             }
 
             if (existing) {
@@ -91,7 +100,7 @@ export function materializeScheduleSlots(db, service, env, now = new Date()) {
                 `UPDATE schedule_slots SET
                   slot_key = ?, publication_kind = ?, expected_media = ?, plan_status = ?,
                   config_version = ?, updated_at = ?
-                 WHERE plan_id = ? AND edition_id IS NULL AND plan_status IN ('planned', 'missed')`,
+                 WHERE plan_id = ? AND edition_id IS NULL AND plan_status IN ('planned', 'missed', 'cancelled')`,
               ).run(
                 key,
                 publication.kind,
@@ -101,16 +110,18 @@ export function materializeScheduleSlots(db, service, env, now = new Date()) {
                 now.toISOString(),
                 existing.plan_id,
               );
+              bindRubricSlot(db, existing.plan_id, rubric);
               continue;
             }
 
+            const planId = randomUUID();
             db.prepare(
               `INSERT INTO schedule_slots (
                 plan_id, project_id, destination_id, slot_utc, slot_key, publication_kind,
                 expected_media, topic_state, plan_status, config_version, version, created_at, updated_at
               ) VALUES (?, ?, ?, ?, ?, ?, ?, 'unknown', ?, ?, 1, ?, ?)`,
             ).run(
-              randomUUID(),
+              planId,
               projectId,
               destinationId,
               slotUtc,
@@ -122,6 +133,7 @@ export function materializeScheduleSlots(db, service, env, now = new Date()) {
               now.toISOString(),
               now.toISOString(),
             );
+            bindRubricSlot(db, planId, rubric);
             inserted += 1;
           }
         }
@@ -158,6 +170,24 @@ export async function syncProjectState(db, service, projectId, env, now = new Da
     let deliveries = 0;
     for (const entry of raw.entries || []) {
       if (!entry.slot || entry.generationRecovered) continue;
+      const rubricSlot = db
+        .prepare(
+          `SELECT rs.hidden,rs.revision,r.state,r.id AS rubric_id,r.config_json FROM schedule_slots s
+        JOIN rubric_slots rs USING(plan_id) JOIN schedule_rubrics r ON r.id=rs.rubric_id
+        WHERE s.project_id=? AND s.slot_key=?`,
+        )
+        .get(projectId, entry.slot);
+      if (
+        rubricSlot &&
+        !['sent', 'partially_sent'].includes(entry.status) &&
+        (rubricSlot.hidden ||
+          rubricSlot.state !== 'active' ||
+          (entry.rubricId
+            ? entry.rubricId !== rubricSlot.rubric_id
+            : !JSON.parse(rubricSlot.config_json).adoptLegacy) ||
+          (entry.rubricRevision || 1) !== rubricSlot.revision)
+      )
+        continue;
       const editionId = editionIdFor(projectId, entry);
       const deliveryId = deliveryIdFor(entry, destinationId);
       const status = mapEntryStatus(entry);

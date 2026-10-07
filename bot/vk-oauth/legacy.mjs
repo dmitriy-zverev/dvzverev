@@ -14,7 +14,7 @@ export class LegacyVkClient extends VkOAuthClient {
         client_id: this.config.clientId,
         redirect_uri: this.config.redirectUri,
         response_type: 'token',
-        scope: 'wall,photos,groups',
+        scope: 'wall,photos,video,groups',
         display: 'page',
         v: '5.199',
         state,
@@ -50,7 +50,7 @@ export class LegacyVkClient extends VkOAuthClient {
       userId,
       permissions,
       expiresAt: this.now() + Math.min(expiresIn || 86400, 86400) * 1000,
-      scope: 'wall photos groups',
+      scope: 'wall photos groups' + (Number(permissions) & 16 ? ' video' : ''),
       updatedAt: this.now(),
     });
     return this.status();
@@ -62,6 +62,7 @@ export class LegacyVkClient extends VkOAuthClient {
       available: true,
       connected,
       canPrepare: connected && (token.permissions & 270340) === 270340,
+      canVideo: connected && (token.permissions & 16) === 16,
       userId: token?.userId || null,
       expiresAt: token ? new Date(token.expiresAt).toISOString() : null,
       refreshAvailable: false,

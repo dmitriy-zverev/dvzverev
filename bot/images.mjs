@@ -24,13 +24,18 @@ export function coverPath(config, id) {
   return join(
     dirname(config.statePath),
     'images',
-    `${createHash('sha256').update(id).digest('hex')}.${config.staticPhoto ? 'png' : 'gif'}`,
+    `${createHash('sha256').update(id).digest('hex')}.${config.videoOutput ? 'mp4' : config.staticPhoto ? 'png' : 'gif'}`,
   );
 }
 export async function cachedCover(config, id) {
   const path = coverPath(config, id);
   try {
     const data = await readFile(path);
+    if (config.videoOutput) {
+      if (data.length < 12 || data.length > 30_000_000 || data.toString('ascii', 4, 8) !== 'ftyp')
+        throw new ImageFailure('invalid_cached_video');
+      return { status: 'ready', format: 'mp4', path };
+    }
     if (config.staticPhoto) {
       if (
         data.length < 24 ||
@@ -54,7 +59,7 @@ export async function cachedCover(config, id) {
     return { status: 'ready', width, height };
   } catch (error) {
     if (error.code === 'ENOENT') {
-      if (config.staticPhoto) return null;
+      if (config.staticPhoto || config.videoOutput) return null;
       const legacy = path.replace(/\.gif$/, '.png');
       try {
         await readFile(legacy);

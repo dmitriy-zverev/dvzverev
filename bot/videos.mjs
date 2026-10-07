@@ -236,7 +236,8 @@ export async function generateVideoCover(
     } finally {
       await file.close();
     }
-    const metadata = await convert(raw, output);
+    const metadata = config.videoOutput ? { format: 'mp4' } : await convert(raw, output);
+    if (config.videoOutput) await rename(raw, output);
     await rename(output, path);
     job.status = 'completed';
     job.cost = typeof result.usage?.cost === 'number' ? result.usage.cost : null;

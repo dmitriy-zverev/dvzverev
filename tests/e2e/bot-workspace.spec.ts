@@ -138,6 +138,7 @@ for (const width of [375, 1280]) {
     page.on('pageerror', (error) => errors.push(error.message));
     await workspace(page);
     for (const tab of [
+      'rubrics',
       'editorial',
       'analytics',
       'analytics-posts',
@@ -217,7 +218,7 @@ test('header styles remain consistent between tabs at every breakpoint', async (
   for (const width of [320, 768, 1280, 1465, 1626]) {
     await page.setViewportSize({ width, height: 900 });
     let baseline: unknown;
-    for (const tab of ['', 'editorial', 'analytics', 'incidents', 'service']) {
+    for (const tab of ['', 'rubrics', 'editorial', 'analytics', 'incidents', 'service']) {
       await page.goto(`/bot/?tab=${tab}`);
       await expect(page.locator('.cabinet-header')).toBeVisible();
       const styles = await page.locator('.cabinet-header').evaluate((header) => {
@@ -234,9 +235,10 @@ test('header styles remain consistent between tabs at every breakpoint', async (
       });
       if (!tab) baseline = styles;
       else expect(styles).toEqual(baseline);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
-        false,
-      );
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+        `overflow at ${width}px on ${tab || 'week'}`,
+      ).toBe(false);
       const overlaps = await page.locator('.cabinet-header-shell').evaluate((shell) => {
         const rects = Array.from(shell.children).map((node) => node.getBoundingClientRect());
         return rects.some((a, i) =>

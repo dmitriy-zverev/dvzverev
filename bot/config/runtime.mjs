@@ -1,7 +1,9 @@
 import { resolve, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
-import { cabinetDbPath } from '../cabinet/db.mjs';
+import { cabinetDbPath, getMeta } from '../cabinet/db.mjs';
+import { rubricService } from '../cabinet/rubrics.mjs';
 import { DEFAULT_MODEL, DEFAULT_PROMPT } from '../openrouter.mjs';
 import { DEFAULT_IMAGE_MODEL } from '../images.mjs';
 import { readEnvValue, readOptionalEnvValue } from './env.mjs';
@@ -49,6 +51,16 @@ function activePrompts(projectId, env) {
 }
 
 export async function runtimeConfigForProject(service, projectId, env, { configRoot }) {
+  let rubricsManaged = false;
+  if (env.BOT_CABINET_ENABLED === 'true' && existsSync(cabinetDbPath(env))) {
+    const db = new DatabaseSync(cabinetDbPath(env), { readOnly: true });
+    try {
+      rubricsManaged = Boolean(getMeta(db, `rubrics_managed:${projectId}`));
+      if (rubricsManaged) service = rubricService(db, service);
+    } finally {
+      db.close();
+    }
+  }
   const project = service.projects[projectId];
   if (!project) throw new Error(`Unknown project: ${projectId}`);
   if (!project.enabled) throw new Error(`Project is disabled: ${projectId}`);
@@ -60,7 +72,7 @@ export async function runtimeConfigForProject(service, projectId, env, { configR
   const editorPrompt = await readPromptFile(configRoot, project.prompts.editor);
   const coverPrompt = project.prompts.cover
     ? await readPromptFile(configRoot, project.prompts.cover)
-    : '';
+    : await readFile(new URL('../prompts/cover.md', import.meta.url), 'utf8');
   const postSource = project.postSource || 'openrouter';
   const queuePath = project.queuePath
     ? resolveRelativeConfigPath(configRoot, project.queuePath)
@@ -83,6 +95,8 @@ export async function runtimeConfigForProject(service, projectId, env, { configR
 
   return {
     projectId,
+    rubricsManaged,
+    cabinetDbPath: cabinetDbPath(env),
     deliveryPolicy: project.delivery.policy || 'ordered-independent',
     destinationIds: [...project.delivery.destinations],
     telegramEnabled: Boolean(telegram),
@@ -107,7 +121,10 @@ export async function runtimeConfigForProject(service, projectId, env, { configR
         : ''),
     imageMaxAttempts:
       vk?.destination.media?.maxAttempts || telegram?.destination.media?.maxAttempts || 1,
-    videoModel: vk?.destination.media?.model || 'bytedance/seedance-1-5-pro',
+    videoModel:
+      (vk?.destination.media?.kind === 'video' && vk.destination.media.model) ||
+      env.OPENROUTER_VIDEO_MODEL ||
+      'bytedance/seedance-1-5-pro',
     vkImagesEnabled: vkMedia,
     imageModel:
       (vk?.destination.media?.kind === 'image' && vk.destination.media.model) ||

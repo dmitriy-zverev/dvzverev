@@ -2,10 +2,22 @@ import { redisConfigured, getRedis } from './client.mjs';
 import { claimDueTasks, getTask, markTaskStatus, releaseTaskLock } from './schedule.mjs';
 import { META_WEEK, weekIndexKey } from './keys.mjs';
 
+function matchesRubric(entry, task) {
+  return (
+    (!task.rubricRevision || (entry.rubricRevision || 1) === task.rubricRevision) &&
+    (!task.rubricId ||
+      (entry.rubricId ? entry.rubricId === task.rubricId : task.rubricLegacyAllowed))
+  );
+}
+
 // Delivery state is durable and authoritative; publish() may be finishing a
 // different slot, so its return value cannot be used as this task's receipt.
 export function taskStatusFromState(task, state) {
-  const entries = state.entries.filter((entry) => entry.slot === task.slotKey);
+  if (task.status === 'cancelled') return 'cancelled';
+  const entries = state.entries.filter(
+    (entry) =>
+      entry.slot === task.slotKey && !entry.generationRecovered && matchesRubric(entry, task),
+  );
   const deliveries = entries.filter((entry) => entry.reason !== 'generation_exhausted');
   if (deliveries.some((entry) => entry.status === 'uncertain' || entry.status === 'sending'))
     return 'uncertain';
@@ -14,7 +26,11 @@ export function taskStatusFromState(task, state) {
     (entry) => entry.platform === destination && entry.status === 'sent',
   );
   if (receipt) return 'sent';
-  if (state.pendingGeneration?.slot === task.slotKey) return 'generating';
+  if (
+    state.pendingGeneration?.slot === task.slotKey &&
+    matchesRubric(state.pendingGeneration, task)
+  )
+    return 'generating';
   if (deliveries.some((entry) => ['retry_wait', 'rejected'].includes(entry.status)))
     return 'generating';
   if (

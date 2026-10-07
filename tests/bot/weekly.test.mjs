@@ -83,6 +83,54 @@ function client(fail) {
   };
 }
 
+test('weekly short video uses user upload and video receipt without generating a photo', async (t) => {
+  const f = await fixture(t);
+  f.db.prepare("UPDATE schedule_slots SET publication_kind='video',expected_media='video'").run();
+  let generated = 0,
+    uploaded = 0,
+    writes = 0;
+  f.dependencies.cover = async () => {
+    throw new Error('Photo generation must not run');
+  };
+  f.dependencies.video = async (config) => {
+    generated++;
+    assert.equal(config.videoOutput, true);
+    return { status: 'ready', path: '/tmp/mock.mp4' };
+  };
+  const receipts = new Map();
+  const c = {
+    status: () => ({ canVideo: true }),
+    accessToken: async () => 'test-secret',
+    uploadVideo: async (type, id, path) => {
+      uploaded++;
+      assert.equal(type, 'group');
+      assert.equal(id, '123');
+      assert.equal(path, '/tmp/mock.mp4');
+      return { attachment: 'video-123_77' };
+    },
+    api: async (method, p) => {
+      if (method === 'wall.post') {
+        writes++;
+        assert.equal(p.attachments, 'video-123_77');
+        receipts.set(writes, {
+          id: writes,
+          owner_id: -123,
+          date: p.publish_date,
+          attachments: [{ type: 'video', video: { owner_id: -123, id: 77 } }],
+        });
+        return { post_id: writes };
+      }
+      return [receipts.get(Number(p.posts.split('_')[1]))];
+    },
+  };
+  const owner = claimWeeklyJob(f.db, f.week.start);
+  await prepareWeeklyPosts(f.env, f.week.start, owner, { ...f.dependencies, client: c });
+  assert.equal(generated, 2);
+  assert.equal(uploaded, 2);
+  assert.equal(writes, 2);
+  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z')).ready, 2);
+});
+
 test('next week is Monday through Sunday in Moscow even around UTC midnight', () => {
   assert.equal(nextWeek(new Date('2026-10-11T22:00:00Z')).start, '2026-10-19');
   assert.equal(nextWeek(new Date('2026-10-11T20:00:00Z')).start, '2026-10-12');

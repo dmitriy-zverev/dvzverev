@@ -26,10 +26,15 @@ import { heartbeatPath, schedulerHeartbeatStatus } from '../health.mjs';
 import { DELIVERY_SNAPSHOT } from './delivery-snapshot.mjs';
 import { readReportOperatorState } from './reports/status.mjs';
 import { loadServiceForCabinet } from './projects.mjs';
+import { listRubrics } from './rubrics.mjs';
 
-export async function buildOverview(db, { week, projectFilter, statusFilter }, env = process.env) {
+export async function buildOverview(
+  db,
+  { week, projectFilter, statusFilter, rubricFilter },
+  env = process.env,
+) {
   const snapshot = withTransaction(db, () =>
-    readOverviewSnapshot(db, { week, projectFilter, statusFilter }),
+    readOverviewSnapshot(db, { week, projectFilter, statusFilter, rubricFilter }),
   );
   const service = await readServiceState(db, env);
   let reports = null;
@@ -45,7 +50,7 @@ export async function buildOverview(db, { week, projectFilter, statusFilter }, e
   };
 }
 
-function readOverviewSnapshot(db, { week, projectFilter, statusFilter }) {
+function readOverviewSnapshot(db, { week, projectFilter, statusFilter, rubricFilter }) {
   const timeZone = OPERATOR_TIMEZONE;
   const weekStart = week
     ? isoWeekStart(week, timeZone)
@@ -75,13 +80,15 @@ function readOverviewSnapshot(db, { week, projectFilter, statusFilter }) {
       `${DELIVERY_SNAPSHOT}
        SELECT s.*, p.title AS project_title, e.aggregate_status, e.topic AS edition_topic,
               e.body_text, e.body_removed_at, e.content_expires_at, d.status AS delivery_status,
-              d.external_id, d.platform, d.vk_group_id, w.status AS weekly_status
+              d.external_id, d.platform, d.vk_group_id, w.status AS weekly_status,
+              rs.rubric_id, rs.label AS rubric_label, rs.color AS rubric_color
        FROM schedule_slots s
        JOIN projects p ON p.project_id = s.project_id
        LEFT JOIN editions e ON e.edition_id = s.edition_id
        LEFT JOIN vk_weekly_posts w ON w.plan_id = s.plan_id
+       LEFT JOIN rubric_slots rs ON rs.plan_id = s.plan_id
        LEFT JOIN current_deliveries d ON d.edition_id = s.edition_id AND d.destination_id = s.destination_id
-       WHERE s.slot_utc >= ? AND s.slot_utc < ?${projectClause}
+       WHERE s.slot_utc >= ? AND s.slot_utc < ? AND COALESCE(rs.hidden,0)=0${projectClause}
        ORDER BY s.slot_utc ASC, s.project_id ASC`,
     )
     .all(...params);
@@ -98,6 +105,10 @@ function readOverviewSnapshot(db, { week, projectFilter, statusFilter }) {
       (left.destinationId || '').localeCompare(right.destinationId || ''),
   );
   if (statusFilter) cards = cards.filter((card) => matchesStatusFilter(card.status, statusFilter));
+  if (rubricFilter)
+    cards = cards.filter((card) =>
+      rubricFilter === 'none' ? !card.rubricId : card.rubricId === rubricFilter,
+    );
 
   const summary = emptySummary();
   for (const card of cards) {
@@ -113,14 +124,20 @@ function readOverviewSnapshot(db, { week, projectFilter, statusFilter }) {
     deliveryProjectClause = ' AND d.project_id = ?';
     deliveryParams.push(projectFilter);
   }
+  if (rubricFilter) {
+    deliveryProjectClause +=
+      rubricFilter === 'none' ? ' AND rs.rubric_id IS NULL' : ' AND rs.rubric_id = ?';
+    if (rubricFilter !== 'none') deliveryParams.push(rubricFilter);
+  }
   const deliveries = db
     .prepare(
       `${DELIVERY_SNAPSHOT}
        SELECT d.status FROM current_deliveries d
        JOIN editions e ON e.edition_id = d.edition_id
        LEFT JOIN schedule_slots s ON s.edition_id = d.edition_id AND s.destination_id = d.destination_id
+       LEFT JOIN rubric_slots rs ON rs.plan_id = s.plan_id
        WHERE COALESCE(s.slot_utc, d.sent_at, e.created_at) >= ?
-         AND COALESCE(s.slot_utc, d.sent_at, e.created_at) < ?${deliveryProjectClause}`,
+         AND COALESCE(s.slot_utc, d.sent_at, e.created_at) < ? AND COALESCE(rs.hidden,0)=0 AND e.aggregate_status != 'cancelled'${deliveryProjectClause}`,
     )
     .all(...deliveryParams);
   for (const row of deliveries) {
@@ -131,6 +148,7 @@ function readOverviewSnapshot(db, { week, projectFilter, statusFilter }) {
   return {
     week: { start: weekStart, end: addDaysYmd(weekStart, 6, timeZone), timezone: timeZone },
     projects,
+    rubrics: listRubrics(db, projectFilter),
     summary,
     deliverySummary,
     days: weekDates(weekStart, timeZone).map((date) => ({
@@ -161,6 +179,7 @@ function loadAdHocRows(db, rangeStart, rangeEnd, projectFilter) {
        JOIN current_deliveries d ON d.edition_id = e.edition_id
        LEFT JOIN schedule_slots s ON s.edition_id = e.edition_id
        WHERE s.plan_id IS NULL
+         AND e.aggregate_status != 'cancelled'
          AND COALESCE(d.sent_at, e.created_at) >= ?
          AND COALESCE(d.sent_at, e.created_at) < ?${projectClause}
        ORDER BY COALESCE(d.sent_at, e.created_at) ASC, e.project_id ASC`,
@@ -250,6 +269,9 @@ function mapCard(row, timeZone) {
   const vkUrl = vkPostUrl(row);
   return {
     planId: row.plan_id,
+    rubricId: row.rubric_id || null,
+    rubricLabel: row.rubric_label || null,
+    rubricColor: row.rubric_color || null,
     editionId: row.edition_id,
     projectId: row.project_id,
     projectTitle: row.project_title,

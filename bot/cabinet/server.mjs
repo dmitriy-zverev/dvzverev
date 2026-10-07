@@ -20,7 +20,8 @@ import {
 } from './auth.mjs';
 import { buildOverview, getEdition, listIncidents, listProjects, patchPlan } from './overview.mjs';
 import { loadServiceForCabinet, refreshServiceSnapshot } from './projects.mjs';
-import { cabinetTick } from './sync.mjs';
+import { cabinetTick, materializeScheduleSlots } from './sync.mjs';
+import { ensureRubrics, listRubrics, createRubric, changeRubric } from './rubrics.mjs';
 import { listBatchReports } from './reports/store.mjs';
 import { getRedis, redisConfigured } from '../redis/client.mjs';
 import { createAdHocTask, discardTask } from '../redis/schedule.mjs';
@@ -146,7 +147,7 @@ async function handleRequest(request, response, env) {
     }
     response.writeHead(204, {
       ...cors,
-      'Access-Control-Allow-Methods': 'GET,POST,PATCH,OPTIONS',
+      'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
       'Cache-Control': 'private, no-store',
     });
@@ -233,6 +234,47 @@ async function handleRequest(request, response, env) {
     }
 
     const session = requireSession(db, request);
+    if (route === '/rubrics' || /^\/rubrics\/[\w-]+$/.test(route)) {
+      if (request.method !== 'GET') assertOrigin(request, env);
+      const { document: service } = await loadServiceForCabinet(env);
+      ensureRubrics(db, service);
+      try {
+        if (route === '/rubrics' && request.method === 'GET') {
+          json(response, 200, { rubrics: listRubrics(db), projects: listProjects(db) }, cors);
+          return;
+        }
+        assertOrigin(request, env);
+        const body = parseJson(await readBody(request));
+        let result;
+        if (route === '/rubrics' && request.method === 'POST')
+          result = createRubric(db, service, body.projectId, body);
+        else if (['PATCH', 'DELETE'].includes(request.method))
+          result = await changeRubric(db, route.split('/')[2], body, {
+            remove: request.method === 'DELETE',
+            client: getWeeklyVkClient(env),
+          });
+        else {
+          json(response, 405, { error: 'method_not_allowed' }, cors);
+          return;
+        }
+        materializeScheduleSlots(db, service, env);
+        auditAuth(db, 'rubric_change', {
+          id: result.id || route.split('/')[2],
+          removed: result.removed,
+        });
+        json(response, 200, { result, rubrics: listRubrics(db) }, cors);
+      } catch (error) {
+        if (error.status) throw error;
+        const code = /^(rubric_|vk_)/.test(error.message) ? error.message : 'rubric_update_failed';
+        json(
+          response,
+          code.includes('invalid') || code.includes('too_long') ? 400 : 409,
+          { error: code },
+          cors,
+        );
+      }
+      return;
+    }
     if (
       await handleOzonRoute({
         route,
@@ -250,7 +292,8 @@ async function handleRequest(request, response, env) {
       return;
     if (route === '/weekly-preparation' && ['GET', 'POST'].includes(request.method)) {
       if (request.method === 'POST') assertOrigin(request, env);
-      const snapshot = await ensureWeeklySnapshot(db, env);
+      const current = url.searchParams.get('scope') === 'current';
+      const snapshot = await ensureWeeklySnapshot(db, env, new Date(), current);
       const client = getWeeklyVkClient(env);
       if (request.method === 'POST') {
         if (!client?.status().canPrepare) {
@@ -260,6 +303,23 @@ async function handleRequest(request, response, env) {
             {
               error: 'vk_login_required',
               message: 'Войдите в VK с правами на стену, фотографии и сообщества.',
+            },
+            cors,
+          );
+          return;
+        }
+        if (
+          snapshot.posts.some(
+            (p) => p.media === 'video' && !['scheduled', 'sent'].includes(p.status),
+          ) &&
+          !client.status().canVideo
+        ) {
+          json(
+            response,
+            409,
+            {
+              error: 'vk_video_permission_required',
+              message: 'Войдите в VK повторно и разрешите доступ к видео.',
             },
             cors,
           );
@@ -281,7 +341,8 @@ async function handleRequest(request, response, env) {
         response,
         request.method === 'POST' ? 202 : 200,
         {
-          ...(await ensureWeeklySnapshot(db, env)),
+          ...(await ensureWeeklySnapshot(db, env, new Date(), current)),
+          current: await ensureWeeklySnapshot(db, env, new Date(), true),
           vk: client?.status() || { available: false, canPrepare: false, connected: false },
         },
         cors,
@@ -306,6 +367,9 @@ async function handleRequest(request, response, env) {
       return;
 
     if (route === '/overview' && request.method === 'GET') {
+      const { document: service } = await loadServiceForCabinet(env);
+      ensureRubrics(db, service);
+      materializeScheduleSlots(db, service, env);
       const slotCount = db.prepare('SELECT COUNT(*) AS count FROM schedule_slots').get().count;
       if (!slotCount) {
         json(response, 503, { error: 'data_unavailable' }, cors);
@@ -317,6 +381,7 @@ async function handleRequest(request, response, env) {
           week: url.searchParams.get('week'),
           projectFilter: url.searchParams.get('project'),
           statusFilter: url.searchParams.get('status'),
+          rubricFilter: url.searchParams.get('rubric'),
         },
         env,
       );
