@@ -214,34 +214,31 @@ function renderServiceSection(data) {
         <h2>Сервис</h2>
         <button type="button" class="panel-refresh" id="refresh">Обновить</button>
       </div>
-      <p><strong>Heartbeat:</strong> ${heartbeat.ok ? 'OK' : 'нет связи'}
-        ${heartbeat.updatedAt ? `<span class="meta"> · ${escapeText(heartbeat.updatedAt)}</span>` : ''}
-        ${heartbeat.ageSeconds != null ? `<span class="meta"> · возраст ${escapeText(heartbeat.ageSeconds)} с</span>` : ''}</p>
-      <p class="meta">Обновлено: ${escapeText(data.as_of || '—')} · data_version ${escapeText(data.data_version)}
-        · scheduler ${escapeText(data.scheduler_last_seen_at || '—')}</p>
+      <div class="service-health ${heartbeat.ok ? 'is-healthy' : 'is-degraded'}"><span class="health-light" aria-hidden="true"></span><div><strong>${heartbeat.ok ? 'Планировщик на связи' : 'Нет подтверждения работы планировщика'}</strong><p class="meta">${heartbeat.ok ? 'Сигнал работы получен. Результаты публикаций смотрите в календаре.' : 'Проверьте контейнер и журнал ошибок перед следующей публикацией.'}</p></div></div>
+      <div class="service-metrics"><article class="card"><h3>Последний сигнал</h3><p>${escapeText(editorialDate(heartbeat.updatedAt))}</p>
+        ${heartbeat.ageSeconds != null ? `<p class="meta">Получен ${escapeText(heartbeat.ageSeconds)} с назад</p>` : ''}
+      </article><article class="card"><h3>Планировщик</h3><p>${escapeText(editorialDate(data.scheduler_last_seen_at))}</p></article><article class="card"><h3>Данные кабинета</h3><p>${escapeText(editorialDate(data.as_of))}</p><span class="meta">Версия ${escapeText(data.data_version ?? '—')} · время Москвы</span></article></div>
       ${
         Object.keys(data.service?.pauses || {}).length
-          ? `<p class="meta">Паузы: ${escapeText(JSON.stringify(data.service.pauses))}</p>`
-          : ''
+          ? `<details class="card"><summary>Приостановленные публикации</summary><pre>${escapeText(JSON.stringify(data.service.pauses, null, 2))}</pre></details>`
+          : '<p class="service-note">Приостановленных публикаций нет</p>'
       }
       ${
         (data.service?.cooldowns || []).length
-          ? `<p class="meta">Cooldown: ${escapeText(JSON.stringify(data.service.cooldowns))}</p>`
-          : ''
+          ? `<details class="card"><summary>Ожидание перед повторной попыткой</summary><pre>${escapeText(JSON.stringify(data.service.cooldowns, null, 2))}</pre></details>`
+          : '<p class="service-note">Активных задержек повторной отправки нет</p>'
       }
       ${
         data.service?.reports
-          ? `<p><strong>Telegram-сводки:</strong> режим ${escapeText(data.service.reports.mode)}
-        · в очереди ${escapeText(data.service.reports.pending)}
-        · ошибок ${escapeText(data.service.reports.failed)}
-        ${data.service.reports.lastSentAt ? `<span class="meta"> · последняя ${escapeText(data.service.reports.lastSentAt)}</span>` : ''}
-        ${data.service.reports.lastHeadline ? `<span class="meta"> · ${escapeText(data.service.reports.lastHeadline)}</span>` : ''}</p>`
+          ? `<article class="card report-status"><h3>Отчёты в Telegram</h3><p>В очереди: <strong>${escapeText(data.service.reports.pending)}</strong> · с ошибкой: <strong>${escapeText(data.service.reports.failed)}</strong></p><p class="meta">Режим: ${escapeText({ scheduled: 'По расписанию', enabled: 'Включены', disabled: 'Выключены', outbox: 'Через очередь' }[data.service.reports.mode] || data.service.reports.mode)}
+        ${data.service.reports.lastSentAt ? ` · последняя отправка ${escapeText(editorialDate(data.service.reports.lastSentAt))}` : ' · отправок пока нет'}
+        ${data.service.reports.lastHeadline ? ` · ${escapeText(data.service.reports.lastHeadline)}` : ''}</p></article>`
           : ''
       }
     </section>`;
 }
 
-function renderIncidentsSection(incidents) {
+function renderIncidentsSection(incidents, projects = []) {
   return `
     <section class="incidents" aria-label="Ошибки">
       <div class="panel-head">
@@ -249,14 +246,14 @@ function renderIncidentsSection(incidents) {
         <button type="button" class="panel-refresh" id="refresh">Обновить</button>
       </div>
       ${
-        incidents.items.length
+        incidents.items?.length
           ? incidents.items
               .map(
                 (item) =>
-                  `<article class="card"><div class="card-head"><strong>${escapeText(item.projectId)}</strong><span class="meta">×${item.count}</span></div><p>${escapeText(item.message)}</p><p class="meta">${escapeText(item.stage)} · ${escapeText(item.lastSeenAt)}</p></article>`,
+                  `<article class="card incident-card"><div class="card-head"><strong>${escapeText(projects.find((p) => p.id === item.projectId)?.title || item.projectId || 'Сервис')}</strong><span class="incident-count">Повторов: ${escapeText(item.count ?? 1)}</span></div><p>${escapeText(item.message)}</p><p class="meta">Последний случай: ${escapeText(editorialDate(item.lastSeenAt))} МСК</p><details><summary>Технические сведения</summary><p class="meta">Этап: ${escapeText(item.stage || '—')}</p></details></article>`,
               )
               .join('')
-          : '<p class="meta">Открытых инцидентов нет.</p>'
+          : '<div class="workspace-empty"><span class="empty-symbol" aria-hidden="true">✓</span><h3>Открытых инцидентов нет</h3><p class="meta">Новые ошибки появятся здесь после записи в журнал сервиса.</p></div>'
       }
     </section>`;
 }
@@ -267,14 +264,14 @@ function renderAnalyticsSubnav(tab) {
     ['analytics-posts', 'Все посты'],
     ['analytics-imports', 'Импорты и покрытие'],
     ['analytics-segments', 'Сегменты'],
-    ['analytics-prompts', 'Промпты и эксперименты'],
+    ['analytics-prompts', 'Рекомендации и промпты'],
   ];
   return `
     <nav class="analytics-subnav" aria-label="Аналитика">
       ${items
         .map(
           ([id, label]) =>
-            `<button type="button" class="cabinet-tab${tab === id ? ' is-active' : ''}" data-analytics-tab="${id}">${escapeText(label)}</button>`,
+            `<button type="button" class="cabinet-tab${tab === id ? ' is-active' : ''}" ${tab === id ? 'aria-current="page"' : ''} data-analytics-tab="${id}">${escapeText(label)}</button>`,
         )
         .join('')}
     </nav>`;
@@ -290,6 +287,14 @@ function renderAnalyticsSection(bundle) {
   const segments = bundle.segments;
   const recommendations = bundle.recommendations || [];
   const versions = bundle.versions || [];
+  const projectTitle = (id) => projects.find((p) => p.id === id)?.title || id;
+  const ranking = (items) =>
+    items
+      .map(
+        (p, index) =>
+          `<article class="ranking-row"><span class="ranking-position">${index + 1}</span><div><strong>${escapeText(p.bodyText?.slice(0, 100) || 'Публикация')}</strong><details><summary>Идентификатор материала</summary><span class="meta">${escapeText(p.editionId)}</span></details></div><span class="ranking-value">${escapeText(p.reachOrganic ?? '—')}<small>охват</small></span></article>`,
+      )
+      .join('') || '<p class="meta">Нет публикаций с загруженной статистикой</p>';
 
   let body;
   if (bundle.error) {
@@ -297,19 +302,16 @@ function renderAnalyticsSection(bundle) {
   } else if (tab === 'analytics' && overview) {
     const cov = overview.coverage || {};
     body = `
-      <p class="meta">Окно: последние 30×24ч UTC · отображение дат — Москва</p>
+      <p class="meta">Последние 30 дней · время Москвы. Отсутствующие метрики не считаются нулём.</p>
       <p>Покрытие: ${escapeText(cov.withMetrics ?? 0)} из ${escapeText(cov.sent ?? 0)} отправленных
         ${cov.ratio != null ? `(${escapeText(Math.round(cov.ratio * 100))}%)` : ''}</p>
       <p class="meta">${escapeText(overview.definitions?.reachVsViews || '')}</p>
-      <div class="week-stats-kpis">
-        ${renderWeekKpi('Охват med', overview.summary?.organicReach?.median ?? '—', 'sent')}
-        ${renderWeekKpi('Engagement med', overview.summary?.engagementRate?.median != null ? Number(overview.summary.engagementRate.median).toFixed(3) : '—', 'planned')}
-        ${renderWeekKpi('Доставка', overview.summary?.deliverySuccess?.ratio != null ? `${Math.round(overview.summary.deliverySuccess.ratio * 100)}%` : '—', 'materials')}
+      <div class="week-stats-kpis" role="list" aria-label="Показатели за 30 дней">
+        ${renderWorkspaceKpi('Медианный охват', overview.summary?.organicReach?.median ?? '—')}
+        ${renderWorkspaceKpi('Вовлечённость', overview.summary?.engagementRate?.median != null ? `${(Number(overview.summary.engagementRate.median) * 100).toFixed(1)}%` : '—')}
+        ${renderWorkspaceKpi('Доставка', overview.summary?.deliverySuccess?.ratio != null ? `${Math.round(overview.summary.deliverySuccess.ratio * 100)}%` : '—')}
       </div>
-      <h3>Топ по organic reach</h3>
-      ${(overview.top || []).map((p) => `<p class="meta">${escapeText(p.editionId)} · reach ${escapeText(p.reachOrganic)} · age ${escapeText(p.ageDays != null ? p.ageDays.toFixed(1) : '—')}д</p>`).join('') || '<p class="meta">Нет данных</p>'}
-      <h3>Низ (только с метриками)</h3>
-      ${(overview.bottom || []).map((p) => `<p class="meta">${escapeText(p.editionId)} · reach ${escapeText(p.reachOrganic)}</p>`).join('') || '<p class="meta">Нет данных</p>'}`;
+      <div class="ranking-columns"><div><h3>Самый высокий охват</h3>${ranking(overview.top || [])}</div><div><h3>Что требует внимания</h3>${ranking(overview.bottom || [])}</div></div>`;
   } else if (tab === 'analytics-posts' && posts) {
     body = `
       <p class="meta">Постов: ${escapeText(posts.total)} · без метрик не ранжируются как ноль</p>
@@ -320,18 +322,18 @@ function renderAnalyticsSection(bundle) {
               const reach = p.metrics?.reachOrganic ?? '—';
               const eng =
                 p.derived?.engagement?.value != null
-                  ? Number(p.derived.engagement.value).toFixed(3)
+                  ? `${(Number(p.derived.engagement.value) * 100).toFixed(1)}%`
                   : '—';
               const notice = p.bodyNotice || (p.bodyText ? p.bodyText.slice(0, 80) : '—');
-              return `<article class="card"><div class="card-head"><strong>${escapeText(p.projectId)}</strong><span class="meta">${escapeText(p.publishedAt || '')}</span></div>
+              return `<article class="card"><div class="card-head"><strong>${escapeText(projectTitle(p.projectId))}</strong><span class="meta">${escapeText(editorialDate(p.publishedAt))} МСК</span></div>
               <p>${escapeText(notice)}</p>
-              <p class="meta">reach ${escapeText(reach)} · eng ${escapeText(eng)} · media ${escapeText(p.mediaActual || 'none')} · prompt ${escapeText(p.promptVersion)} · age ${escapeText(p.ageBucket || '—')}
-              ${p.metrics?.promoted ? ' · paid' : ''}
-              ${p.vkUrl ? ` · <a href="${escapeAttr(p.vkUrl)}" rel="noopener noreferrer">VK</a>` : ''}</p></article>`;
+              <p class="post-metrics"><span>Охват <strong>${escapeText(reach)}</strong></span><span>Вовлечённость <strong>${escapeText(eng)}</strong></span><span>${escapeText(p.mediaActual === 'none' || !p.mediaActual ? 'Текст' : p.mediaActual.toUpperCase())}</span>${p.metrics?.promoted ? '<span>С продвижением</span>' : ''}</p>
+              <details><summary>Версия промпта и возраст публикации</summary><p class="meta">${escapeText(p.promptVersion || '—')} · ${escapeText(p.ageBucket || '—')}</p></details>
+              ${safeVkLink(p.vkUrl)}</article>`;
             })
             .join('') || '<p class="meta">Нет постов в окне</p>'
         }
-      </div>`;
+      </div><div class="posts-pagination" aria-label="Страницы публикаций"><button type="button" data-posts-cursor="${Math.max(0, (Number(params().get('cursor')) || 0) - 50)}" ${Number(params().get('cursor')) > 0 ? '' : 'disabled'}>Назад</button><span class="meta">Показано ${escapeText(posts.items?.length ?? 0)} из ${escapeText(posts.total ?? 0)}</span><button type="button" data-posts-cursor="${escapeAttr(posts.nextCursor ?? '')}" ${posts.nextCursor == null ? 'disabled' : ''}>Далее</button></div>`;
   } else if (tab === 'analytics-imports') {
     body = `
       <form id="import-form" class="login-form">
@@ -341,11 +343,11 @@ function renderAnalyticsSection(bundle) {
             ${projects.map((p) => `<option value="${escapeAttr(p.id)}" ${p.id === project ? 'selected' : ''}>${escapeText(p.title || p.id)}</option>`).join('')}
           </select>
         </label>
-        <label>VK group id <input name="vkGroupId" required placeholder="194579254"></label>
-        <label>observed_at <input name="observedAt" type="datetime-local" required></label>
+        <label>ID сообщества VK <input name="vkGroupId" required inputmode="numeric" pattern="[0-9]+" placeholder="Числовой ID без минуса"></label>
+        <label>Дата снятия статистики · Москва <input name="observedAt" type="datetime-local" required></label>
         <label>Файл CSV/JSON <input name="file" type="file" accept=".csv,.json,text/csv,application/json" required></label>
         <p class="meta">Пустая ячейка = «нет данных», не ноль. Шаблон: <a href="${escapeAttr(apiBase)}/bot/api/v1/imports/template">скачать</a></p>
-        <button type="submit">Preview</button>
+        <button type="submit">Проверить файл</button>
       </form>
       <div id="import-preview"></div>
       <h3>Покрытие</h3>
@@ -354,8 +356,8 @@ function renderAnalyticsSection(bundle) {
         (imports?.imports || [])
           .map(
             (item) =>
-              `<article class="card"><div class="card-head"><strong>${escapeText(item.status)}</strong><span class="meta">${escapeText(item.createdAt)}</span></div>
-              <p class="meta">${escapeText(item.importId)} · rows ${escapeText(item.rowCount)} · matched ${escapeText(item.matchedCount)} · errors ${escapeText(item.errorCount)}</p></article>`,
+              `<article class="card"><div class="card-head"><strong>${escapeText(workspaceStatus(item.status))}</strong><span class="meta">${escapeText(editorialDate(item.createdAt))} МСК</span></div>
+              <p class="post-metrics"><span>Строк <strong>${escapeText(item.rowCount)}</strong></span><span>Сопоставлено <strong>${escapeText(item.matchedCount)}</strong></span><span>Ошибок <strong>${escapeText(item.errorCount)}</strong></span></p><details><summary>Идентификатор импорта</summary><p class="meta">${escapeText(item.importId)}</p></details></article>`,
           )
           .join('') || '<p class="meta">Импортов пока нет</p>'
       }`;
@@ -363,27 +365,28 @@ function renderAnalyticsSection(bundle) {
     body =
       Object.entries(segments.segments || [])
         .map(([name, list]) => {
-          return `<h3>${escapeText(name)}</h3>${(list || [])
-            .map(
-              (s) =>
-                `<p class="meta">${escapeText(s.key)} · n=${escapeText(s.posts)} · coverage ${escapeText(s.coverageRatio != null ? Math.round(s.coverageRatio * 100) + '%' : '—')} · reach med ${escapeText(s.organicReach?.median ?? '—')}
-              ${s.note ? ` · ${escapeText(s.note)}` : ''}</p>`,
-            )
-            .join('')}`;
+          return `<h3>${escapeText({ byTopic: 'Темы публикаций', byMedia: 'Оформление', byPromptVersion: 'Версии промптов', byAgeBucket: 'Возраст публикации', byOrganicPaid: 'Продвижение', byModel: 'Текстовые модели' }[name] || name)}</h3><div class="segment-grid">${
+            (list || [])
+              .map(
+                (s) =>
+                  `<article class="card"><strong>${escapeText({ none: 'Текст', organic: 'Без продвижения', paid: 'С продвижением', unknown: 'Не указано' }[s.key] || projectTitle(s.key))}</strong><p class="meta">Постов: ${escapeText(s.posts)} · покрытие ${escapeText(s.coverageRatio != null ? Math.round(s.coverageRatio * 100) + '%' : '—')}</p><p>Медианный охват: <strong>${escapeText(s.organicReach?.median ?? '—')}</strong></p>${s.note ? `<p class="meta">${escapeText(s.note)}</p>` : ''}</article>`,
+              )
+              .join('') || '<p class="meta">Пока нет данных для сравнения</p>'
+          }</div>`;
         })
         .join('') || '<p class="meta">Нет сегментов</p>';
     body += `<p class="meta">${escapeText(segments.caution || '')}</p>`;
   } else if (tab === 'analytics-prompts') {
     body = `
       <div class="panel-head"><h3>Рекомендации</h3>
-        <button type="button" id="run-analysis">Запустить анализ</button></div>
+        <button type="button" id="run-analysis" ${project ? '' : 'disabled'}>Запустить анализ</button></div>${project ? '' : '<p class="meta">Выберите сообщество, чтобы запустить анализ.</p>'}
       ${
         recommendations
           .map(
             (r) => `<article class="card" data-rec="${escapeAttr(r.recommendationId)}">
-            <div class="card-head"><strong>${escapeText(r.status)}</strong><span class="meta">${escapeText(r.projectId)}</span></div>
+            <div class="card-head"><strong>${escapeText(workspaceStatus(r.status))}</strong><span class="meta">${escapeText(projectTitle(r.projectId))}</span></div>
             <p>${escapeText(r.observation)}</p>
-            <p class="meta">evidence: ${(r.evidence || []).map((e) => escapeText(e.editionId)).join(', ') || '—'}</p>
+            <details><summary>Материалы для анализа</summary><p class="meta">${(r.evidence || []).map((e) => escapeText(e.editionId)).join(', ') || 'Подтверждающих материалов пока нет'}</p></details>
             ${r.status === 'proposed' ? `<button type="button" data-decide="reject">Отклонить</button>` : ''}
           </article>`,
           )
@@ -394,7 +397,7 @@ function renderAnalyticsSection(bundle) {
         versions
           .map(
             (v) =>
-              `<p class="meta">${escapeText(v.projectId)} / ${escapeText(v.role)} / ${escapeText(v.versionLabel)} · ${escapeText(v.status)} · ${escapeText(v.contentHash?.slice(0, 8))}</p>`,
+              `<article class="card prompt-version"><div class="card-head"><strong>${escapeText(v.versionLabel || 'Без названия')}</strong><span class="version-status">${escapeText(workspaceStatus(v.status))}</span></div><p class="meta">${escapeText(projectTitle(v.projectId))} · ${escapeText({ editor: 'Редактор текста', cover: 'Обложка', video: 'Видео' }[v.role] || v.role)}</p><details><summary>Контрольная сумма</summary><p class="meta">${escapeText(v.contentHash)}</p></details></article>`,
           )
           .join('') || '<p class="meta">Версий нет</p>'
       }`;
@@ -420,7 +423,8 @@ function renderAnalyticsSection(bundle) {
             .join('')}
         </select>
       </div>
-      ${body}
+      <p id="analytics-feedback" class="editorial-feedback" role="status" aria-live="polite"></p>
+      <div class="workspace-content">${body}</div>
     </section>`;
 }
 
@@ -738,6 +742,7 @@ function renderSlotSummary(meta) {
 let editorialFeedback = '';
 
 function editorialDate(value) {
+  if (!value) return '—';
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? '—'
@@ -748,6 +753,45 @@ function editorialDate(value) {
         hour: '2-digit',
         minute: '2-digit',
       }).format(date);
+}
+
+function workspaceStatus(value) {
+  return (
+    {
+      proposed: 'На рассмотрении',
+      approved: 'Утверждено',
+      rejected: 'Отклонено',
+      active: 'Активно',
+      draft: 'Черновик',
+      archived: 'В архиве',
+      committed: 'Импортировано',
+      preview: 'Проверено',
+      failed: 'Ошибка',
+      completed: 'Завершено',
+      paused: 'Приостановлено',
+      rolled_back: 'Отменено',
+    }[value] ||
+    value ||
+    '—'
+  );
+}
+
+function renderWorkspaceKpi(label, value) {
+  return `<div class="week-kpi" role="listitem"><span class="week-kpi-value">${escapeText(value)}</span><span class="week-kpi-label">${escapeText(label)}</span></div>`;
+}
+
+function safeVkLink(value) {
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== 'https:' ||
+      !['vk.com', 'vk.ru', 'www.vk.com', 'www.vk.ru'].includes(url.hostname)
+    )
+      return '';
+    return `<a class="post-source" href="${escapeAttr(url.href)}" target="_blank" rel="noopener noreferrer">Открыть публикацию ↗</a>`;
+  } catch {
+    return '';
+  }
 }
 
 function renderEditorialSection(bundle) {
@@ -778,11 +822,12 @@ function renderEditorialSection(bundle) {
       <h3>Обзор</h3>
       <p>${escapeText(proposal?.overview?.summary || 'Предложения ещё нет')}</p>
       <p class="meta">План собирается по истории и редакционным правилам. Изменения попадут в расписание после утверждения.</p>
-      <h3>Редакционные решения</h3>
+      ${proposal ? '<h3>Редакционные решения</h3>' : '<div class="editorial-empty"><h3>Начните с плана недели</h3><p class="meta">Соберите предложение по истории сообщества. До утверждения расписание останется прежним.</p></div>'}
+      <div ${proposal ? '' : 'hidden'}>
       <div class="editorial-decisions">
       <article class="card"><strong>Продолжить</strong>${(proposal?.continue || []).map((item) => `<p class="meta">${escapeText(item.rubricId || '—')}: ${escapeText(item.reason || '')}</p>`).join('') || '<p class="meta">—</p>'}</article>
       <article class="card"><strong>Временно убрать</strong>${(proposal?.pause || []).map((item) => `<p class="meta">${escapeText(item.reason || '')}${item.reviewAt ? ` · пересмотр ${escapeText(item.reviewAt)}` : ''}</p>`).join('') || '<p class="meta">—</p>'}</article>
-      <article class="card"><strong>Новые форматы (2, ≤1 активен)</strong>${(proposal?.newFormats || []).map((item) => `<p class="meta">${escapeText(item.title)} · ${item.activate ? 'кандидат к активации' : 'резерв'} · ${escapeText(item.hypothesis || '')}</p>`).join('') || '<p class="meta">—</p>'}</article>
+      <article class="card"><strong>Новые форматы</strong><p class="meta">Два варианта · один активный эксперимент</p>${(proposal?.newFormats || []).map((item) => `<p class="meta">${escapeText(item.title)} · ${item.activate ? 'кандидат к активации' : 'резерв'} · ${escapeText(item.hypothesis || '')}</p>`).join('') || '<p class="meta">Нет предложений</p>'}</article>
       <article class="card"><strong>Серии</strong>${(proposal?.series || []).map((item) => `<p class="meta">${escapeText(item.title || item.seriesId || '—')}: ${escapeText(item.goal || '')}</p>`).join('') || '<p class="meta">—</p>'}</article>
       <article class="card"><strong>Следующий материал</strong><p class="meta">${escapeText(proposal?.nextMaterial?.link || '—')}</p></article>
       </div>
@@ -799,7 +844,7 @@ function renderEditorialSection(bundle) {
           .join('') || '<p class="meta">Нет доступных слотов</p>'
       }
       </div>
-      ${revision?.diff?.changes?.length ? `<h3>Diff</h3>${revision.diff.changes.map((c) => `<p class="meta">${escapeText(c.kind)} · ${escapeText(c.planId)} · ${escapeText(c.topic || c.to?.topic || '')}</p>`).join('')}` : ''}
+      ${revision?.diff?.changes?.length ? `<details><summary>Изменения расписания · ${escapeText(revision.diff.changes.length)}</summary>${revision.diff.changes.map((c) => `<p class="meta">${escapeText(c.kind)} · ${escapeText(c.planId)} · ${escapeText(c.topic || c.to?.topic || '')}</p>`).join('')}</details>` : ''}
       ${
         revision?.status === 'proposed'
           ? `<div class="toolbar-group" style="margin:1rem 0;gap:0.5rem">
@@ -807,20 +852,20 @@ function renderEditorialSection(bundle) {
               <button type="button" id="editorial-reject" data-revision="${escapeAttr(revision.revisionId)}">Отклонить</button>
             </div>`
           : revision
-            ? `<p class="meta">Статус revision: ${escapeText(revision.status)}</p>`
+            ? `<p class="meta">${escapeText(workspaceStatus(revision.status))}</p>`
             : ''
       }
-      <h3>Память / разнообразие</h3>
+      </div><h3>Разнообразие публикаций</h3>
       <p class="meta">Повторы заходов: ${escapeText(diversity?.phrases?.repeatedOpenings?.length ?? 0)} · концовок: ${escapeText(diversity?.phrases?.repeatedClosings?.length ?? 0)}</p>
       ${(diversity?.findings || []).map((f) => `<p class="meta">${escapeText(f.label)} (${escapeText(f.evidenceKind)})</p>`).join('')}
       <h3>Серии в реестре</h3>
-      ${series.map((s) => `<p class="meta">${escapeText(s.title)} · ${escapeText(s.status)}</p>`).join('') || '<p class="meta">Серий нет</p>'}
+      ${series.map((s) => `<article class="card"><strong>${escapeText(s.title)}</strong><p class="meta">${escapeText(workspaceStatus(s.status))}</p></article>`).join('') || '<p class="meta">Пока нет активных серий</p>'}
       <h3>История решений</h3>
       ${
         (overview?.revisions || [])
           .map(
             (r) =>
-              `<p class="meta">${escapeText(r.weekStart)} r${escapeText(r.revisionNumber)} · ${escapeText(r.status)} · ${escapeText(r.createdAt || '')}</p>`,
+              `<article class="history-row"><strong>Неделя ${escapeText(r.weekStart)} · версия ${escapeText(r.revisionNumber)}</strong><span>${escapeText(workspaceStatus(r.status))}</span><time class="meta">${escapeText(editorialDate(r.createdAt))} МСК</time></article>`,
           )
           .join('') || '<p class="meta">Пока пусто</p>'
       }`;
@@ -956,7 +1001,8 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
       </div>
     </div>`
       : '';
-  const incidentsPanel = tab === 'incidents' ? renderIncidentsSection(incidents) : '';
+  const incidentsPanel =
+    tab === 'incidents' ? renderIncidentsSection(incidents, data.projects) : '';
   const servicePanel = tab === 'service' ? renderServiceSection(data) : '';
   const analyticsPanel = isAnalyticsTab(tab)
     ? renderAnalyticsSection({
@@ -972,7 +1018,17 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
       })
     : '';
 
-  app.className = 'cabinet';
+  const retainedImport =
+    tab === 'analytics-imports' && app.dataset.tab === tab && app.dataset.project === project
+      ? document.getElementById('import-form')
+      : null;
+  const retainedPreview = retainedImport ? document.getElementById('import-preview') : null;
+  const importFocus = retainedImport?.contains(document.activeElement)
+    ? document.activeElement
+    : null;
+  app.className = tab === 'week' ? 'cabinet' : 'cabinet cabinet--workspace';
+  app.dataset.tab = tab;
+  app.dataset.project = project;
   app.innerHTML = `
     ${renderSiteHeader(openCount, data)}
     ${errorMessage ? `<div class="error-banner" role="alert">${escapeText(errorMessage)}</div>` : ''}
@@ -981,6 +1037,12 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
     ${analyticsPanel}
     ${incidentsPanel}
     ${servicePanel}`;
+
+  if (retainedImport) {
+    document.getElementById('import-form')?.replaceWith(retainedImport);
+    document.getElementById('import-preview')?.replaceWith(retainedPreview);
+    importFocus?.focus({ preventScroll: true });
+  }
 
   // Refresh the calendar without destroying the active dialog, unsaved form,
   // detail request or its scroll position. Tab changes intentionally close it.
@@ -1000,7 +1062,7 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
   };
   document.getElementById('stale-indicator')?.addEventListener('click', openServiceTab);
   document.getElementById('heartbeat-pill')?.addEventListener('click', openServiceTab);
-  app.querySelectorAll('.cabinet-tab').forEach((node) => {
+  app.querySelectorAll('.cabinet-tab[data-tab]').forEach((node) => {
     node.addEventListener('click', () => {
       const next = node.dataset.tab;
       if (next === tab) return;
@@ -1269,30 +1331,42 @@ function bindEditorialHandlers() {
 }
 
 function bindAnalyticsHandlers() {
+  app.querySelectorAll('[data-posts-cursor]').forEach((node) => {
+    node.addEventListener('click', () => {
+      setParam('cursor', node.dataset.postsCursor);
+      loadOverview(true);
+    });
+  });
   app.querySelectorAll('[data-analytics-tab]').forEach((node) => {
     node.addEventListener('click', () => {
       setParam('tab', node.dataset.analyticsTab);
+      setParam('cursor', '');
       loadOverview(true);
     });
   });
   document.getElementById('project-filter')?.addEventListener('change', (event) => {
     setParam('project', event.target.value);
+    setParam('cursor', '');
     loadOverview(true);
   });
   const form = document.getElementById('import-form');
-  if (form) {
+  if (form && !form.dataset.bound) {
+    form.dataset.bound = 'true';
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
+      const submit = form.querySelector('[type="submit"]');
+      if (submit.disabled) return;
       const fd = new FormData(form);
       const file = fd.get('file');
       if (!(file instanceof File)) return;
-      const content = await file.text();
-      const observedLocal = String(fd.get('observedAt') || '');
-      const observedAt = observedLocal
-        ? new Date(observedLocal).toISOString()
-        : new Date().toISOString();
       const previewEl = document.getElementById('import-preview');
+      submit.disabled = true;
+      submit.setAttribute('aria-busy', 'true');
+      previewEl.textContent = 'Проверяем файл…';
       try {
+        const content = await file.text();
+        const observedLocal = String(fd.get('observedAt') || '');
+        const observedAt = new Date(`${observedLocal}+03:00`).toISOString();
         const preview = await api('/bot/api/v1/imports/preview', {
           method: 'POST',
           body: JSON.stringify({
@@ -1304,64 +1378,119 @@ function bindAnalyticsHandlers() {
           }),
         });
         previewEl.innerHTML = `
-          <p>Preview: valid ${escapeText(preview.preview?.validCount)} · errors ${escapeText(preview.preview?.errorCount)} · matched ${escapeText(preview.matchedCount)}</p>
-          <button type="button" id="import-commit" data-import="${escapeAttr(preview.importId)}">Подтвердить импорт</button>
-          ${preview.preview?.canCommitStrict ? '' : '<p class="meta">Есть ошибки — commit blocked в strict-режиме</p>'}`;
-        document.getElementById('import-commit')?.addEventListener('click', async () => {
-          const result = await api(`/bot/api/v1/imports/${preview.importId}/commit`, {
-            method: 'POST',
-            body: JSON.stringify({ mode: 'strict', confirmAnomalies: true }),
-          });
-          previewEl.innerHTML = `<p>Применено ${escapeText(result.applied)}, пропущено ${escapeText(result.skipped)}, ошибок ${escapeText(result.errors)}</p>`;
-          loadOverview(true);
+          <h3>Результат проверки</h3><p>Корректных строк: ${escapeText(preview.preview?.validCount ?? 0)} · ошибок: ${escapeText(preview.preview?.errorCount ?? 0)} · сопоставлено: ${escapeText(preview.matchedCount ?? 0)}</p>
+          ${preview.preview?.anomalyCount ? `<label class="confirm-anomalies"><input type="checkbox" id="confirm-anomalies"> Подтверждаю снижение накопительных показателей в ${escapeText(preview.preview.anomalyCount)} строках. Эти значения заменят предыдущие.</label>` : ''}
+          <button type="button" id="import-commit" ${preview.preview?.canCommitStrict ? '' : 'disabled'}>Подтвердить импорт</button>
+          ${preview.preview?.canCommitStrict ? '' : '<p class="meta">Исправьте ошибки в файле и повторите проверку. Импорт заблокирован.</p>'}<p id="import-feedback" role="status" aria-live="polite"></p>`;
+        const commit = document.getElementById('import-commit');
+        const confirmation = document.getElementById('confirm-anomalies');
+        if (confirmation && preview.preview?.canCommitStrict) {
+          commit.disabled = true;
+          confirmation.onchange = () => {
+            commit.disabled = !confirmation.checked;
+          };
+        }
+        commit?.addEventListener('click', async () => {
+          if (commit.disabled) return;
+          await analyticsAction(
+            commit,
+            async () => {
+              const result = await api(
+                `/bot/api/v1/imports/${encodeURIComponent(preview.importId)}/commit`,
+                {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    mode: 'strict',
+                    confirmAnomalies: confirmation?.checked === true,
+                  }),
+                },
+              );
+              previewEl.innerHTML = `<h3>Импорт завершён</h3><p>Применено: ${escapeText(result.applied)}, пропущено: ${escapeText(result.skipped)}, ошибок: ${escapeText(result.errors)}</p>`;
+            },
+            'Статистика обновлена.',
+            'import-feedback',
+          );
         });
       } catch (error) {
-        previewEl.textContent = error.body?.message || error.message || 'import_failed';
+        previewEl.textContent = `Не удалось проверить файл: ${error.body?.message || error.message || 'повторите попытку'}`;
+      } finally {
+        submit.disabled = false;
+        submit.removeAttribute('aria-busy');
       }
     });
   }
   document.getElementById('run-analysis')?.addEventListener('click', async () => {
     const projectId = params().get('project');
     if (!projectId) {
-      alert('Выберите проект');
       return;
     }
-    await api('/bot/api/v1/analysis-jobs', {
-      method: 'POST',
-      body: JSON.stringify({ projectId }),
-    });
-    loadOverview(true);
+    await analyticsAction(
+      document.getElementById('run-analysis'),
+      () =>
+        api('/bot/api/v1/analysis-jobs', {
+          method: 'POST',
+          body: JSON.stringify({ projectId }),
+        }),
+      'Анализ запущен. Результаты появятся после выполнения задачи.',
+    );
   });
   app.querySelectorAll('[data-decide]').forEach((node) => {
     node.addEventListener('click', async () => {
       const card = node.closest('[data-rec]');
       const id = card?.dataset.rec;
       if (!id) return;
-      await api(`/bot/api/v1/recommendations/${id}/decide`, {
-        method: 'POST',
-        body: JSON.stringify({ decision: node.dataset.decide }),
-      });
-      loadOverview(true);
+      await analyticsAction(
+        node,
+        () =>
+          api(`/bot/api/v1/recommendations/${encodeURIComponent(id)}/decide`, {
+            method: 'POST',
+            body: JSON.stringify({ decision: node.dataset.decide }),
+          }),
+        'Рекомендация отклонена.',
+      );
     });
   });
 }
 
+async function analyticsAction(button, request, successText, feedbackId = 'analytics-feedback') {
+  if (button.disabled) return;
+  button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
+  try {
+    await request();
+    await loadOverview(true);
+    const feedback =
+      document.getElementById(feedbackId) || document.getElementById('analytics-feedback');
+    if (feedback) feedback.textContent = successText;
+  } catch (error) {
+    const feedback = document.getElementById(feedbackId);
+    if (feedback)
+      feedback.textContent = `Не удалось выполнить действие: ${error.body?.message || error.message}`;
+  } finally {
+    button.disabled = false;
+    button.removeAttribute('aria-busy');
+  }
+}
+
 async function loadAnalyticsBundle(project) {
   const q = project ? `?project=${encodeURIComponent(project)}` : '';
-  const pq = project ? `?project=${encodeURIComponent(project)}` : '';
-  const [overview, posts, imports, segments, recommendations, versions] = await Promise.all([
-    api(`/bot/api/v1/analytics${q}`),
-    api(`/bot/api/v1/analytics/posts${q}${q ? '&' : '?'}limit=50`),
-    api(`/bot/api/v1/analytics/imports${pq}`),
-    api(`/bot/api/v1/analytics/segments${q}`),
-    api(`/bot/api/v1/recommendations${pq}`),
-    api(`/bot/api/v1/prompt-versions${pq}`),
+  const tab = activeTab();
+  if (tab === 'analytics') return { overview: await api(`/bot/api/v1/analytics${q}`) };
+  if (tab === 'analytics-posts')
+    return {
+      posts: await api(
+        `/bot/api/v1/analytics/posts${q}${q ? '&' : '?'}limit=50&cursor=${encodeURIComponent(params().get('cursor') || '0')}`,
+      ),
+    };
+  if (tab === 'analytics-imports')
+    return { imports: await api(`/bot/api/v1/analytics/imports${q}`) };
+  if (tab === 'analytics-segments')
+    return { segments: await api(`/bot/api/v1/analytics/segments${q}`) };
+  const [recommendations, versions] = await Promise.all([
+    api(`/bot/api/v1/recommendations${q}`),
+    api(`/bot/api/v1/prompt-versions${q}`),
   ]);
   return {
-    overview,
-    posts,
-    imports,
-    segments,
     recommendations: recommendations.recommendations || [],
     versions: versions.versions || [],
   };
@@ -1391,7 +1520,11 @@ async function loadEditorialBundle(project) {
   };
 }
 
+let overviewRequest = 0;
+
 async function loadOverview(manual = false) {
+  const requestId = ++overviewRequest;
+  const requestedSearch = location.search;
   const week = params().get('week');
   const project = params().get('project');
   const status = params().get('status');
@@ -1415,18 +1548,22 @@ async function loadOverview(manual = false) {
       try {
         tabBundle = await loadAnalyticsBundle(project);
       } catch (error) {
+        if (error.status === 401) throw error;
         tabBundle = { error: error.message };
       }
     } else if (isEditorialTab()) {
       try {
         tabBundle = { editorial: await loadEditorialBundle(project) };
       } catch (error) {
+        if (error.status === 401) throw error;
         tabBundle = { editorial: { error: error.message } };
       }
     }
+    if (requestId !== overviewRequest || requestedSearch !== location.search) return;
     renderOverview(overview, incidents, '', tabBundle);
     state.backoffMs = 30000;
   } catch (error) {
+    if (requestId !== overviewRequest || requestedSearch !== location.search) return;
     if (error.status === 401) {
       state.authenticated = false;
       renderLogin();
