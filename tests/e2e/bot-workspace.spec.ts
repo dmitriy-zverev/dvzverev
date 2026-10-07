@@ -210,7 +210,7 @@ test('anomalies need explicit consent; commit and analysis errors recover inline
 
 test('header styles remain consistent between tabs at every breakpoint', async ({ page }) => {
   await workspace(page);
-  for (const width of [320, 768, 1280, 1465]) {
+  for (const width of [320, 768, 1280, 1465, 1626]) {
     await page.setViewportSize({ width, height: 900 });
     let baseline: unknown;
     for (const tab of ['', 'editorial', 'analytics', 'incidents', 'service']) {
@@ -233,6 +233,19 @@ test('header styles remain consistent between tabs at every breakpoint', async (
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
         false,
       );
+      const overlaps = await page.locator('.cabinet-header-shell').evaluate((shell) => {
+        const rects = Array.from(shell.children).map((node) => node.getBoundingClientRect());
+        return rects.some((a, i) =>
+          rects
+            .slice(i + 1)
+            .some(
+              (b) =>
+                Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 &&
+                Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1,
+            ),
+        );
+      });
+      expect(overlaps).toBe(false);
     }
   }
 });

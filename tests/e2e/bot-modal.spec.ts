@@ -70,6 +70,7 @@ async function cabinet(page: Page) {
   });
   await page.goto('/bot/');
   await expect(page.locator('.slot')).toHaveCount(24);
+  await expect(page.locator('.day-count')).toHaveText('Постов: 24');
   return {
     refreshes: () => refreshes,
     fail: (status: number) => {

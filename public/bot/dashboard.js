@@ -1001,6 +1001,7 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
           (day) => `
         <div class="day-block">
           <h3 class="day-title" title="${escapeText(day.date)}">${escapeText(formatDayTitle(day.date))}</h3>
+          <p class="day-count">Постов: ${day.cards.length}</p>
           <div class="day-slots">${day.cards.length ? day.cards.map(renderCard).join('') : '<p class="day-empty meta">—</p>'}</div>
         </div>`,
         )
