@@ -9,9 +9,19 @@ import { materializeBatches, getBatch } from '../../bot/cabinet/batches.mjs';
 import { refreshServiceSnapshot } from '../../bot/cabinet/projects.mjs';
 import { materializeScheduleSlots } from '../../bot/cabinet/sync.mjs';
 import { localSlotToUtc } from '../../bot/cabinet/time.mjs';
-import { isSafeReportUrl, isSafePostUrl, renderReport, formatReportTelegramHtml } from '../../bot/cabinet/reports/render.mjs';
+import {
+  isSafeReportUrl,
+  isSafePostUrl,
+  renderReport,
+  formatReportTelegramHtml,
+} from '../../bot/cabinet/reports/render.mjs';
 import { readBatchReportSnapshot } from '../../bot/cabinet/reports/snapshot.mjs';
-import { findReportByKey, reportIdempotencyKey, insertReport, enqueueOutbox } from '../../bot/cabinet/reports/store.mjs';
+import {
+  findReportByKey,
+  reportIdempotencyKey,
+  insertReport,
+  enqueueOutbox,
+} from '../../bot/cabinet/reports/store.mjs';
 import { TelegramRejection } from '../../bot/core.mjs';
 import { runReportWorker } from '../../bot/cabinet/reports/worker.mjs';
 import { processNotificationOutbox } from '../../bot/cabinet/reports/outbox.mjs';
@@ -30,7 +40,10 @@ const service = {
   },
   destinations: {
     'code-to-think-vk': { platform: 'vk', media: { enabled: false } },
-    'connaissance-vk': { platform: 'vk', media: { enabled: true, kind: 'video', times: ['18:00'] } },
+    'connaissance-vk': {
+      platform: 'vk',
+      media: { enabled: true, kind: 'video', times: ['18:00'] },
+    },
     'things-vk': { platform: 'vk', media: { enabled: true, kind: 'video', times: ['18:00'] } },
   },
   projects: {
@@ -104,9 +117,9 @@ test('stale before skip still locks batch for after reports', async () => {
   const lateStart = localSlotToUtc(dateYmd, '11:00', 'Europe/Moscow');
   const { db, env } = seedDb(dateYmd, lateStart);
   await runReportWorker(db, service, env, lateStart);
-  const batch = db.prepare('SELECT before_locked_at FROM batches WHERE batch_id = ?').get(
-    `${dateYmd}:morning`,
-  );
+  const batch = db
+    .prepare('SELECT before_locked_at FROM batches WHERE batch_id = ?')
+    .get(`${dateYmd}:morning`);
   assert.ok(batch.before_locked_at);
   const editionId = randomUUID();
   const member = db
@@ -153,7 +166,9 @@ test('worker queues before report once in shadow mode', async () => {
   const batch = getBatch(db, dateYmd, 'morning');
   assert.ok(batch.batch.beforeLockedAt);
   await runReportWorker(db, service, env, now);
-  const reports = db.prepare('SELECT COUNT(*) AS count FROM reports WHERE idempotency_key = ?').get(key);
+  const reports = db
+    .prepare('SELECT COUNT(*) AS count FROM reports WHERE idempotency_key = ?')
+    .get(key);
   assert.equal(reports.count, 1);
   db.close();
 });
@@ -161,7 +176,7 @@ test('worker queues before report once in shadow mode', async () => {
 test('revision bumps after before lock when member plan changes', () => {
   const dateYmd = '2026-10-07';
   const now = localSlotToUtc(dateYmd, '09:56', 'Europe/Moscow');
-  const { db, env } = seedDb(dateYmd, now);
+  const { db } = seedDb(dateYmd, now);
   db.prepare(
     `UPDATE batches SET before_locked_at = ?, baseline_editions = 3, baseline_deliveries = 3 WHERE batch_id = ?`,
   ).run(now.toISOString(), `${dateYmd}:morning`);
@@ -304,12 +319,27 @@ test('after report still sends when all deliveries finish after deadline without
 
 test('after report includes escaped project blocks, safe VK links and redacted errors', () => {
   const now = localSlotToUtc('2026-10-07', '18:30', 'Europe/Moscow');
-  const {db} = seedDb('2026-10-07', now);
+  const { db } = seedDb('2026-10-07', now);
   const snapshot = readBatchReportSnapshot(db, '2026-10-07', 'evening', 'Europe/Moscow');
-  snapshot.members[0] = {...snapshot.members[0], deliveryStatus:'sent', sentAt:now.toISOString(), vkUrl:'https://vk.com/wall-242034586_123', projectTitle:'Код <на> подумать'};
-  snapshot.members[1] = {...snapshot.members[1], deliveryStatus:'failed', failureReason:'Bad vk1.a.secret_secret https://api.vk.com/private'};
-  snapshot.progress = {...snapshot.progress, sent:1, failed:1, needsAttention:true};
-  const result = renderReport({reportKind:'after', snapshot, reportConfig:service.service.reports, now});
+  snapshot.members[0] = {
+    ...snapshot.members[0],
+    deliveryStatus: 'sent',
+    sentAt: now.toISOString(),
+    vkUrl: 'https://vk.com/wall-242034586_123',
+    projectTitle: 'Код <на> подумать',
+  };
+  snapshot.members[1] = {
+    ...snapshot.members[1],
+    deliveryStatus: 'failed',
+    failureReason: 'Bad vk1.a.secret_secret https://api.vk.com/private',
+  };
+  snapshot.progress = { ...snapshot.progress, sent: 1, failed: 1, needsAttention: true };
+  const result = renderReport({
+    reportKind: 'after',
+    snapshot,
+    reportConfig: service.service.reports,
+    now,
+  });
   assert.match(result.bodyHtml, /<b>Код &lt;на&gt; подумать<\/b>/);
   assert.match(result.bodyHtml, /href="https:\/\/vk.com\/wall-242034586_123">Открыть пост →/);
   assert.match(result.bodyPlain, /Причина: Bad \[REDACTED\]/);
@@ -319,19 +349,38 @@ test('after report includes escaped project blocks, safe VK links and redacted e
 
 test('post URLs reject credentials, foreign hosts and malformed wall IDs', () => {
   assert.equal(isSafePostUrl('https://vk.ru/wall-123_456'), true);
-  for (const url of ['https://vk.com.evil.org/wall-123_456', 'https://token@vk.com/wall-123_456', 'https://vk.com/wall-123_456?access_token=secret', 'javascript:alert(1)', 'https://vk.com/wall-123_x']) assert.equal(isSafePostUrl(url), false);
+  for (const url of [
+    'https://vk.com.evil.org/wall-123_456',
+    'https://token@vk.com/wall-123_456',
+    'https://vk.com/wall-123_456?access_token=secret',
+    'javascript:alert(1)',
+    'https://vk.com/wall-123_x',
+  ])
+    assert.equal(isSafePostUrl(url), false);
 });
 
 test('large reports stay within Telegram limit without cutting HTML entities or anchors', () => {
   const now = localSlotToUtc('2026-10-07', '18:30', 'Europe/Moscow');
-  const {db} = seedDb('2026-10-07', now);
+  const { db } = seedDb('2026-10-07', now);
   const snapshot = readBatchReportSnapshot(db, '2026-10-07', 'evening', 'Europe/Moscow');
-  snapshot.members = Array.from({length:100}, (_, i) => ({...snapshot.members[0], projectTitle:'<&>'.repeat(100), topic:'Тема '.repeat(100), deliveryStatus:'sent', sentAt:now.toISOString(), vkUrl:`https://vk.com/wall-123_${i+1}`}));
-  snapshot.progress = {...snapshot.progress, total:100, sent:100};
-  const result = renderReport({reportKind:'after', snapshot, reportConfig:service.service.reports, now});
+  snapshot.members = Array.from({ length: 100 }, (_, i) => ({
+    ...snapshot.members[0],
+    projectTitle: '<&>'.repeat(100),
+    topic: 'Тема '.repeat(100),
+    deliveryStatus: 'sent',
+    sentAt: now.toISOString(),
+    vkUrl: `https://vk.com/wall-123_${i + 1}`,
+  }));
+  snapshot.progress = { ...snapshot.progress, total: 100, sent: 100 };
+  const result = renderReport({
+    reportKind: 'after',
+    snapshot,
+    reportConfig: service.service.reports,
+    now,
+  });
   const html = formatReportTelegramHtml(result.headline, result.bodyHtml);
   assert.ok(html.length < 4096);
-  assert.equal((html.match(/<a /g)||[]).length, (html.match(/<\/a>/g)||[]).length);
+  assert.equal((html.match(/<a /g) || []).length, (html.match(/<\/a>/g) || []).length);
   assert.match(html, /Полный список — в календаре/);
   assert.match(html, /Открыть календарь →<\/a>$/);
   db.close();
@@ -339,55 +388,105 @@ test('large reports stay within Telegram limit without cutting HTML entities or 
 
 async function ownerOutbox(t) {
   const now = new Date();
-  const ymd = now.toISOString().slice(0,10);
-  const {db} = seedDb(ymd, now);
+  const ymd = now.toISOString().slice(0, 10);
+  const { db } = seedDb(ymd, now);
   const logDir = await mkdtemp(join(tmpdir(), 'report-outbox-'));
-  t.after(async () => {db.close(); await rm(logDir, {recursive:true, force:true});});
-  const env = {TELEGRAM_BOT_TOKEN:randomUUID(), BOT_ALERT_CHAT_ID:'123', BOT_LOG_DIR:logDir};
-  const config = {...service.service.reports, mode:'owner', alertChatIdEnv:'BOT_ALERT_CHAT_ID'};
+  t.after(async () => {
+    db.close();
+    await rm(logDir, { recursive: true, force: true });
+  });
+  const env = { TELEGRAM_BOT_TOKEN: randomUUID(), BOT_ALERT_CHAT_ID: '123', BOT_LOG_DIR: logDir };
+  const config = { ...service.service.reports, mode: 'owner', alertChatIdEnv: 'BOT_ALERT_CHAT_ID' };
   const id = randomUUID();
-  insertReport(db, {reportId:id, batchId:`${ymd}:morning`, localDate:ymd, period:'morning', reportKind:'before', revision:1, idempotencyKey:id, headline:'Test', bodyHtml:'<b>Test</b>', bodyPlain:'Test', snapshot:{}}, now);
-  enqueueOutbox(db, {reportId:id, destination:'123', bodyHtml:'<b>Test</b>'}, now);
-  return {db, env, config, now, id, logDir};
+  insertReport(
+    db,
+    {
+      reportId: id,
+      batchId: `${ymd}:morning`,
+      localDate: ymd,
+      period: 'morning',
+      reportKind: 'before',
+      revision: 1,
+      idempotencyKey: id,
+      headline: 'Test',
+      bodyHtml: '<b>Test</b>',
+      bodyPlain: 'Test',
+      snapshot: {},
+    },
+    now,
+  );
+  enqueueOutbox(db, { reportId: id, destination: '123', bodyHtml: '<b>Test</b>' }, now);
+  return { db, env, config, now, id, logDir };
 }
 
-test('concurrent outbox workers send one report only', async t => {
+test('concurrent outbox workers send one report only', async (t) => {
   const c = await ownerOutbox(t);
   let calls = 0;
   let release;
-  const gate = new Promise(resolve => { release = resolve; });
-  const sending = processNotificationOutbox(c.db, service, c.config, c.env, c.now, {notify:async () => {calls++; await gate;}});
-  await new Promise(resolve => setTimeout(resolve, 20));
-  await processNotificationOutbox(c.db, service, c.config, c.env, c.now, {notify:async () => {calls++;}});
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const sending = processNotificationOutbox(c.db, service, c.config, c.env, c.now, {
+    notify: async () => {
+      calls++;
+      await gate;
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await processNotificationOutbox(c.db, service, c.config, c.env, c.now, {
+    notify: async () => {
+      calls++;
+    },
+  });
   release();
   await sending;
   assert.equal(calls, 1);
-  assert.equal(c.db.prepare('SELECT delivery_status FROM reports WHERE report_id=?').get(c.id).delivery_status, 'sent');
+  assert.equal(
+    c.db.prepare('SELECT delivery_status FROM reports WHERE report_id=?').get(c.id).delivery_status,
+    'sent',
+  );
 });
 
-test('temporary Telegram rejection is logged and waits for backoff', async t => {
+test('temporary Telegram rejection is logged and waits for backoff', async (t) => {
   const c = await ownerOutbox(t);
-  await processNotificationOutbox(c.db, service, c.config, c.env, c.now, {notify:async () => {throw new TelegramRejection(429, 60);}});
+  await processNotificationOutbox(c.db, service, c.config, c.env, c.now, {
+    notify: async () => {
+      throw new TelegramRejection(429, 60);
+    },
+  });
   const row = c.db.prepare('SELECT status,retry_at FROM notification_outbox').get();
-  assert.equal(row.status,'retry_wait');
-  assert.ok(Date.parse(row.retry_at)>Date.now());
-  assert.match(await readFile(join(c.logDir,'errors.jsonl'),'utf8'), /telegram_delivery_failed/);
+  assert.equal(row.status, 'retry_wait');
+  assert.ok(Date.parse(row.retry_at) > Date.now());
+  assert.match(await readFile(join(c.logDir, 'errors.jsonl'), 'utf8'), /telegram_delivery_failed/);
 });
 
-test('unconfirmed Telegram send is not retried automatically', async t => {
+test('unconfirmed Telegram send is not retried automatically', async (t) => {
   const c = await ownerOutbox(t);
-  let calls=0;
-  const notify=async () => {calls++; throw new Error('Network response lost');};
-  await processNotificationOutbox(c.db, service, c.config, c.env, c.now, {notify});
-  await processNotificationOutbox(c.db, service, c.config, c.env, new Date(c.now.getTime()+300_000), {notify});
-  assert.equal(calls,1);
-  assert.equal(c.db.prepare('SELECT status FROM notification_outbox').get().status,'uncertain');
+  let calls = 0;
+  const notify = async () => {
+    calls++;
+    throw new Error('Network response lost');
+  };
+  await processNotificationOutbox(c.db, service, c.config, c.env, c.now, { notify });
+  await processNotificationOutbox(
+    c.db,
+    service,
+    c.config,
+    c.env,
+    new Date(c.now.getTime() + 300_000),
+    { notify },
+  );
+  assert.equal(calls, 1);
+  assert.equal(c.db.prepare('SELECT status FROM notification_outbox').get().status, 'uncertain');
 });
 
 test('initial rollout does not queue historical batches', async () => {
-  const now = localSlotToUtc('2026-10-07','09:56','Europe/Moscow');
-  const {db,env}=seedDb('2026-10-07',now);
-  await runReportWorker(db,service,env,now);
-  assert.equal(db.prepare("SELECT count(*) AS n FROM reports WHERE local_date < '2026-10-07'").get().n,0);
+  const now = localSlotToUtc('2026-10-07', '09:56', 'Europe/Moscow');
+  const { db, env } = seedDb('2026-10-07', now);
+  await runReportWorker(db, service, env, now);
+  assert.equal(
+    db.prepare("SELECT count(*) AS n FROM reports WHERE local_date < '2026-10-07'").get().n,
+    0,
+  );
   db.close();
 });

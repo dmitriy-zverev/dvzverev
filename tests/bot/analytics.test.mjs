@@ -63,17 +63,20 @@ function openDb() {
   return db;
 }
 
-function seedSentPost(db, {
-  editionId = 'a'.repeat(32),
-  deliveryId = 'slot:dest:vk',
-  vkPostId = '1001',
-  vkGroupId = '194579254',
-  sentAt = '2026-09-20T10:00:00.000Z',
-  body = 'Тестовый пост про литературу',
-  topic = 'literature',
-  mediaActual = 'gif',
-  costUsd = 0.02,
-} = {}) {
+function seedSentPost(
+  db,
+  {
+    editionId = 'a'.repeat(32),
+    deliveryId = 'slot:dest:vk',
+    vkPostId = '1001',
+    vkGroupId = '194579254',
+    sentAt = '2026-09-20T10:00:00.000Z',
+    body = 'Тестовый пост про литературу',
+    topic = 'literature',
+    mediaActual = 'gif',
+    costUsd = 0.02,
+  } = {},
+) {
   db.prepare(
     `INSERT INTO editions (
       edition_id, project_id, slot_key, format, topic, brief, body_text,
@@ -108,10 +111,10 @@ function seedSentPost(db, {
   });
 }
 
-test('schema migrates to v4 analytics tables', () => {
+test('schema migrates to v5 analytics+editorial tables', () => {
   const db = openDb();
   assert.equal(Number(getMeta(db, 'schema_version')), SCHEMA_VERSION);
-  assert.equal(SCHEMA_VERSION, 4);
+  assert.equal(SCHEMA_VERSION, 5);
   const tables = db
     .prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)
     .all()
@@ -125,6 +128,11 @@ test('schema migrates to v4 analytics tables', () => {
     'recommendations',
     'analysis_jobs',
     'delivery_tombstones',
+    'editorial_memory',
+    'editorial_weekly_jobs',
+    'editorial_plan_revisions',
+    'editorial_briefs',
+    'editorial_series',
     'monthly_aggregates',
   ]) {
     assert.ok(tables.includes(name), name);
@@ -139,7 +147,10 @@ test('fixture CSV/JSON parse matches control table', async () => {
   const parsedCsv = parseImportFile(csv, { filename: 'sample-posts.csv' });
   assert.equal(parsedCsv.ok, true);
   assert.equal(parsedCsv.rows.length, 5);
-  assert.equal(parsedCsv.rows.every((r) => r.valid), true);
+  assert.equal(
+    parsedCsv.rows.every((r) => r.valid),
+    true,
+  );
 
   const row1 = parsedCsv.rows.find((r) => r.postId === '1001');
   const control1 = expected.control.find((c) => c.post_id === '1001');
@@ -171,9 +182,14 @@ test('fixture CSV/JSON parse matches control table', async () => {
   assert.equal(parsedJson.ok, true);
   assert.equal(parsedJson.rows[0].metrics.views, 1200);
 
-  const empty = parseImportFile(Buffer.from('group_id,post_id,observed_at,metric_mode,views\n194579254,1,2026-10-06T12:00:00.000Z,cumulative,\n'), {
-    filename: 'empty.csv',
-  });
+  const empty = parseImportFile(
+    Buffer.from(
+      'group_id,post_id,observed_at,metric_mode,views\n194579254,1,2026-10-06T12:00:00.000Z,cumulative,\n',
+    ),
+    {
+      filename: 'empty.csv',
+    },
+  );
   assert.equal(empty.rows[0].metrics.views, null);
 });
 
@@ -230,7 +246,10 @@ test('import preview/commit/revert: idempotent, foreign group blocked, no silent
     buffer: Buffer.from(csv2),
     filename: 'week2.csv',
   });
-  const commit2 = commitImport(db, preview2.importId, { mode: 'valid_only', allowUnmatchedAsExternal: true });
+  const commit2 = commitImport(db, preview2.importId, {
+    mode: 'valid_only',
+    allowUnmatchedAsExternal: true,
+  });
   assert.equal(commit2.applied >= 2, true);
   const activeFor1001 = db
     .prepare(
@@ -268,7 +287,10 @@ test('import preview/commit/revert: idempotent, foreign group blocked, no silent
     filename: 'partial.csv',
   });
   assert.ok(invalidPartial.errorCount >= 1);
-  assert.equal(commitImport(db, invalidPartial.importId, { mode: 'strict' }).error, 'validation_blocked');
+  assert.equal(
+    commitImport(db, invalidPartial.importId, { mode: 'strict' }).error,
+    'validation_blocked',
+  );
   const validOnly = commitImport(db, invalidPartial.importId, {
     mode: 'valid_only',
     confirmAnomalies: true,
@@ -324,7 +346,11 @@ test('analytics rankings exclude missing metrics; paid separated; age buckets', 
   assert.equal(overview.top[0].reachOrganic, 500);
   assert.ok(!overview.bottom.some((p) => p.reachOrganic == null));
 
-  const organic = listAnalyticsPosts(db, { projectId: 'dark-academia', organicPaid: 'organic' }, now);
+  const organic = listAnalyticsPosts(
+    db,
+    { projectId: 'dark-academia', organicPaid: 'organic' },
+    now,
+  );
   assert.ok(organic.items.every((p) => !p.metrics || p.metrics.promoted !== true));
 
   const segments = buildSegments(db, { projectId: 'dark-academia' }, now);
@@ -409,7 +435,10 @@ test('prompt versions activate/rollback; analysis does not auto-apply', () => {
   assert.ok(recs.every((r) => r.status === 'proposed'));
   assert.ok(recs.every((r) => Array.isArray(r.evidence)));
 
-  const rejected = decideRecommendation(db, recs[0].recommendationId, { decision: 'reject', note: 'no' });
+  const rejected = decideRecommendation(db, recs[0].recommendationId, {
+    decision: 'reject',
+    note: 'no',
+  });
   assert.equal(rejected.recommendation.status, 'rejected');
 
   const dup = createAnalysisJob(db, { projectId: 'dark-academia' });
@@ -418,7 +447,10 @@ test('prompt versions activate/rollback; analysis does not auto-apply', () => {
 });
 
 test('missing denominators stay null; fractional views rejected', () => {
-  assert.equal(engagementRate({ likes: 1, comments: 1, reposts: 1, saves: 1, reach_organic: 0 }).value, null);
+  assert.equal(
+    engagementRate({ likes: 1, comments: 1, reposts: 1, saves: 1, reach_organic: 0 }).value,
+    null,
+  );
   assert.equal(linkCtr({ link_clicks: 1, views: null }).value, null);
   const parsed = parseImportFile(
     Buffer.from(
@@ -472,13 +504,22 @@ test('VK posts_content native CSV adapts without inventing post_id', async () =>
   assert.equal(parsed.format, 'vk_posts_content');
   assert.equal(parsed.groupHint, '194579254');
   assert.equal(parsed.rows.length, 5);
-  assert.equal(parsed.rows.every((r) => r.postId == null), true);
-  assert.equal(parsed.rows.every((r) => r.errors.some((e) => e.code === 'missing_post_id')), true);
+  assert.equal(
+    parsed.rows.every((r) => r.postId == null),
+    true,
+  );
+  assert.equal(
+    parsed.rows.every((r) => r.errors.some((e) => e.code === 'missing_post_id')),
+    true,
+  );
   assert.equal(parsed.rows[0].metrics.views, 31);
   assert.equal(parsed.rows[0].metrics.reach_total, 6);
   assert.equal(parsed.rows[0].metricMode, 'period');
   assert.equal(parsed.rows[0].textHint.includes('Fixture quote A'), true);
-  assert.equal(parsed.rows[4].errors.some((e) => e.code === 'invalid_likes'), true);
+  assert.equal(
+    parsed.rows[4].errors.some((e) => e.code === 'invalid_likes'),
+    true,
+  );
 
   const audience = adaptVkPostsContentRows([], {
     filename: '194579254_posts_audience_2026-10-01_2026-10-07.xls',
@@ -506,7 +547,10 @@ test('VK posts_content converted JSON maps KPIs; enriched wall_url validates', a
   assert.equal(parsed.format, 'vk_posts_content');
   assert.equal(parsed.rows.length, 3);
   assert.equal(parsed.rows[0].valid, false);
-  assert.equal(parsed.rows[0].errors.some((e) => e.code === 'missing_post_id'), true);
+  assert.equal(
+    parsed.rows[0].errors.some((e) => e.code === 'missing_post_id'),
+    true,
+  );
   assert.equal(parsed.rows[0].metrics.views, 31);
   assert.equal(parsed.rows[2].valid, true);
   assert.equal(parsed.rows[2].postId, '9001');

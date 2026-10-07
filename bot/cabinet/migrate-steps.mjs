@@ -296,6 +296,222 @@ CREATE INDEX IF NOT EXISTS recommendations_project ON recommendations(project_id
 `);
 }
 
+export function applyMigrationV5(db) {
+  db.exec(`
+CREATE TABLE IF NOT EXISTS editorial_rubrics (
+  rubric_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  label TEXT NOT NULL,
+  description TEXT,
+  constraints_json TEXT,
+  classifier_version TEXT NOT NULL DEFAULT 'v1',
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS editorial_rubrics_project ON editorial_rubrics(project_id, active);
+
+CREATE TABLE IF NOT EXISTS editorial_memory (
+  memory_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  edition_id TEXT,
+  delivery_id TEXT,
+  vk_post_id TEXT,
+  sent_at TEXT,
+  body_text TEXT,
+  body_removed_at TEXT,
+  content_expires_at TEXT,
+  media_actual TEXT,
+  rubric_id TEXT,
+  topic_tags_json TEXT,
+  tone TEXT,
+  intensity TEXT,
+  structure TEXT,
+  author TEXT,
+  work_title TEXT,
+  quote_id TEXT,
+  source_verified INTEGER,
+  opening_phrase TEXT,
+  closing_phrase TEXT,
+  normalized_repeats_json TEXT,
+  series_id TEXT,
+  episode INTEGER,
+  series_role TEXT,
+  predecessor_id TEXT,
+  brief_id TEXT,
+  prompt_version_id TEXT,
+  model_text TEXT,
+  observation_ids_json TEXT,
+  coverage_json TEXT,
+  observed_at TEXT,
+  feature_source TEXT NOT NULL DEFAULT 'auto',
+  classifier_version TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS editorial_memory_project ON editorial_memory(project_id, sent_at);
+CREATE INDEX IF NOT EXISTS editorial_memory_edition ON editorial_memory(edition_id);
+
+CREATE TABLE IF NOT EXISTS editorial_series (
+  series_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  goal TEXT,
+  stages_json TEXT,
+  planned_end_at TEXT,
+  status TEXT NOT NULL DEFAULT 'draft',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS editorial_series_project ON editorial_series(project_id, status);
+
+CREATE TABLE IF NOT EXISTS editorial_series_episodes (
+  episode_id TEXT PRIMARY KEY,
+  series_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  episode_number INTEGER NOT NULL,
+  plan_id TEXT,
+  edition_id TEXT,
+  brief_id TEXT,
+  predecessor_episode_id TEXT,
+  role TEXT,
+  status TEXT NOT NULL DEFAULT 'planned',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (series_id, episode_number),
+  FOREIGN KEY (series_id) REFERENCES editorial_series(series_id)
+);
+CREATE INDEX IF NOT EXISTS editorial_series_episodes_series ON editorial_series_episodes(series_id, episode_number);
+
+CREATE TABLE IF NOT EXISTS editorial_weekly_jobs (
+  job_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  week_start TEXT NOT NULL,
+  input_snapshot_hash TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued',
+  budget_usd REAL NOT NULL DEFAULT 0.5,
+  reserved_usd REAL,
+  cost_usd REAL,
+  mode TEXT NOT NULL DEFAULT 'preview',
+  error_message TEXT,
+  error_log_json TEXT,
+  result_revision_id TEXT,
+  metrics_stale INTEGER NOT NULL DEFAULT 0,
+  notify_status TEXT,
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  finished_at TEXT,
+  UNIQUE (project_id, week_start, input_snapshot_hash)
+);
+CREATE INDEX IF NOT EXISTS editorial_weekly_jobs_project
+  ON editorial_weekly_jobs(project_id, week_start, status);
+
+CREATE TABLE IF NOT EXISTS editorial_plan_revisions (
+  revision_id TEXT PRIMARY KEY,
+  job_id TEXT,
+  project_id TEXT NOT NULL,
+  week_start TEXT NOT NULL,
+  revision_number INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'proposed',
+  proposal_json TEXT NOT NULL,
+  diff_json TEXT,
+  snapshot_summary_json TEXT,
+  config_version TEXT,
+  prompt_versions_json TEXT,
+  decided_by TEXT,
+  decided_at TEXT,
+  decision_note TEXT,
+  content_expires_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (project_id, week_start, revision_number)
+);
+CREATE INDEX IF NOT EXISTS editorial_plan_revisions_project
+  ON editorial_plan_revisions(project_id, week_start, status);
+
+CREATE TABLE IF NOT EXISTS editorial_briefs (
+  brief_id TEXT PRIMARY KEY,
+  revision_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  plan_id TEXT,
+  slot_utc TEXT,
+  rubric_id TEXT,
+  topic TEXT,
+  thesis TEXT,
+  tone TEXT,
+  structure TEXT,
+  constraints_json TEXT,
+  sources_json TEXT,
+  series_id TEXT,
+  experiment_id TEXT,
+  evidence_ids_json TEXT,
+  predecessor_brief_id TEXT,
+  status TEXT NOT NULL DEFAULT 'proposed',
+  block_reason TEXT,
+  content_expires_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (revision_id) REFERENCES editorial_plan_revisions(revision_id)
+);
+CREATE INDEX IF NOT EXISTS editorial_briefs_revision ON editorial_briefs(revision_id, status);
+CREATE INDEX IF NOT EXISTS editorial_briefs_plan ON editorial_briefs(plan_id);
+
+CREATE TABLE IF NOT EXISTS editorial_budget_ledger (
+  ledger_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  week_start TEXT NOT NULL,
+  job_id TEXT,
+  kind TEXT NOT NULL,
+  amount_usd REAL NOT NULL,
+  note TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS editorial_budget_ledger_week
+  ON editorial_budget_ledger(project_id, week_start);
+`);
+  seedDefaultRubrics(db);
+}
+
+function seedDefaultRubrics(db) {
+  const now = new Date().toISOString();
+  const seeds = [
+    [
+      'dark-academia:quote',
+      'dark-academia',
+      'Цитата и комментарий',
+      'Литературная цитата + самостоятельное дополнение',
+    ],
+    [
+      'dark-academia:series',
+      'dark-academia',
+      'Серия памяти',
+      'Продолжение темы памяти и невозможности возвращения',
+    ],
+    ['code-to-think:task', 'code-to-think', 'Задача', 'Самостоятельная задача для разбора'],
+    [
+      'code-to-think:solution',
+      'code-to-think',
+      'Разбор',
+      'Разбор конкретной опубликованной задачи',
+    ],
+    [
+      'code-to-think:editorial',
+      'code-to-think',
+      'Редакторский материал',
+      'Полезный материал между сериями',
+    ],
+    ['things:scenario', 'things', 'Бытовой сценарий', 'Практическая деталь повседневного сценария'],
+    ['things:reframe', 'things', 'Другой взгляд', 'Иной взгляд на тот же бытовой сценарий'],
+  ];
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO editorial_rubrics (
+      rubric_id, project_id, label, description, constraints_json, classifier_version, active, created_at
+    ) VALUES (?, ?, ?, ?, ?, 'v1', 1, ?)`,
+  );
+  for (const [rubricId, projectId, label, description] of seeds) {
+    insert.run(rubricId, projectId, label, description, JSON.stringify({}), now);
+  }
+}
+
 function ensureColumn(db, table, column, definition) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all();
   if (columns.some((row) => row.name === column)) return;

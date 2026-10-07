@@ -18,13 +18,7 @@ import {
   verifyPassword,
   requestHeader,
 } from './auth.mjs';
-import {
-  buildOverview,
-  getEdition,
-  listIncidents,
-  listProjects,
-  patchPlan,
-} from './overview.mjs';
+import { buildOverview, getEdition, listIncidents, listProjects, patchPlan } from './overview.mjs';
 import { loadServiceForCabinet, refreshServiceSnapshot } from './projects.mjs';
 import { cabinetTick } from './sync.mjs';
 import { listBatchReports } from './reports/store.mjs';
@@ -32,6 +26,7 @@ import { getRedis, redisConfigured } from '../redis/client.mjs';
 import { createAdHocTask, discardTask } from '../redis/schedule.mjs';
 import { upsertPlanFromRedisTask } from '../redis/sqlite-bridge.mjs';
 import { createLargeBodyReader, handleAnalyticsRoute } from './analytics/routes.mjs';
+import { handleEditorialRoute } from './editorial/routes.mjs';
 
 const API_PREFIX = '/bot/api/v1';
 const readBodyLarge = createLargeBodyReader();
@@ -169,7 +164,10 @@ async function handleRequest(request, response, env) {
       const ip = loginClientIp(request);
       const lockStatus = getLoginLockStatus(request, env);
       if (lockStatus.locked) {
-        auditAuth(db, 'login_rate_limited', { ip, retryAfterSeconds: lockStatus.retryAfterSeconds });
+        auditAuth(db, 'login_rate_limited', {
+          ip,
+          retryAfterSeconds: lockStatus.retryAfterSeconds,
+        });
         console.error(`cabinet_auth_fail ip=${ip} locked=1`);
         throw loginRateLimitError(lockStatus.retryAfterSeconds);
       }
@@ -193,20 +191,30 @@ async function handleRequest(request, response, env) {
       resetLoginAttempts(request);
       auditAuth(db, 'login_success', { ip });
       const session = createSession(db, env);
-      json(response, 200, { ok: true, expiresAt: session.expiresAt }, {
-        ...cors,
-        'Set-Cookie': `cabinet_session=${session.token}; ${session.cookieFlags}; Max-Age=${12 * 3600}`,
-      });
+      json(
+        response,
+        200,
+        { ok: true, expiresAt: session.expiresAt },
+        {
+          ...cors,
+          'Set-Cookie': `cabinet_session=${session.token}; ${session.cookieFlags}; Max-Age=${12 * 3600}`,
+        },
+      );
       return;
     }
 
     if (route === '/auth/logout' && request.method === 'POST') {
       assertOrigin(request, env);
       clearSession(db, request.headers.cookie);
-      json(response, 200, { ok: true }, {
-        ...cors,
-        'Set-Cookie': clearSessionCookieHeader(env),
-      });
+      json(
+        response,
+        200,
+        { ok: true },
+        {
+          ...cors,
+          'Set-Cookie': clearSessionCookieHeader(env),
+        },
+      );
       return;
     }
 
@@ -273,12 +281,17 @@ async function handleRequest(request, response, env) {
     }
 
     if (route === '/incidents' && request.method === 'GET') {
-      json(response, 200, listIncidents(db, {
-        project: url.searchParams.get('project'),
-        status: url.searchParams.get('status') || 'open',
-        cursor: Number(url.searchParams.get('cursor') || 0),
-        limit: Math.min(100, Number(url.searchParams.get('limit') || 30)),
-      }), cors);
+      json(
+        response,
+        200,
+        listIncidents(db, {
+          project: url.searchParams.get('project'),
+          status: url.searchParams.get('status') || 'open',
+          cursor: Number(url.searchParams.get('cursor') || 0),
+          limit: Math.min(100, Number(url.searchParams.get('limit') || 30)),
+        }),
+        cors,
+      );
       return;
     }
 
@@ -391,15 +404,32 @@ async function handleRequest(request, response, env) {
     });
     if (analyticsHandled) return;
 
+    const editorialHandled = await handleEditorialRoute({
+      route,
+      method: request.method,
+      url,
+      request,
+      response,
+      db,
+      env,
+      json,
+      cors,
+      assertOrigin,
+      parseJson,
+      readBody,
+    });
+    if (editorialHandled) return;
+
     json(response, 404, { error: 'not_found' }, cors);
   } catch (error) {
     if (error.status !== 401 && error.status !== 403 && error.status !== 429) {
       console.error('cabinet api error:', error);
     }
     const status = error.status || 500;
-    const rateLimitHeaders = status === 429 && error.retryAfterSeconds
-      ? { 'Retry-After': String(error.retryAfterSeconds) }
-      : {};
+    const rateLimitHeaders =
+      status === 429 && error.retryAfterSeconds
+        ? { 'Retry-After': String(error.retryAfterSeconds) }
+        : {};
     json(response, status, clientErrorBody(status), { ...cors, ...rateLimitHeaders });
   } finally {
     db.close();

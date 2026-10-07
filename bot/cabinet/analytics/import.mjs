@@ -5,18 +5,21 @@ import { parseImportFile, VK_STATS_SCHEMA_VERSION } from './parse.mjs';
 const PREVIEW_TTL_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_IMPORT_LIMIT = 3;
 
-export function buildImportPreview(db, {
-  projectId,
-  vkGroupId,
-  observedAt,
-  reportWeek = null,
-  metricMode = 'cumulative',
-  periodFrom = null,
-  periodTo = null,
-  buffer,
-  filename,
-  now = new Date(),
-}) {
+export function buildImportPreview(
+  db,
+  {
+    projectId,
+    vkGroupId,
+    observedAt,
+    reportWeek = null,
+    metricMode = 'cumulative',
+    periodFrom = null,
+    periodTo = null,
+    buffer,
+    filename,
+    now = new Date(),
+  },
+) {
   if (!projectId || !vkGroupId) {
     return { error: 'project_and_group_required', status: 400 };
   }
@@ -24,7 +27,9 @@ export function buildImportPreview(db, {
   if (!project) return { error: 'unknown_project', status: 404 };
 
   const activeCount = db
-    .prepare(`SELECT COUNT(*) AS c FROM metric_imports WHERE status = 'preview' AND content_expires_at > ?`)
+    .prepare(
+      `SELECT COUNT(*) AS c FROM metric_imports WHERE status = 'preview' AND content_expires_at > ?`,
+    )
     .get(now.toISOString()).c;
   if (activeCount >= ACTIVE_IMPORT_LIMIT) {
     return { error: 'too_many_active_imports', status: 429 };
@@ -36,7 +41,9 @@ export function buildImportPreview(db, {
   }
 
   const existing = db
-    .prepare('SELECT import_id, status FROM metric_imports WHERE project_id = ? AND source_hash = ?')
+    .prepare(
+      'SELECT import_id, status FROM metric_imports WHERE project_id = ? AND source_hash = ?',
+    )
     .get(projectId, parsed.sourceHash);
   if (existing?.status === 'committed') {
     return {
@@ -111,7 +118,10 @@ export function buildImportPreview(db, {
           publishedAt: delivery.sent_at,
         };
         if (delivery.sent_at && result.observedAt < delivery.sent_at) {
-          result.errors.push({ code: 'observed_before_publish', message: 'observed_at раньше публикации' });
+          result.errors.push({
+            code: 'observed_before_publish',
+            message: 'observed_at раньше публикации',
+          });
         } else {
           matchedCount += 1;
           matched.push(result);
@@ -206,54 +216,54 @@ export function buildImportPreview(db, {
         reverted_at = NULL,
         committed_at = NULL`,
       ).run(
-      importId,
-      projectId,
-      expectedGroup,
-      parsed.sourceHash,
-      parsed.schemaVersion || VK_STATS_SCHEMA_VERSION,
-      reportWeek,
-      observedAt,
-      periodFrom,
-      periodTo,
-      metricMode,
-      filename || parsed.filename,
-      parsed.bytes,
-      rows.length,
-      validCount,
-      errorCount,
-      matchedCount,
-      unknownCount,
-      duplicateCount,
-      JSON.stringify(coverage),
-      JSON.stringify(preview),
-      expiresAt,
-      now.toISOString(),
-      now.toISOString(),
-    );
+        importId,
+        projectId,
+        expectedGroup,
+        parsed.sourceHash,
+        parsed.schemaVersion || VK_STATS_SCHEMA_VERSION,
+        reportWeek,
+        observedAt,
+        periodFrom,
+        periodTo,
+        metricMode,
+        filename || parsed.filename,
+        parsed.bytes,
+        rows.length,
+        validCount,
+        errorCount,
+        matchedCount,
+        unknownCount,
+        duplicateCount,
+        JSON.stringify(coverage),
+        JSON.stringify(preview),
+        expiresAt,
+        now.toISOString(),
+        now.toISOString(),
+      );
 
-    const insertRow = db.prepare(
-      `INSERT INTO metric_import_rows (
+      const insertRow = db.prepare(
+        `INSERT INTO metric_import_rows (
         row_id, import_id, row_index, status, vk_group_id, vk_post_id, edition_id, delivery_id,
         match_kind, error_code, error_message, payload_json, excluded, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
-    );
-    for (const row of rows) {
-      insertRow.run(
-        randomUUID(),
-        importId,
-        row.rowIndex,
-        row.status,
-        row.groupId,
-        row.postId,
-        row.match?.editionId || null,
-        row.match?.deliveryId || null,
-        row.match?.kind || null,
-        row.errors[0]?.code || null,
-        row.errors[0]?.message || null,
-        JSON.stringify(row),
-        now.toISOString(),
       );
-    }
+      for (const row of rows) {
+        insertRow.run(
+          randomUUID(),
+          importId,
+          row.rowIndex,
+          row.status,
+          row.groupId,
+          row.postId,
+          row.match?.editionId || null,
+          row.match?.deliveryId || null,
+          row.match?.kind || null,
+          row.errors[0]?.code || null,
+          row.errors[0]?.message || null,
+          JSON.stringify(row),
+          now.toISOString(),
+        );
+      }
       bumpDataVersion(db);
     });
   } catch (error) {
@@ -283,13 +293,17 @@ export function buildImportPreview(db, {
   };
 }
 
-export function commitImport(db, importId, {
-  mode = 'strict',
-  confirmAnomalies = false,
-  idempotencyKey = null,
-  allowUnmatchedAsExternal = false,
-  now = new Date(),
-} = {}) {
+export function commitImport(
+  db,
+  importId,
+  {
+    mode = 'strict',
+    confirmAnomalies = false,
+    idempotencyKey = null,
+    allowUnmatchedAsExternal = false,
+    now = new Date(),
+  } = {},
+) {
   const imp = db.prepare('SELECT * FROM metric_imports WHERE import_id = ?').get(importId);
   if (!imp) return { error: 'not_found', status: 404 };
   if (imp.status === 'committed') {
@@ -338,7 +352,6 @@ export function commitImport(db, importId, {
 
   let applied = 0;
   let skipped = 0;
-  let errors = 0;
   const exclusions = [];
 
   withTransaction(db, () => {
@@ -347,11 +360,14 @@ export function commitImport(db, importId, {
       if (row.status === 'error') {
         if (mode === 'valid_only') {
           db.prepare('UPDATE metric_import_rows SET excluded = 1 WHERE row_id = ?').run(row.row_id);
-          exclusions.push({ rowIndex: row.row_index, code: row.error_code, message: row.error_message });
+          exclusions.push({
+            rowIndex: row.row_index,
+            code: row.error_code,
+            message: row.error_message,
+          });
           skipped += 1;
           continue;
         }
-        errors += 1;
         continue;
       }
 
@@ -408,7 +424,13 @@ export function commitImport(db, importId, {
     ).run(
       nextRevision,
       now.toISOString(),
-      JSON.stringify({ mode, confirmAnomalies, idempotencyKey, allowUnmatchedAsExternal, exclusions }),
+      JSON.stringify({
+        mode,
+        confirmAnomalies,
+        idempotencyKey,
+        allowUnmatchedAsExternal,
+        exclusions,
+      }),
       new Date(now.getTime() + PREVIEW_TTL_MS).toISOString(),
       now.toISOString(),
       importId,
@@ -433,7 +455,9 @@ export function commitImport(db, importId, {
     bumpDataVersion(db);
   });
 
-  const refreshed = db.prepare('SELECT revision FROM metric_imports WHERE import_id = ?').get(importId);
+  const refreshed = db
+    .prepare('SELECT revision FROM metric_imports WHERE import_id = ?')
+    .get(importId);
   return {
     importId,
     status: 'committed',
@@ -442,7 +466,10 @@ export function commitImport(db, importId, {
     skipped,
     errors: exclusions.length,
     exclusions,
-    postsWithoutStats: Math.max(0, (JSON.parse(imp.coverage_json || '{}').sentInWindow || 0) - applied),
+    postsWithoutStats: Math.max(
+      0,
+      (JSON.parse(imp.coverage_json || '{}').sentInWindow || 0) - applied,
+    ),
   };
 }
 
@@ -489,10 +516,9 @@ export function revertImport(db, importId, { now = new Date() } = {}) {
           importId,
         );
       if (prior) {
-        db.prepare('UPDATE metric_observations SET is_active = 1, updated_at = ? WHERE observation_id = ?').run(
-          now.toISOString(),
-          prior.observation_id,
-        );
+        db.prepare(
+          'UPDATE metric_observations SET is_active = 1, updated_at = ? WHERE observation_id = ?',
+        ).run(now.toISOString(), prior.observation_id);
       }
     }
 
@@ -523,7 +549,10 @@ export function listImports(db, { projectId = null, limit = 50 } = {}) {
   }
   sql += ' ORDER BY created_at DESC LIMIT ?';
   params.push(Math.min(100, limit));
-  return db.prepare(sql).all(...params).map(serializeImport);
+  return db
+    .prepare(sql)
+    .all(...params)
+    .map(serializeImport);
 }
 
 export function getImport(db, importId) {
@@ -581,8 +610,18 @@ function serializeImport(row) {
   };
 }
 
-function observationKey({ projectId, postId, source, observedAt, metricMode, periodFrom, periodTo }) {
-  return [projectId, postId, source, observedAt, metricMode, periodFrom || '', periodTo || ''].join('\0');
+function observationKey({
+  projectId,
+  postId,
+  source,
+  observedAt,
+  metricMode,
+  periodFrom,
+  periodTo,
+}) {
+  return [projectId, postId, source, observedAt, metricMode, periodFrom || '', periodTo || ''].join(
+    '\0',
+  );
 }
 
 function findDelivery(db, projectId, vkGroupId, vkPostId) {
@@ -733,7 +772,9 @@ function ensureExternalEdition(db, imp, payload, now) {
     .digest('hex')
     .slice(0, 32);
   const deliveryId = `external:${imp.vk_group_id}:${payload.postId}`;
-  const existing = db.prepare('SELECT edition_id FROM editions WHERE edition_id = ?').get(editionId);
+  const existing = db
+    .prepare('SELECT edition_id FROM editions WHERE edition_id = ?')
+    .get(editionId);
   if (!existing) {
     db.prepare(
       `INSERT INTO editions (
@@ -742,7 +783,9 @@ function ensureExternalEdition(db, imp, payload, now) {
       ) VALUES (?, ?, NULL, 'external', NULL, NULL, NULL, NULL, 'unknown', NULL, NULL, 'sent', 1, ?, ?)`,
     ).run(editionId, imp.project_id, payload.publishedAt || now.toISOString(), now.toISOString());
   }
-  const existingDelivery = db.prepare('SELECT delivery_id FROM deliveries WHERE delivery_id = ?').get(deliveryId);
+  const existingDelivery = db
+    .prepare('SELECT delivery_id FROM deliveries WHERE delivery_id = ?')
+    .get(deliveryId);
   if (!existingDelivery) {
     db.prepare(
       `INSERT INTO deliveries (

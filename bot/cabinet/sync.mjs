@@ -17,6 +17,8 @@ import { materializeBatches } from './batches.mjs';
 import { runReportWorker } from './reports/worker.mjs';
 import { upsertPostFeatures, inferMediaActual } from './analytics/features.mjs';
 import { runAnalyticsCleanup } from './analytics/ttl.mjs';
+import { runEditorialScheduler } from './editorial/scheduler.mjs';
+import { syncEditorialMemory } from './editorial/memory.mjs';
 
 const MATERIALIZE_DAYS_FORWARD = 14;
 const MATERIALIZE_DAYS_BACK = 7;
@@ -462,6 +464,15 @@ export async function cabinetTick(db, service, env, now = new Date()) {
     runAnalyticsCleanup(db, { now });
   } catch (error) {
     console.error(`Analytics cleanup failed: ${error.message}`);
+  }
+  try {
+    for (const projectId of Object.keys(service.projects || {})) {
+      if (!service.projects[projectId].enabled) continue;
+      syncEditorialMemory(db, { projectId, now });
+    }
+    await runEditorialScheduler(db, service, env, now);
+  } catch (error) {
+    console.error(`Editorial scheduler failed: ${error.message}`);
   }
   return results;
 }

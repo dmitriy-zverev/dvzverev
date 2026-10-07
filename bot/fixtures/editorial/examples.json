@@ -1,0 +1,41 @@
+{
+  "schema": "editorial-proposal-v1",
+  "projects": {
+    "dark-academia": {
+      "title": "Конэсанс",
+      "continue": [{ "rubricId": "dark-academia:quote", "reason": "базовая рубрика" }],
+      "pause": [{ "tone": "heavy", "reviewAt": "week_end" }],
+      "newFormats": [
+        { "id": "format:lighter-tone-arc", "activate": true },
+        { "id": "format:author-rotation-focus", "activate": false }
+      ],
+      "constraints": [
+        "Настоящая короткая цитата из проверенного источника",
+        "Чередовать авторов",
+        "Избегать одинаковых концовок и постоянного тяжёлого тона"
+      ]
+    },
+    "code-to-think": {
+      "title": "Код на подумать",
+      "continue": [{ "rubricId": "code-to-think:task" }],
+      "series": [{ "goal": "задача → разбор", "predecessorRequired": "sent" }],
+      "constraints": [
+        "Разбор относится к конкретной опубликованной задаче",
+        "Сохранить техническую проверку",
+        "Не заявлять запуск кода без выполнения"
+      ]
+    },
+    "things": {
+      "title": "Вещи — кстати",
+      "continue": [{ "rubricId": "things:scenario" }],
+      "newFormats": [
+        { "id": "format:reframe-pair", "activate": true },
+        { "id": "format:material-focus", "activate": false }
+      ],
+      "constraints": [
+        "Без товарных ссылок и цен",
+        "Никаких вымышленных тестов, свойств, гарантий и медицинских рекомендаций"
+      ]
+    }
+  }
+}

@@ -16,7 +16,12 @@ import { startCabinetServer } from '../../bot/cabinet/server.mjs';
 import { schedulerHeartbeatStatus } from '../../bot/health.mjs';
 import { materializeScheduleSlots, syncProjectState } from '../../bot/cabinet/sync.mjs';
 import { buildOverview, patchPlan } from '../../bot/cabinet/overview.mjs';
-import { aggregateEditionStatus, classifyReleaseSource, projectTitle, summaryBucket } from '../../bot/cabinet/status.mjs';
+import {
+  aggregateEditionStatus,
+  classifyReleaseSource,
+  projectTitle,
+  summaryBucket,
+} from '../../bot/cabinet/status.mjs';
 import {
   isoWeekStart,
   localSlotToUtc,
@@ -182,13 +187,24 @@ test('overview API requires session', async (t) => {
 
 test('week boundaries and code schedule respect weekdays', () => {
   assert.equal(isoWeekStart('2026-10-07', 'Europe/Moscow'), '2026-10-05');
-  const mondayTimes = scheduledTimesForDay(service.projects['code-to-think'].schedule, '2026-10-05', 'Europe/Moscow');
-  const tuesdayTimes = scheduledTimesForDay(service.projects['code-to-think'].schedule, '2026-10-06', 'Europe/Moscow');
+  const mondayTimes = scheduledTimesForDay(
+    service.projects['code-to-think'].schedule,
+    '2026-10-05',
+    'Europe/Moscow',
+  );
+  const tuesdayTimes = scheduledTimesForDay(
+    service.projects['code-to-think'].schedule,
+    '2026-10-06',
+    'Europe/Moscow',
+  );
   assert.deepEqual(mondayTimes, ['12:00', '18:00']);
   assert.deepEqual(tuesdayTimes, ['12:00']);
   const key = slotKey('2026-10-05', '10:00', 'Europe/Moscow');
   assert.match(key, /\[Europe\/Moscow\]$/);
-  assert.equal(localSlotToUtc('2026-10-05', '10:00', 'Europe/Moscow').toISOString(), '2026-10-05T07:00:00.000Z');
+  assert.equal(
+    localSlotToUtc('2026-10-05', '10:00', 'Europe/Moscow').toISOString(),
+    '2026-10-05T07:00:00.000Z',
+  );
 });
 
 test('aggregate status distinguishes partial and uncertain', () => {
@@ -280,7 +296,7 @@ test('schedulerHeartbeatStatus ignores foreign PID when file is fresh', () => {
   assert.equal(status.ageSeconds, 3);
 });
 
-test('partial delivery counts as sent bucket not full failure', async (t) => {
+test('partial delivery counts as sent bucket not full failure', async () => {
   assert.equal(summaryBucket('partially_sent'), 'sent');
   assert.equal(summaryBucket('failed'), 'failed');
 });
@@ -310,38 +326,45 @@ test('fixture partial delivery summary matches registry', async (t) => {
   };
   await writeFile(env.BOT_CONFIG_PATH, JSON.stringify(service));
   const slot = '2026-10-06@10:00[Europe/Moscow]';
-  await writeFile(join(dir, service.projects.partial.statePath), JSON.stringify({
-    version: 1,
-    chatId: '',
-    entries: [
-      {
-        slot,
-        status: 'sent',
-        platform: 'vk',
-        postId: 'p1',
-        vkPostId: 100,
-        vkGroupId: '1',
-        createdAt: '2026-10-06T07:05:00.000Z',
-        attempts: 1,
-        vkText: 'hello',
-        sentAt: '2026-10-06T07:06:00.000Z',
-      },
-    ],
-    pauses: {},
-    cooldowns: {},
-  }));
+  await writeFile(
+    join(dir, service.projects.partial.statePath),
+    JSON.stringify({
+      version: 1,
+      chatId: '',
+      entries: [
+        {
+          slot,
+          status: 'sent',
+          platform: 'vk',
+          postId: 'p1',
+          vkPostId: 100,
+          vkGroupId: '1',
+          createdAt: '2026-10-06T07:05:00.000Z',
+          attempts: 1,
+          vkText: 'hello',
+          sentAt: '2026-10-06T07:06:00.000Z',
+        },
+      ],
+      pauses: {},
+      cooldowns: {},
+    }),
+  );
   const db = openCabinetDb(env);
   refreshServiceSnapshot(db, service);
   materializeScheduleSlots(db, service, env, new Date('2026-10-06T12:00:00Z'));
   await syncProjectState(db, service, 'partial', env, new Date('2026-10-06T12:00:00Z'));
   const planRow = db
-    .prepare('SELECT plan_status, edition_id FROM schedule_slots WHERE project_id = ? AND slot_key = ?')
+    .prepare(
+      'SELECT plan_status, edition_id FROM schedule_slots WHERE project_id = ? AND slot_key = ?',
+    )
     .get('partial', slot);
   assert.equal(planRow.plan_status, 'sent');
   assert.ok(planRow.edition_id);
   const overview = await buildOverview(db, { week: '2026-10-06' }, env);
   const card = overview.cards.find(
-    (item) => item.projectId === 'partial' && item.slotUtc === localSlotToUtc('2026-10-06', '10:00', 'Europe/Moscow').toISOString(),
+    (item) =>
+      item.projectId === 'partial' &&
+      item.slotUtc === localSlotToUtc('2026-10-06', '10:00', 'Europe/Moscow').toISOString(),
   );
   assert.equal(card?.status, 'sent');
   assert.ok(overview.summary.sent >= 1);
@@ -383,26 +406,29 @@ test('sync keeps distinct edition ids for same slot key across projects', async 
   const writeState = async (projectId, statePath) => {
     const stateDir = join(dir, 'data/projects', projectId);
     await mkdir(stateDir, { recursive: true });
-    await writeFile(join(dir, statePath), JSON.stringify({
-      version: 1,
-      chatId: '',
-      entries: [
-        {
-          slot,
-          status: 'sent',
-          platform: 'vk',
-          postId: `${projectId}-post`,
-          vkPostId: 1,
-          vkGroupId: '1',
-          createdAt: '2026-10-06T07:05:00.000Z',
-          sentAt: '2026-10-06T07:06:00.000Z',
-          attempts: 1,
-          vkText: projectId,
-        },
-      ],
-      pauses: {},
-      cooldowns: {},
-    }));
+    await writeFile(
+      join(dir, statePath),
+      JSON.stringify({
+        version: 1,
+        chatId: '',
+        entries: [
+          {
+            slot,
+            status: 'sent',
+            platform: 'vk',
+            postId: `${projectId}-post`,
+            vkPostId: 1,
+            vkGroupId: '1',
+            createdAt: '2026-10-06T07:05:00.000Z',
+            sentAt: '2026-10-06T07:06:00.000Z',
+            attempts: 1,
+            vkText: projectId,
+          },
+        ],
+        pauses: {},
+        cooldowns: {},
+      }),
+    );
   };
   await writeState('things', service.projects.things.statePath);
   await writeState('dark-academia', service.projects['dark-academia'].statePath);
@@ -429,7 +455,10 @@ test('patch plan rejects stale version', async (t) => {
   const plan = db.prepare('SELECT plan_id, version FROM schedule_slots LIMIT 1').get();
   const ok = await patchPlan(db, plan.plan_id, { topic: 't1', expectedVersion: plan.version });
   assert.ok(ok.plan);
-  const conflict = await patchPlan(db, plan.plan_id, { topic: 't2', expectedVersion: plan.version });
+  const conflict = await patchPlan(db, plan.plan_id, {
+    topic: 't2',
+    expectedVersion: plan.version,
+  });
   assert.equal(conflict.error, 'version_conflict');
   db.close();
 });
@@ -466,27 +495,30 @@ test('overview includes ad-hoc manual delivery without schedule slot', async (t)
   };
   await writeFile(env.BOT_CONFIG_PATH, JSON.stringify(service));
   const manualSlot = 'manual:11111111-2222-4333-8444-555555555555';
-  await writeFile(join(dir, service.projects.adhoc.statePath), JSON.stringify({
-    version: 1,
-    chatId: '',
-    entries: [
-      {
-        slot: manualSlot,
-        status: 'sent',
-        platform: 'vk',
-        postId: 'test-manual-send',
-        vkPostId: 42,
-        vkGroupId: '242034586',
-        createdAt: '2026-10-06T14:20:00.000Z',
-        sentAt: '2026-10-06T14:21:00.000Z',
-        attempts: 1,
-        vkText: 'adhoc body',
-        generation: { title: 'Sudden post' },
-      },
-    ],
-    pauses: {},
-    cooldowns: {},
-  }));
+  await writeFile(
+    join(dir, service.projects.adhoc.statePath),
+    JSON.stringify({
+      version: 1,
+      chatId: '',
+      entries: [
+        {
+          slot: manualSlot,
+          status: 'sent',
+          platform: 'vk',
+          postId: 'test-manual-send',
+          vkPostId: 42,
+          vkGroupId: '242034586',
+          createdAt: '2026-10-06T14:20:00.000Z',
+          sentAt: '2026-10-06T14:21:00.000Z',
+          attempts: 1,
+          vkText: 'adhoc body',
+          generation: { title: 'Sudden post' },
+        },
+      ],
+      pauses: {},
+      cooldowns: {},
+    }),
+  );
   const db = openCabinetDb(env);
   refreshServiceSnapshot(db, service);
   await syncProjectState(db, service, 'adhoc', env, new Date('2026-10-06T15:00:00Z'));

@@ -11,7 +11,98 @@
   --border: rgb(20 21 26 / 12%);
   --radius-block: 8px;
   --radius-pill: 999px;
-  font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    Segoe UI,
+    sans-serif;
+}
+
+.analytics,
+.editorial {
+  min-width: 0;
+}
+.analytics h3 {
+  margin: 1.75rem 0 0.85rem;
+  font-size: 1rem;
+  text-wrap: balance;
+}
+.analytics .card {
+  padding: 1.1rem;
+  overflow-wrap: anywhere;
+}
+.analytics .card-head {
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+.analytics-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 1rem 0;
+}
+.analytics-subnav button,
+.editorial button,
+.editorial select {
+  min-height: 44px;
+}
+.editorial-decisions,
+.editorial-calendar {
+  display: grid;
+  gap: 0.75rem;
+}
+.editorial-decisions .card {
+  border-left: 3px solid var(--accent);
+  margin: 0;
+}
+.editorial-calendar .card {
+  margin: 0;
+}
+.editorial-calendar time {
+  font-variant-numeric: tabular-nums;
+}
+.editorial details {
+  margin-top: 0.8rem;
+  font-size: 0.85rem;
+}
+.editorial summary {
+  cursor: pointer;
+  padding: 0.4rem 0;
+  color: var(--accent);
+}
+.editorial-empty {
+  padding: 1.5rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-block);
+}
+.editorial-feedback:not(:empty) {
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius-block);
+  background: #eef4fb;
+  color: #234a75;
+  border: 1px solid #c6d8ed;
+}
+.analytics button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+.analytics button:focus-visible,
+.analytics summary:focus-visible,
+.analytics select:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+@media (min-width: 768px) {
+  .editorial-decisions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .editorial-decisions .card:last-child {
+    grid-column: 1 / -1;
+  }
+  .editorial-calendar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 * {
@@ -151,7 +242,9 @@ body:has(.cabinet:not(.cabinet--gate)) {
   background: rgb(16 23 34 / 85%);
   border: 1px solid var(--gate-line);
   border-radius: var(--radius-block);
-  transition: border-color 140ms ease, box-shadow 140ms ease;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .cabinet--gate .login input[type='password']:focus-visible {
@@ -171,7 +264,9 @@ body:has(.cabinet:not(.cabinet--gate)) {
   border: 1px solid rgb(161 197 244 / 35%);
   border-radius: var(--radius-block);
   cursor: pointer;
-  transition: filter 140ms ease, transform 140ms ease;
+  transition:
+    filter 140ms ease,
+    transform 140ms ease;
 }
 
 .login-submit:hover {
@@ -386,7 +481,6 @@ body:has(.cabinet:not(.cabinet--gate)) {
   gap: 0.45rem 0.75rem;
   padding: 0.6rem 0.85rem 0.55rem;
 }
-
 
 .cabinet-tabs {
   grid-area: tabs;

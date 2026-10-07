@@ -18,12 +18,10 @@ export function isContentExpired(edition, now = new Date()) {
   return false;
 }
 
-export function runAnalyticsCleanup(db, {
-  now = new Date(),
-  force = false,
-  uploadDir = null,
-  mediaRoots = [],
-} = {}) {
+export function runAnalyticsCleanup(
+  db,
+  { now = new Date(), force = false, uploadDir = null, mediaRoots = [] } = {},
+) {
   if (!force) {
     const last = getMeta(db, 'analytics_cleanup_at');
     if (last && Date.parse(last) > now.getTime() - CLEANUP_INTERVAL_MS) {
@@ -33,7 +31,6 @@ export function runAnalyticsCleanup(db, {
 
   const iso = now.toISOString();
   const cutoff30d = new Date(now.getTime() - CONTENT_TTL_MS).toISOString();
-  const cutoff24h = new Date(now.getTime() - IMPORT_RAW_TTL_MS).toISOString();
   const stats = {
     editionsScrubbed: 0,
     featuresCleared: 0,
@@ -44,6 +41,10 @@ export function runAnalyticsCleanup(db, {
     tombstonesExpired: 0,
     uploadFilesRemoved: 0,
     mediaFilesRemoved: 0,
+    editorialMemoryScrubbed: 0,
+    editorialBriefsScrubbed: 0,
+    editorialRevisionsScrubbed: 0,
+    editorialSeriesPaused: 0,
   };
 
   withTransaction(db, () => {
@@ -173,6 +174,8 @@ export function runAnalyticsCleanup(db, {
       .run(iso);
     stats.tombstonesExpired = expiredTombs.changes;
 
+    scrubEditorialTtl(db, { iso, cutoff30d, now, stats });
+
     // Compact monthly aggregates from remaining active observations (no body text).
     rollMonthlyAggregates(db, now);
     setMeta(db, 'analytics_cleanup_at', iso);
@@ -199,9 +202,113 @@ export function runAnalyticsCleanup(db, {
   return stats;
 }
 
+export function scrubEditorialTtl(db, { iso, cutoff30d, stats }) {
+  try {
+    const mem = db
+      .prepare(
+        `SELECT memory_id, body_text FROM editorial_memory
+         WHERE body_text IS NOT NULL
+           AND (
+             (content_expires_at IS NOT NULL AND content_expires_at <= ?)
+             OR (content_expires_at IS NULL AND COALESCE(sent_at, created_at) <= ?)
+           )`,
+      )
+      .all(iso, cutoff30d);
+    for (const row of mem) {
+      db.prepare(
+        `UPDATE editorial_memory SET
+          body_text = NULL,
+          opening_phrase = NULL,
+          closing_phrase = NULL,
+          body_removed_at = COALESCE(body_removed_at, ?),
+          updated_at = ?
+         WHERE memory_id = ?`,
+      ).run(iso, iso, row.memory_id);
+      stats.editorialMemoryScrubbed += 1;
+    }
+
+    const briefs = db
+      .prepare(
+        `SELECT brief_id FROM editorial_briefs
+         WHERE (content_expires_at IS NOT NULL AND content_expires_at <= ?)
+            OR (content_expires_at IS NULL AND created_at <= ?)`,
+      )
+      .all(iso, cutoff30d);
+    for (const row of briefs) {
+      db.prepare(
+        `UPDATE editorial_briefs SET
+          thesis = NULL, topic = NULL, sources_json = '[]', evidence_ids_json = '[]',
+          updated_at = ?
+         WHERE brief_id = ?`,
+      ).run(iso, row.brief_id);
+      stats.editorialBriefsScrubbed += 1;
+    }
+
+    const revs = db
+      .prepare(
+        `SELECT revision_id, proposal_json FROM editorial_plan_revisions
+         WHERE (content_expires_at IS NOT NULL AND content_expires_at <= ?)
+            OR (content_expires_at IS NULL AND created_at <= ?)`,
+      )
+      .all(iso, cutoff30d);
+    for (const row of revs) {
+      let proposal = {};
+      try {
+        proposal = JSON.parse(row.proposal_json || '{}');
+      } catch {
+        proposal = {};
+      }
+      const scrubbed = {
+        projectId: proposal.projectId,
+        weekStart: proposal.weekStart,
+        weekEnd: proposal.weekEnd,
+        overview: {
+          summary: null,
+          missingData: 'содержимое удалено после 30 дней',
+          evidenceIds: [],
+        },
+        continue: [],
+        pause: [],
+        newFormats: [],
+        series: [],
+        calendar: (proposal.calendar || []).map((c) => ({
+          planId: c.planId,
+          topic: null,
+          thesis: null,
+          evidenceIds: [],
+        })),
+        purged: true,
+      };
+      db.prepare(
+        `UPDATE editorial_plan_revisions SET proposal_json = ?, diff_json = NULL, updated_at = ?
+         WHERE revision_id = ?`,
+      ).run(JSON.stringify(scrubbed), iso, row.revision_id);
+      stats.editorialRevisionsScrubbed += 1;
+    }
+
+    // Open series past window → paused; cannot continue without source material.
+    const paused = db
+      .prepare(
+        `UPDATE editorial_series SET status = 'paused', updated_at = ?
+         WHERE status IN ('draft', 'approved', 'active')
+           AND (
+             (planned_end_at IS NOT NULL AND planned_end_at <= ?)
+             OR created_at <= ?
+           )`,
+      )
+      .run(iso, iso, cutoff30d);
+    stats.editorialSeriesPaused += paused.changes;
+  } catch (error) {
+    // Schema < 5: editorial tables absent.
+    if (!String(error.message || error).includes('no such table')) throw error;
+  }
+}
+
 export function rollMonthlyAggregates(db, now = new Date()) {
   const ym = now.toISOString().slice(0, 7);
-  const projects = db.prepare('SELECT DISTINCT project_id FROM metric_observations WHERE is_active = 1').all();
+  const projects = db
+    .prepare('SELECT DISTINCT project_id FROM metric_observations WHERE is_active = 1')
+    .all();
   for (const { project_id: projectId } of projects) {
     const rows = db
       .prepare(

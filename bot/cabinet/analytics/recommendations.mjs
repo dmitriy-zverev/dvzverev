@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { bumpDataVersion, withTransaction } from '../db.mjs';
 import { buildSegments, listAnalyticsPosts } from './query.mjs';
-import { activatePromptVersion, getPromptVersion, registerPromptVersion } from './prompts.mjs';
+import { activatePromptVersion, registerPromptVersion } from './prompts.mjs';
 
 const ANALYSIS_BUDGET_USD = 0.5;
 
@@ -18,12 +18,10 @@ export function datasetHashForAnalysis(db, projectId, now = new Date()) {
   return createHash('sha256').update(JSON.stringify({ projectId, payload })).digest('hex');
 }
 
-export function createAnalysisJob(db, {
-  projectId,
-  budgetUsd = ANALYSIS_BUDGET_USD,
-  now = new Date(),
-  llm = null,
-}) {
+export function createAnalysisJob(
+  db,
+  { projectId, budgetUsd = ANALYSIS_BUDGET_USD, now = new Date(), llm = null },
+) {
   if (!projectId) return { error: 'project_required', status: 400 };
   const hash = datasetHashForAnalysis(db, projectId, now);
   const existingPaid = db
@@ -37,7 +35,8 @@ export function createAnalysisJob(db, {
     return {
       error: 'dataset_already_analyzed',
       status: 409,
-      message: 'Тот же набор данных уже оплачен/в очереди; нужен новый запрос владельца после изменения данных',
+      message:
+        'Тот же набор данных уже оплачен/в очереди; нужен новый запрос владельца после изменения данных',
       jobId: existingPaid.job_id,
     };
   }
@@ -59,7 +58,12 @@ export function createAnalysisJob(db, {
     db.prepare(
       `UPDATE analysis_jobs SET status = 'failed', error_message = ?, finished_at = ? WHERE job_id = ?`,
     ).run(String(error.message || error), now.toISOString(), jobId);
-    return { error: 'analysis_failed', status: 500, jobId, message: String(error.message || error) };
+    return {
+      error: 'analysis_failed',
+      status: 500,
+      jobId,
+      message: String(error.message || error),
+    };
   }
 }
 
@@ -73,11 +77,15 @@ export function runAnalysisJob(db, jobId, { now = new Date(), llm = null } = {})
   );
 
   const segments = buildSegments(db, { projectId: job.project_id }, now);
-  const posts = listAnalyticsPosts(db, {
-    projectId: job.project_id,
-    paginate: false,
-    limit: 5000,
-  }, now).items;
+  const posts = listAnalyticsPosts(
+    db,
+    {
+      projectId: job.project_id,
+      paginate: false,
+      limit: 5000,
+    },
+    now,
+  ).items;
   const deterministic = buildDeterministicFindings(segments, posts);
 
   let llmFindings = [];
@@ -169,17 +177,20 @@ export function listRecommendations(db, { projectId = null, status = null, limit
   }
   sql += ' ORDER BY created_at DESC LIMIT ?';
   params.push(Math.min(100, limit));
-  return db.prepare(sql).all(...params).map(serializeRecommendation);
+  return db
+    .prepare(sql)
+    .all(...params)
+    .map(serializeRecommendation);
 }
 
-export function decideRecommendation(db, recommendationId, {
-  decision,
-  note = null,
-  editedDiff = null,
-  actor = 'owner',
-  now = new Date(),
-}) {
-  const row = db.prepare('SELECT * FROM recommendations WHERE recommendation_id = ?').get(recommendationId);
+export function decideRecommendation(
+  db,
+  recommendationId,
+  { decision, note = null, editedDiff = null, actor = 'owner', now = new Date() },
+) {
+  const row = db
+    .prepare('SELECT * FROM recommendations WHERE recommendation_id = ?')
+    .get(recommendationId);
   if (!row) return { error: 'not_found', status: 404 };
   if (!['approve', 'reject', 'edit'].includes(decision)) {
     return { error: 'invalid_decision', status: 400 };
@@ -196,7 +207,10 @@ export function decideRecommendation(db, recommendationId, {
     } else {
       const diff = editedDiff || JSON.parse(row.prompt_diff_json || 'null');
       if (!diff?.afterText) {
-        throw Object.assign(new Error('prompt_diff_required'), { status: 400, code: 'prompt_diff_required' });
+        throw Object.assign(new Error('prompt_diff_required'), {
+          status: 400,
+          code: 'prompt_diff_required',
+        });
       }
       const parent = getActiveEditorVersion(db, row.project_id, row.prompt_role || 'editor');
       const registered = registerPromptVersion(
@@ -281,7 +295,9 @@ function buildDeterministicFindings(segments, posts) {
     }
     const peers = byMedia.filter((s) => s.comparableForRecommendation && s.key !== segment.key);
     if (!peers.length) continue;
-    const bestPeer = peers.slice().sort((a, b) => (b.organicReach.median || 0) - (a.organicReach.median || 0))[0];
+    const bestPeer = peers
+      .slice()
+      .sort((a, b) => (b.organicReach.median || 0) - (a.organicReach.median || 0))[0];
     if (
       segment.organicReach.median != null &&
       bestPeer.organicReach.median != null &&
@@ -290,7 +306,11 @@ function buildDeterministicFindings(segments, posts) {
       const evidencePosts = posts
         .filter((p) => (p.mediaActual || 'none') === segment.key && p.metrics?.reachOrganic != null)
         .slice(0, 5)
-        .map((p) => ({ editionId: p.editionId, reachOrganic: p.metrics.reachOrganic, ageDays: p.derived?.ageDays }));
+        .map((p) => ({
+          editionId: p.editionId,
+          reachOrganic: p.metrics.reachOrganic,
+          ageDays: p.derived?.ageDays,
+        }));
       findings.push({
         observation: `Сегмент media=${segment.key} имеет медиану organic reach ниже сопоставимого сегмента ${bestPeer.key}`,
         evidence: evidencePosts,

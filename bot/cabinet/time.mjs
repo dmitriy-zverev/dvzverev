@@ -81,7 +81,7 @@ export function addDaysYmd(dateYmd, days, timeZone = OPERATOR_TIMEZONE) {
   });
 }
 
-export function scheduledTimesForDay(config, dateYmd, timeZone) {
+export function scheduledTimesForDay(config, dateYmd) {
   const weekday = new Date(`${dateYmd}T12:00:00Z`).getUTCDay() || 7;
   const times = config.weekly ? config.weekly[weekday] || [] : config.times;
   return [...new Set(times)].sort();

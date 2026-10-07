@@ -2,9 +2,19 @@ import { maintainMedia } from './maintenance.mjs';
 import { heartbeat } from './health.mjs';
 import { queueCabinetSync, cabinetEnabled } from './cabinet/hook.mjs';
 import { openCabinetDb } from './cabinet/db.mjs';
+import {
+  checkEditorialPublishGate,
+  isTerminalSeriesBlock,
+  recordTerminalSeriesBlock,
+} from './cabinet/editorial/gate.mjs';
 import { loadServiceForCabinet } from './cabinet/projects.mjs';
 import { bootstrapRedisSchedule } from './redis/bootstrap.mjs';
-import { dueTasksForProject, abandonRedisTask, reconcileProjectTasks } from './redis/runner.mjs';
+import {
+  dueTasksForProject,
+  abandonRedisTask,
+  completeRedisTask,
+  reconcileProjectTasks,
+} from './redis/runner.mjs';
 import { getRedis, redisConfigured, closeRedis } from './redis/client.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import {
@@ -121,6 +131,35 @@ async function runMultiProjectScheduler(app, stoppingRef) {
           const tasks = await dueTasksForProject(id);
           for (const task of tasks) {
             try {
+              const gateDb = openCabinetDb();
+              let blocked = null;
+              try {
+                blocked = checkEditorialPublishGate(gateDb, {
+                  planId: task.id,
+                  projectId: id,
+                });
+                if (isTerminalSeriesBlock(blocked)) {
+                  recordTerminalSeriesBlock(gateDb, blocked);
+                }
+              } finally {
+                gateDb.close();
+              }
+              if (blocked && !blocked.allowed) {
+                console.log(
+                  JSON.stringify({
+                    projectId: id,
+                    redisTaskId: task.id,
+                    status: 'series_blocked',
+                    reason: blocked.reason,
+                    predecessorStatus: blocked.predecessorStatus,
+                    terminal: isTerminalSeriesBlock(blocked),
+                  }),
+                );
+                if (isTerminalSeriesBlock(blocked)) {
+                  await completeRedisTask(task.id, 'failed');
+                }
+                continue;
+              }
               const taskResult = await publish(projectConfig, { scheduledTask: task });
               await reconcileProjectTasks(redis, id, await readState(projectConfig));
               if (taskResult.status !== 'locked') {

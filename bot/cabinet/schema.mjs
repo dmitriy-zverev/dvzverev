@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const MIGRATION_SQL = `
 CREATE TABLE IF NOT EXISTS cabinet_meta (
@@ -177,4 +177,3 @@ CREATE TABLE IF NOT EXISTS batch_members (
 
 CREATE INDEX IF NOT EXISTS batch_members_batch ON batch_members(batch_id, slot_utc);
 `;
-
