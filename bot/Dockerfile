@@ -40,6 +40,7 @@ COPY --chown=node:node bot/lifestyle.mjs bot/metrics.mjs bot/costs.mjs bot/progr
 COPY --chown=node:node bot/config ./bot/config/
 COPY --chown=node:node bot/cabinet ./bot/cabinet/
 COPY --chown=node:node bot/redis ./bot/redis/
+COPY --chown=node:node bot/video-scenes.mjs ./bot/video-scenes.mjs
 COPY --chown=node:node bot/prompts ./bot/prompts/
 USER node
 HEALTHCHECK --interval=60s --timeout=5s --start-period=120s --retries=3 CMD ["node", "bot/health.mjs"]

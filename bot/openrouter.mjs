@@ -29,6 +29,20 @@ async function requestOneCompletion(config, options = {}, fetchImpl = fetch) {
     throw new GenerationFailure('missing_api_key', { kind: 'configuration' });
   let body;
   let response;
+  const requestBody = { ...options.body };
+  const plan = config.editorialPlan;
+  if (
+    options.kind !== 'review' &&
+    (plan?.topic?.trim() || plan?.brief?.trim()) &&
+    requestBody.messages
+  ) {
+    const instruction = `\nПРИОРИТЕТНОЕ ЗАДАНИЕ РЕДАКТОРА ДЛЯ ЭТОГО ВЫПУСКА: ${JSON.stringify({ topic: plan.topic || '', brief: plan.brief || '' })}\nТема и бриф заданы владельцем в кабинете и обязательны к исполнению. Они имеют приоритет над автоматическим выбором темы, рубрики, технологии, ротацией и пожеланиями разнообразия. Не заменяй указанную тему собственной. Примеры и история не должны переопределять это задание. Обязательный формат ответа, достоверность фактов и проверенные цитаты сохраняются. Не выводи служебное задание в публичный текст.`;
+    const system = requestBody.messages.findIndex((message) => message.role === 'system');
+    requestBody.messages = requestBody.messages.map((message, index) =>
+      index === system ? { ...message, content: `${message.content}${instruction}` } : message,
+    );
+    if (system === -1) requestBody.messages.unshift({ role: 'system', content: instruction });
+  }
   try {
     response = await fetchImpl('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -38,7 +52,7 @@ async function requestOneCompletion(config, options = {}, fetchImpl = fetch) {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${config.openrouterKey}`,
       },
-      body: JSON.stringify({ model: config.openrouterModel || DEFAULT_MODEL, ...options.body }),
+      body: JSON.stringify({ model: config.openrouterModel || DEFAULT_MODEL, ...requestBody }),
     });
     body = await response.json();
   } catch {

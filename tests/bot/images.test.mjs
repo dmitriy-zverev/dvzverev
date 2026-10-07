@@ -34,6 +34,27 @@ const png = Buffer.alloc(10);
 png.write('GIF89a');
 png.writeUInt16LE(1280, 6);
 png.writeUInt16LE(720, 8);
+
+test('cached video GIFs accept compact dimensions and preserve legacy covers', async (t) => {
+  const config = await setup(t);
+  for (const width of [1280, 768, 640, 512, 480, 384]) {
+    const path = coverPath(config, 'small');
+    await mkdir(join(path, '..'), { recursive: true });
+    const header = Buffer.from(png);
+    header.writeUInt16LE(width, 6);
+    header.writeUInt16LE((width * 9) / 16, 8);
+    await writeFile(path, header);
+    assert.deepEqual(await cachedCover(config, 'small'), {
+      status: 'ready',
+      width,
+      height: (width * 9) / 16,
+    });
+  }
+  const invalid = Buffer.from(png);
+  invalid.writeUInt16LE(999, 6);
+  await writeFile(coverPath(config, 'small'), invalid);
+  await assert.rejects(cachedCover(config, 'small'), ImageFailure);
+});
 async function setup(t) {
   const dir = await mkdtemp(join(tmpdir(), 'bot-images-'));
   t.after(() => rm(dir, { recursive: true, force: true }));

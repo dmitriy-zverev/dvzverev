@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 3;
 
 export const MIGRATION_SQL = `
 CREATE TABLE IF NOT EXISTS cabinet_meta (
@@ -138,3 +138,43 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE INDEX IF NOT EXISTS sessions_expires ON sessions(expires_at);
 `;
+
+export const MIGRATION_V2_SQL = `
+CREATE TABLE IF NOT EXISTS batches (
+  batch_id TEXT PRIMARY KEY,
+  local_date TEXT NOT NULL,
+  period TEXT NOT NULL,
+  timezone TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1,
+  first_slot_utc TEXT,
+  last_slot_utc TEXT,
+  before_at_utc TEXT NOT NULL,
+  deadline_at_utc TEXT,
+  expected_editions INTEGER NOT NULL DEFAULT 0,
+  expected_deliveries INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'open',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (local_date, period)
+);
+
+CREATE TABLE IF NOT EXISTS batch_members (
+  member_id TEXT PRIMARY KEY,
+  batch_id TEXT NOT NULL,
+  plan_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  destination_id TEXT NOT NULL,
+  slot_utc TEXT NOT NULL,
+  edition_id TEXT,
+  delivery_id TEXT,
+  added_revision INTEGER NOT NULL DEFAULT 1,
+  removed_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (batch_id) REFERENCES batches(batch_id),
+  FOREIGN KEY (plan_id) REFERENCES schedule_slots(plan_id)
+);
+
+CREATE INDEX IF NOT EXISTS batch_members_batch ON batch_members(batch_id, slot_utc);
+`;
+

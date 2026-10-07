@@ -1,3 +1,16 @@
+export const TERMINAL_DELIVERY_STATUSES = new Set([
+  'sent',
+  'failed',
+  'exhausted',
+  'cancelled',
+  'missed',
+  'uncertain',
+]);
+
+export function isTerminalDeliveryStatus(status) {
+  return TERMINAL_DELIVERY_STATUSES.has(status);
+}
+
 export const DELIVERY_STATUSES = new Set([
   'planned',
   'generating',

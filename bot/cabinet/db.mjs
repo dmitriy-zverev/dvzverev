@@ -1,7 +1,8 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { MIGRATION_SQL, SCHEMA_VERSION } from './schema.mjs';
+import { MIGRATION_SQL, MIGRATION_V2_SQL, SCHEMA_VERSION } from './schema.mjs';
+import { applyMigrationV3 } from './migrate-steps.mjs';
 
 export function cabinetDbPath(env = process.env) {
   return env.BOT_CABINET_DB_PATH || 'bot/data/cabinet.sqlite';
@@ -22,13 +23,25 @@ export function openCabinetDb(env = process.env, options = undefined) {
 function migrate(db) {
   db.exec(MIGRATION_SQL);
   const row = db.prepare('SELECT value FROM cabinet_meta WHERE key = ?').get('schema_version');
+  const currentVersion = row ? Number(row.value) : 0;
+  if (currentVersion < 2) {
+    db.exec(MIGRATION_V2_SQL);
+  }
+  if (currentVersion < 3) {
+    applyMigrationV3(db);
+  }
   if (!row) {
     db.prepare('INSERT INTO cabinet_meta (key, value) VALUES (?, ?)').run(
       'schema_version',
       String(SCHEMA_VERSION),
     );
     db.prepare('INSERT INTO cabinet_meta (key, value) VALUES (?, ?)').run('data_version', '0');
-  } else if (Number(row.value) !== SCHEMA_VERSION) {
+  } else if (currentVersion < SCHEMA_VERSION) {
+    db.prepare('UPDATE cabinet_meta SET value = ? WHERE key = ?').run(
+      String(SCHEMA_VERSION),
+      'schema_version',
+    );
+  } else if (currentVersion !== SCHEMA_VERSION) {
     throw new Error(`Unsupported cabinet schema version: ${row.value}`);
   }
 }

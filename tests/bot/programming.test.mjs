@@ -110,6 +110,44 @@ test('solution uses a previously published task and links its VK post without a 
   );
 });
 
+test('manual editorial instructions bypass a stored solution and reach the model', async () => {
+  let calls = 0;
+  const post = await generatePost(
+    { ...config, editorialPlan: { topic: 'Транзакции SQL', brief: 'Объясни гонку запросов' } },
+    {
+      id: 'manual-editorial',
+      slot: '2026-10-09@18:00[Europe/Moscow]',
+      editorialHistory: [
+        {
+          postId: 'old-task',
+          vkPostId: 10,
+          slot: '2026-10-08@12:00[Europe/Moscow]',
+          generation: {
+            editorial: {
+              type: 'task',
+              solutionText: 'Stored answer must not replace the assignment',
+            },
+          },
+        },
+      ],
+      fetchImpl: async (_url, request) => {
+        calls++;
+        const body = JSON.parse(request.body);
+        if (calls === 1) assert.match(body.messages[0].content, /Транзакции SQL/);
+        return reply({
+          ...task,
+          correct_answer: '',
+          explanation: '',
+          possible_alternative_answers: '',
+          solution_text: '',
+        })();
+      },
+    },
+  );
+  assert.ok(calls > 0);
+  assert.notEqual(post.generation.model, 'stored-solution');
+});
+
 test('a second model pass reviews task and solution, and review errors prevent publication', async () => {
   let calls = 0;
   const reviewed = {

@@ -1,5 +1,6 @@
 import { queueCabinetSync } from './cabinet/hook.mjs';
 import { redisConfigured } from './redis/client.mjs';
+import { recentVideoScenes } from './video-scenes.mjs';
 import { sendNotification } from './notifications.mjs';
 import { writeAtomic } from './storage.mjs';
 import { logError } from './logging.mjs';
@@ -375,6 +376,13 @@ async function prepareImages(config, state, entry, { generateImage, uploadImage,
         await generateImage(
           {
             ...config,
+            recentVideoScenes:
+              config.coverMode === 'video'
+                ? await recentVideoScenes(
+                    config,
+                    state.entries.filter((previous) => previous.postId !== entry.postId),
+                  )
+                : [],
             onGenerationFailure: async (error, model) =>
               failure('openrouter', error.reason, error.code, model, error.logId, error),
           },
@@ -563,7 +571,9 @@ async function generateForSlot(config, state, slot, now, generate, notify, sched
     slot,
     attempts: 0,
     errors: [],
+    scheduledTask,
   });
+  const editorialTask = job.scheduledTask || scheduledTask;
   const models = config.openrouterModels?.length
     ? config.openrouterModels
     : [config.openrouterModel || DEFAULT_MODEL];
@@ -581,7 +591,22 @@ async function generateForSlot(config, state, slot, now, generate, notify, sched
   else {
     try {
       post = await generate(
-        { ...config, openrouterModel: model, openrouterModels: [model] },
+        {
+          ...config,
+          openrouterModel: model,
+          openrouterModels: [model],
+          editorialPlan:
+            editorialTask?.topic || editorialTask?.brief
+              ? { topic: editorialTask.topic || '', brief: editorialTask.brief || '' }
+              : null,
+          // Format generators reduce feedback to a boolean. Put the actual
+          // authenticated editor brief into the prompt they all consume.
+          openrouterPrompt: `${config.openrouterPrompt || ''}${
+            editorialTask?.topic || editorialTask?.brief
+              ? `\nРедакторский план: ${JSON.stringify({ topic: editorialTask.topic, brief: editorialTask.brief })}. Учти тему и пожелания в рамках обязательного формата, фактологии и проверенных источников. Не выдумывай цитату ради темы.`
+              : ''
+          }`,
+        },
         {
           id: job.id,
           slot: job.slot,
@@ -605,8 +630,8 @@ async function generateForSlot(config, state, slot, now, generate, notify, sched
             .filter(Boolean),
           feedback: [
             job.reason,
-            scheduledTask?.topic ? `Тема от редактора: ${scheduledTask.topic}` : '',
-            scheduledTask?.brief ? `Бриф редактора: ${scheduledTask.brief}` : '',
+            editorialTask?.topic ? `Тема от редактора: ${editorialTask.topic}` : '',
+            editorialTask?.brief ? `Бриф редактора: ${editorialTask.brief}` : '',
           ]
             .filter(Boolean)
             .join('\n\n'),
@@ -644,6 +669,7 @@ async function generateForSlot(config, state, slot, now, generate, notify, sched
       status: 'exhausted',
       reason: 'generation_exhausted',
       attempts: 0,
+      scheduledTask: job.scheduledTask,
       alertStatus: 'covered_by_generation',
       errors: job.errors,
     });
@@ -743,10 +769,13 @@ export async function publish(
     const redisMode = redisConfigured() && !manual && !scheduledTask;
     if (!entry && !primaryPending && available(primaryPlatform) && sourceAvailable) {
       const slot =
-        scheduledTask?.slotKey ||
         job?.slot ||
+        scheduledTask?.slotKey ||
         (manual ? `manual:${randomUUID()}` : redisMode ? null : dueSlot(config, now));
-      if (slot && !state.entries.some((entry) => entry.slot === slot)) {
+      if (
+        slot &&
+        !state.entries.some((entry) => entry.slot === slot && !entry.generationRecovered)
+      ) {
         let post;
         try {
           post = useLlm
@@ -1038,6 +1067,46 @@ export async function resume(config, platform = null) {
     }
     await saveState(config, state);
     return { status: 'resumed' };
+  } finally {
+    await release();
+  }
+}
+
+// Explicit operator recovery after generation failed before any delivery was
+// attempted. Keep the original failures for audit; never reopen a sent/uncertain slot.
+export async function retryGenerationSlot(config, task, now = new Date()) {
+  await mkdir(dirname(config.statePath), { recursive: true });
+  const release = await acquireLock(`${config.statePath}.lock`);
+  if (!release) return { status: 'locked' };
+  try {
+    const state = await readState(config);
+    if (state.pendingGeneration) return { status: 'generation_pending' };
+    const entries = state.entries.filter((entry) => entry.slot === task.slotKey);
+    if (entries.some((entry) => entry.reason !== 'generation_exhausted'))
+      return { status: 'delivery_exists' };
+    if (entries.some((entry) => entry.status !== 'exhausted')) return { status: 'not_recoverable' };
+    const event = {
+      platform: 'openrouter',
+      reason: 'operator_generation_recovery',
+      slot: task.slotKey,
+      status: 'queued',
+    };
+    await logError(config, event);
+    for (const entry of entries) {
+      entry.generationRecovered = true;
+      entry.recoveredAt = now.toISOString();
+    }
+    state.pendingGeneration = {
+      id: `llm-${randomUUID()}`,
+      slot: task.slotKey,
+      attempts: 0,
+      errors: [],
+      status: 'retry_wait',
+      retryAt: now.toISOString(),
+      scheduledTask: task,
+    };
+    await saveState(config, state);
+    return { status: 'queued', slot: task.slotKey };
   } finally {
     await release();
   }

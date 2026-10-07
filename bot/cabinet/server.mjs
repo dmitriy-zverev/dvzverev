@@ -27,6 +27,7 @@ import {
 } from './overview.mjs';
 import { loadServiceForCabinet, refreshServiceSnapshot } from './projects.mjs';
 import { cabinetTick } from './sync.mjs';
+import { listBatchReports } from './reports/store.mjs';
 import { getRedis, redisConfigured } from '../redis/client.mjs';
 import { createAdHocTask, discardTask } from '../redis/schedule.mjs';
 import { upsertPlanFromRedisTask } from '../redis/sqlite-bridge.mjs';
@@ -251,6 +252,21 @@ async function handleRequest(request, response, env) {
         return;
       }
       json(response, 200, edition, cors);
+      return;
+    }
+
+    if (route.startsWith('/batches/') && route.endsWith('/reports') && request.method === 'GET') {
+      const parts = route.slice('/batches/'.length, -'/reports'.length).split('/');
+      if (parts.length !== 2 || !/^\d{4}-\d{2}-\d{2}$/.test(parts[0])) {
+        json(response, 400, { error: 'invalid_path' }, cors);
+        return;
+      }
+      const period = parts[1];
+      if (!['morning', 'evening'].includes(period)) {
+        json(response, 400, { error: 'invalid_period' }, cors);
+        return;
+      }
+      json(response, 200, { reports: listBatchReports(db, parts[0], period) }, cors);
       return;
     }
 

@@ -24,7 +24,9 @@ import {
   reportRuntimeFailure,
   clearRuntimeFailure,
   publicationBackoffSeconds,
+  retryGenerationSlot,
 } from '../../bot/core.mjs';
+import { GenerationFailure } from '../../bot/openrouter.mjs';
 
 const post = {
   id: 'article-1',
@@ -34,6 +36,69 @@ const post = {
   action: 'Написать тест',
   url: 'https://example.com/article?a=1&b=2',
 };
+
+test('generation retries preserve original slot and editorial brief when another task is due', async (t) => {
+  const config = { ...(await setup(t)), postSource: 'openrouter', maxAttempts: 3 };
+  const firstTask = {
+    slotKey: '2026-10-07@10:00[Europe/Moscow]',
+    topic: 'First topic',
+    brief: 'Original brief',
+  };
+  const first = await publish(config, {
+    scheduledTask: firstTask,
+    notify: async () => {},
+    generate: async () => {
+      throw new GenerationFailure('network_or_invalid_response');
+    },
+  });
+  let seen;
+  const second = await publish(config, {
+    now: new Date(first.retryAt),
+    scheduledTask: { slotKey: '2026-10-07@18:00[Europe/Moscow]', topic: 'Other topic' },
+    notify: async () => {},
+    send: async () => 123,
+    generate: async (generationConfig, options) => {
+      assert.match(generationConfig.openrouterPrompt, /Original brief/);
+      assert.deepEqual(generationConfig.editorialPlan, {
+        topic: 'First topic',
+        brief: 'Original brief',
+      });
+      assert.doesNotMatch(generationConfig.openrouterPrompt, /Other topic/);
+      seen = options;
+      return { ...post, id: options.id };
+    },
+  });
+  assert.equal(second.status, 'sent');
+  assert.equal(seen.slot, firstTask.slotKey);
+  assert.match(seen.feedback, /Original brief/);
+  assert.doesNotMatch(seen.feedback, /Other topic/);
+  assert.equal((await readState(config)).entries.at(-1).slot, firstTask.slotKey);
+});
+
+test('explicit generation recovery keeps failures and cannot reopen delivered slot', async (t) => {
+  const config = { ...(await setup(t)), postSource: 'openrouter', maxAttempts: 1 };
+  const task = { slotKey: '2026-10-07@10:00[Europe/Moscow]', topic: 'Recover' };
+  const failed = await publish(config, {
+    scheduledTask: task,
+    notify: async () => {},
+    generate: async () => {
+      throw new GenerationFailure('network_or_invalid_response');
+    },
+  });
+  assert.equal(failed.status, 'exhausted');
+  assert.equal((await retryGenerationSlot(config, task)).status, 'queued');
+  const result = await publish(config, {
+    scheduledTask: task,
+    notify: async () => {},
+    send: async () => 123,
+    generate: async (_config, options) => ({ ...post, id: options.id }),
+  });
+  assert.equal(result.status, 'sent');
+  const state = await readState(config);
+  assert.equal(state.entries[0].status, 'exhausted');
+  assert.equal(state.entries[0].generationRecovered, true);
+  assert.equal((await retryGenerationSlot(config, task)).status, 'delivery_exists');
+});
 
 test('CLI preview works without credentials and does not write state', async (t) => {
   const config = await setup(t);

@@ -10,12 +10,18 @@ export function redisConfigured(env = process.env) {
 export async function getRedis(env = process.env) {
   const url = String(env.BOT_REDIS_URL || '').trim();
   if (!url) return null;
-  if (sharedClient?.isOpen) return sharedClient;
+  if (sharedClient?.isReady) return sharedClient;
+  if (sharedClient?.isOpen) throw new Error('Redis is reconnecting');
   if (!sharedClient) {
     sharedClient = createClient({
       url,
+      disableOfflineQueue: true,
       socket: {
-        reconnectStrategy: (retries) => Math.min(retries * 100, 3000),
+        connectTimeout: 5000,
+        reconnectStrategy: (retries) =>
+          retries >= 3
+            ? new Error('Redis connection retry limit reached')
+            : Math.min(retries * 100, 3000),
       },
     });
     sharedClient.on('error', (error) => {
@@ -33,8 +39,8 @@ export async function getRedis(env = process.env) {
 }
 
 export async function closeRedis() {
-  if (!sharedClient?.isOpen) return;
-  await sharedClient.quit();
+  if (sharedClient?.isReady) await sharedClient.quit();
+  else if (sharedClient?.isOpen) await sharedClient.disconnect();
   sharedClient = undefined;
   connectPromise = undefined;
 }

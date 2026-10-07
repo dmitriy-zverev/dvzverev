@@ -31,14 +31,16 @@ export async function cachedCover(config, id) {
   const path = coverPath(config, id);
   try {
     const data = await readFile(path);
+    const width = data.length >= 10 ? data.readUInt16LE(6) : 0;
+    const height = data.length >= 10 ? data.readUInt16LE(8) : 0;
     if (
       data.length < 10 ||
       !['GIF87a', 'GIF89a'].includes(data.subarray(0, 6).toString()) ||
-      data.readUInt16LE(6) !== 1280 ||
-      data.readUInt16LE(8) !== 720
+      ![1280, 768, 640, 512, 480, 384].includes(width) ||
+      height !== (width * 9) / 16
     )
       throw new ImageFailure('invalid_cached_image');
-    return { status: 'ready', width: 1280, height: 720 };
+    return { status: 'ready', width, height };
   } catch (error) {
     if (error.code === 'ENOENT') {
       const legacy = path.replace(/\.gif$/, '.png');

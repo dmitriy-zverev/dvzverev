@@ -4,7 +4,9 @@ if (!app || !('apiBase' in app.dataset)) {
 }
 
 function resolveApiBase(raw) {
-  const trimmed = String(raw ?? '').trim().replace(/\/$/, '');
+  const trimmed = String(raw ?? '')
+    .trim()
+    .replace(/\/$/, '');
   if (!trimmed) {
     return window.location.origin;
   }
@@ -153,9 +155,7 @@ function renderHeartbeatPill(data) {
 function renderCabinetTabs(openCount = 0) {
   const tab = activeTab();
   const badge =
-    openCount > 0
-      ? `<span class="cabinet-tab-badge">${escapeText(openCount)}</span>`
-      : '';
+    openCount > 0 ? `<span class="cabinet-tab-badge">${escapeText(openCount)}</span>` : '';
   return `
     <nav class="cabinet-tabs" aria-label="Разделы">
       <button type="button" class="cabinet-tab${tab === 'week' ? ' is-active' : ''}" data-tab="week" aria-current="${tab === 'week' ? 'page' : 'false'}">Неделя</button>
@@ -205,6 +205,15 @@ function renderServiceSection(data) {
           ? `<p class="meta">Cooldown: ${escapeText(JSON.stringify(data.service.cooldowns))}</p>`
           : ''
       }
+      ${
+        data.service?.reports
+          ? `<p><strong>Telegram-сводки:</strong> режим ${escapeText(data.service.reports.mode)}
+        · в очереди ${escapeText(data.service.reports.pending)}
+        · ошибок ${escapeText(data.service.reports.failed)}
+        ${data.service.reports.lastSentAt ? `<span class="meta"> · последняя ${escapeText(data.service.reports.lastSentAt)}</span>` : ''}
+        ${data.service.reports.lastHeadline ? `<span class="meta"> · ${escapeText(data.service.reports.lastHeadline)}</span>` : ''}</p>`
+          : ''
+      }
     </section>`;
 }
 
@@ -229,6 +238,7 @@ function renderIncidentsSection(incidents) {
 }
 
 function renderLogin(message = '') {
+  closeModal();
   app.className = 'cabinet cabinet--gate';
   app.innerHTML = `
     <section class="login" aria-labelledby="login-title">
@@ -370,7 +380,8 @@ function weekScheduleProblems(summary) {
 
 function weekKpiClass(tone, value) {
   const n = Number(value) || 0;
-  if (tone === 'missed' || tone === 'problems') return n > 0 ? 'week-kpi--danger' : 'week-kpi--muted';
+  if (tone === 'missed' || tone === 'problems')
+    return n > 0 ? 'week-kpi--danger' : 'week-kpi--muted';
   if (tone === 'sent') return n > 0 ? 'week-kpi--ok' : 'week-kpi--muted';
   if (tone === 'planned') return 'week-kpi--accent';
   return 'week-kpi--muted';
@@ -388,7 +399,8 @@ function weekStatValueClass(tone, value) {
   const n = Number(value) || 0;
   if (n === 0) return 'week-stat-value week-stat-value--muted';
   if (tone === 'failed') return 'week-stat-value week-stat-value--danger week-stat-value--emphasis';
-  if (tone === 'uncertain' || tone === 'delayed') return 'week-stat-value week-stat-value--warn week-stat-value--emphasis';
+  if (tone === 'uncertain' || tone === 'delayed')
+    return 'week-stat-value week-stat-value--warn week-stat-value--emphasis';
   if (tone === 'sent') return 'week-stat-value week-stat-value--ok';
   return 'week-stat-value';
 }
@@ -406,7 +418,8 @@ let cachedClassicScrollbarWidth;
 function measureClassicScrollbarWidth() {
   if (cachedClassicScrollbarWidth != null) return cachedClassicScrollbarWidth;
   const outer = document.createElement('div');
-  outer.style.cssText = 'visibility:hidden;overflow:scroll;width:100px;height:100px;position:absolute;top:-9999px';
+  outer.style.cssText =
+    'visibility:hidden;overflow:scroll;width:100px;height:100px;position:absolute;top:-9999px';
   document.documentElement.appendChild(outer);
   const inner = document.createElement('div');
   inner.style.width = '100%';
@@ -447,12 +460,14 @@ function ensureScrollbarSync() {
 }
 
 function closeModal() {
-  const modal = document.getElementById('modal');
-  if (!modal) return;
-  modal.classList.add('hidden');
-  modal.setAttribute('aria-hidden', 'true');
+  // Always release the scroll lock, even if navigation already removed the DOM.
   document.body.classList.remove('modal-open');
   document.body.style.paddingRight = '';
+  const modal = document.getElementById('modal');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+  }
   syncPageScrollbarPadding();
   const body = document.getElementById('modal-body');
   if (body) body.innerHTML = '';
@@ -481,8 +496,10 @@ function ensureModalEscape() {
 }
 
 function bindModal() {
-  document.getElementById('modal-backdrop')?.addEventListener('click', closeModal);
-  document.getElementById('modal-close')?.addEventListener('click', closeModal);
+  const backdrop = document.getElementById('modal-backdrop');
+  const button = document.getElementById('modal-close');
+  if (backdrop) backdrop.onclick = closeModal;
+  if (button) button.onclick = closeModal;
 }
 
 function readSlotMeta(node) {
@@ -532,6 +549,13 @@ function renderSlotSummary(meta) {
 }
 
 function renderOverview(data, incidents, errorMessage = '') {
+  const retainedModal = document.body.classList.contains('modal-open')
+    ? document.getElementById('modal')
+    : null;
+  const retainedFocus = retainedModal?.contains(document.activeElement)
+    ? document.activeElement
+    : null;
+  const retainedScroll = retainedModal?.querySelector('#modal-body')?.scrollTop || 0;
   const tab = activeTab();
   const openCount = incidentOpenCount(incidents);
   const week = data.week;
@@ -643,6 +667,16 @@ function renderOverview(data, incidents, errorMessage = '') {
     ${incidentsPanel}
     ${servicePanel}`;
 
+  // Refresh the calendar without destroying the active dialog, unsaved form,
+  // detail request or its scroll position. Tab changes intentionally close it.
+  if (retainedModal && tab === 'week') {
+    document.getElementById('modal').replaceWith(retainedModal);
+    document.getElementById('modal-body').scrollTop = retainedScroll;
+    retainedFocus?.focus({ preventScroll: true });
+  } else {
+    closeModal();
+  }
+
   document.getElementById('logout').onclick = () => logout();
   const openServiceTab = () => {
     if (tab === 'service') return;
@@ -696,9 +730,7 @@ function renderCard(card) {
   const statusShort = slotStatusShortLabel(card);
   const statusFull = card.statusLabel || statusShort;
   const channelBadge =
-    channel && channel !== '—'
-      ? `<span class="slot-channel">${escapeText(channel)}</span>`
-      : '';
+    channel && channel !== '—' ? `<span class="slot-channel">${escapeText(channel)}</span>` : '';
   const releaseLine =
     card.adHoc && card.releaseLabel
       ? `<span class="slot-release">${escapeText(card.releaseLabel)}</span>`
@@ -764,10 +796,14 @@ async function handlePlanFormSubmit(event) {
         expectedVersion: Number(payload.get('expectedVersion')),
       }),
     });
-    closeModal();
+    if (form.isConnected && form === document.getElementById('plan-form')) closeModal();
     await loadOverview(true);
   } catch (error) {
-    alert(error.body?.error === 'version_conflict' ? PUBLIC_ERROR.version_conflict : PUBLIC_ERROR.save_failed);
+    alert(
+      error.body?.error === 'version_conflict'
+        ? PUBLIC_ERROR.version_conflict
+        : PUBLIC_ERROR.save_failed,
+    );
   }
 }
 
@@ -790,10 +826,7 @@ async function loadSlotDetails(meta) {
         detail.edition.promptVersion ? ['Промпт', detail.edition.promptVersion] : null,
       ]
         .filter(Boolean)
-        .map(
-          ([label, value]) =>
-            `<dt>${escapeText(label)}</dt><dd>${escapeText(value)}</dd>`,
-        )
+        .map(([label, value]) => `<dt>${escapeText(label)}</dt><dd>${escapeText(value)}</dd>`)
         .join('');
       const deliveryRows = detail.deliveries
         .map((delivery) => {
@@ -849,7 +882,9 @@ async function loadOverview(manual = false) {
   try {
     const [overview, incidents] = await Promise.all([
       api(`/bot/api/v1/overview?${query}`),
-      api(`/bot/api/v1/incidents?${project ? `project=${encodeURIComponent(project)}&` : ''}status=open`),
+      api(
+        `/bot/api/v1/incidents?${project ? `project=${encodeURIComponent(project)}&` : ''}status=open`,
+      ),
     ]);
     if (state.dataVersion && overview.data_version < state.dataVersion && !manual) {
       overview.service = { ...(overview.service || {}), stale: true };

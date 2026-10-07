@@ -14,6 +14,7 @@ import {
 import { encodeTask, decodeTask } from '../../bot/redis/codec.mjs';
 import { taskKey, DUE_ZSET } from '../../bot/redis/keys.mjs';
 import service from '../../bot/service.json' with { type: 'json' };
+import { taskStatusFromState, reconcileProjectTasks } from '../../bot/redis/runner.mjs';
 
 function createMockRedis() {
   const strings = new Map();
@@ -53,7 +54,9 @@ function createMockRedis() {
     },
     async zAdd(key, { score, value }) {
       const bucket = zsets.get(key) || [];
-      bucket.push({ score: Number(score), value });
+      const existing = bucket.find((item) => item.value === value);
+      if (existing) existing.score = Number(score);
+      else bucket.push({ score: Number(score), value });
       zsets.set(key, bucket);
       return 1;
     },
@@ -147,7 +150,12 @@ describe('redis schedule', () => {
   test('materialize week fills due zset', async () => {
     const redis = createMockRedis();
     const weekStart = currentWeekStartYmd(new Date('2026-10-08T12:00:00Z'));
-    const { inserted } = await materializeWeek(redis, service, weekStart, new Date('2026-10-08T12:00:00Z'));
+    const { inserted } = await materializeWeek(
+      redis,
+      service,
+      weekStart,
+      new Date('2026-10-08T12:00:00Z'),
+    );
     assert.ok(inserted > 0);
     const dueCount = await redis.zCard('schedule:due');
     assert.ok(dueCount > 0);
@@ -210,7 +218,9 @@ describe('redis schedule', () => {
     const task = decodeTask(await redis.get(taskKey(ids[0])));
     await markTaskStatus(redis, task.id, 'generating');
     const beforeCount = (await redis.sMembers(`schedule:w:${weekStart}`)).length;
-    const { inserted } = await ensureCurrentWeek(redis, service, { now: new Date('2026-10-09T12:00:00Z') });
+    const { inserted } = await ensureCurrentWeek(redis, service, {
+      now: new Date('2026-10-09T12:00:00Z'),
+    });
     assert.equal(inserted, 0);
     assert.equal((await redis.sMembers(`schedule:w:${weekStart}`)).length, beforeCount);
   });
@@ -282,4 +292,72 @@ describe('redis schedule', () => {
     assert.equal(claimed.length, 1);
     assert.equal(claimed[0].id, planned.id);
   });
+});
+
+test('Redis task status follows its own durable slot, never an unrelated completion', () => {
+  const task = { slotKey: 'evening', destinationId: 'things-vk', status: 'generating' };
+  assert.equal(
+    taskStatusFromState(task, {
+      entries: [{ slot: 'morning', platform: 'vk', status: 'sent' }],
+    }),
+    'planned',
+  );
+  assert.equal(
+    taskStatusFromState(task, {
+      entries: [
+        {
+          slot: 'evening',
+          platform: 'telegram',
+          status: 'exhausted',
+          reason: 'generation_exhausted',
+        },
+      ],
+    }),
+    'failed',
+  );
+  assert.equal(
+    taskStatusFromState(task, {
+      entries: [{ slot: 'evening', platform: 'vk', status: 'sent', vkPostId: 42 }],
+    }),
+    'sent',
+  );
+  assert.equal(
+    taskStatusFromState(task, {
+      entries: [{ slot: 'evening', platform: 'vk', status: 'uncertain' }],
+    }),
+    'uncertain',
+  );
+  assert.equal(
+    taskStatusFromState(task, {
+      entries: [],
+      pendingGeneration: { slot: 'evening' },
+    }),
+    'generating',
+  );
+});
+
+test('orphan generating task returns to due queue; exhausted task becomes terminal', async () => {
+  const redis = createMockRedis();
+  const weekStart = '2026-10-05';
+  const now = new Date('2026-10-07T07:03:00Z');
+  await materializeWeek(redis, service, weekStart, now);
+  const ids = await redis.sMembers(`schedule:w:${weekStart}`);
+  const task = (
+    await Promise.all(ids.map(async (id) => decodeTask(await redis.get(taskKey(id)))))
+  ).find((t) => t.projectId === 'things' && t.slotUtc === '2026-10-07T07:00:00.000Z');
+  await markTaskStatus(redis, task.id, 'generating');
+  await reconcileProjectTasks(redis, 'things', { entries: [] });
+  const claimed = await claimDueTasks(redis, now, { projectId: 'things' });
+  assert.ok(claimed.some((t) => t.id === task.id));
+  await reconcileProjectTasks(redis, 'things', {
+    entries: [
+      {
+        slot: task.slotKey,
+        platform: 'telegram',
+        status: 'exhausted',
+        reason: 'generation_exhausted',
+      },
+    ],
+  });
+  assert.equal(decodeTask(await redis.get(taskKey(task.id))).status, 'failed');
 });

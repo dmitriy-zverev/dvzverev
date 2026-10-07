@@ -116,6 +116,7 @@ function buildTaskRecord({
     id: existing?.id || randomUUID(),
     projectId,
     destinationId,
+    platform: destination.platform,
     slotUtc,
     slotKey: key,
     topic: existing?.topic ?? null,
@@ -174,7 +175,13 @@ export async function clearWeek(redis, weekStartYmd) {
   await redis.del(weekIndexKey(weekStartYmd));
 }
 
-export async function materializeWeek(redis, service, weekStartYmd, now = new Date(), seed = new Map()) {
+export async function materializeWeek(
+  redis,
+  service,
+  weekStartYmd,
+  now = new Date(),
+  seed = new Map(),
+) {
   const timeZone = OPERATOR_TIMEZONE;
   const dates = weekDates(weekStartYmd, timeZone);
   let inserted = 0;

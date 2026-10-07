@@ -4,9 +4,8 @@ import { queueCabinetSync, cabinetEnabled } from './cabinet/hook.mjs';
 import { openCabinetDb } from './cabinet/db.mjs';
 import { loadServiceForCabinet } from './cabinet/projects.mjs';
 import { bootstrapRedisSchedule } from './redis/bootstrap.mjs';
-import { dueTasksForProject, abandonRedisTask } from './redis/runner.mjs';
-import { getRedis, redisConfigured } from './redis/client.mjs';
-import { markTaskStatus } from './redis/schedule.mjs';
+import { dueTasksForProject, abandonRedisTask, reconcileProjectTasks } from './redis/runner.mjs';
+import { getRedis, redisConfigured, closeRedis } from './redis/client.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import {
   nextQueuedPost,
@@ -92,19 +91,6 @@ function canScheduleProject(config) {
   );
 }
 
-function redisTaskStatusAfterPublish(taskResult) {
-  if (taskResult.status === 'sent') return 'sent';
-  if (
-    taskResult.status === 'already_processed' ||
-    taskResult.postId ||
-    taskResult.status === 'retry_wait' ||
-    taskResult.status === 'pending_vk'
-  ) {
-    return 'generating';
-  }
-  return null;
-}
-
 async function runMultiProjectScheduler(app, stoppingRef) {
   console.log(`Multi-project schedule: ${app.enabledProjectIds().join(', ')} (${app.configPath})`);
   lastProgressAt = Date.now();
@@ -130,15 +116,13 @@ async function runMultiProjectScheduler(app, stoppingRef) {
       try {
         projectConfig = await app.resolveProjectConfig(id);
         if (redisConfigured()) {
+          const redis = await getRedis();
+          await reconcileProjectTasks(redis, id, await readState(projectConfig));
           const tasks = await dueTasksForProject(id);
           for (const task of tasks) {
             try {
               const taskResult = await publish(projectConfig, { scheduledTask: task });
-              const redis = await getRedis();
-              const nextStatus = redisTaskStatusAfterPublish(taskResult);
-              if (nextStatus) {
-                await markTaskStatus(redis, task.id, nextStatus);
-              }
+              await reconcileProjectTasks(redis, id, await readState(projectConfig));
               if (taskResult.status !== 'locked') {
                 console.log(JSON.stringify({ projectId: id, redisTaskId: task.id, ...taskResult }));
               }
@@ -148,6 +132,9 @@ async function runMultiProjectScheduler(app, stoppingRef) {
           }
         }
         const result = await publish(projectConfig);
+        if (redisConfigured()) {
+          await reconcileProjectTasks(await getRedis(), id, await readState(projectConfig));
+        }
         if (result.status !== 'locked') await clearRuntimeFailure(projectConfig);
         if (!['not_due', 'already_processed'].includes(result.status)) {
           console.log(JSON.stringify({ projectId: id, ...result }));
@@ -383,7 +370,9 @@ try {
         while (!stopping) {
           try {
             // GIF uploads use the community key; no user-token inbox polling.
-            const result = canScheduleProject(config) ? await publish(config) : { status: 'not_due' };
+            const result = canScheduleProject(config)
+              ? await publish(config)
+              : { status: 'not_due' };
             if (config.chatId.trim() && result.status !== 'locked')
               await clearRuntimeFailure(config);
             if (!['not_due', 'already_processed'].includes(result.status))
@@ -420,4 +409,6 @@ try {
   );
   console.error(formatCliError(error));
   process.exitCode = 1;
+} finally {
+  await closeRedis();
 }

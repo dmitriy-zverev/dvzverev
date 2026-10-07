@@ -2,7 +2,18 @@
   "version": 1,
   "service": {
     "alertChatIdEnv": "BOT_ALERT_CHAT_ID",
-    "minDestinationIntervalMinutes": 30
+    "minDestinationIntervalMinutes": 30,
+    "reports": {
+      "timezone": "Europe/Moscow",
+      "eveningStartsAt": "16:00",
+      "beforeReportLeadMinutes": 5,
+      "batchDeadlineMinutes": 45,
+      "reportEmptyBatches": true,
+      "mode": "owner",
+      "publicSiteUrl": "https://dvzverev.ru",
+      "testChatIdEnv": "BOT_REPORT_TEST_CHAT_ID",
+      "alertChatIdEnv": "BOT_ALERT_CHAT_ID"
+    }
   },
   "providers": {
     "budget-editor": {

@@ -48,6 +48,7 @@ function provider() {
               finish_reason: 'stop',
               message: {
                 content: JSON.stringify({
+                  location: 'A deserted historical waiting room',
                   scene:
                     'An empty walnut desk with a sealed letter by a rainy window. Only raindrops move, the camera remains fixed.',
                 }),
@@ -60,6 +61,7 @@ function provider() {
         const body = JSON.parse(init.body);
         assert.equal(body.generate_audio, false);
         assert.equal(body.duration, 4);
+        assert.equal(body.resolution, '480p');
         assert.match(body.prompt, /sealed letter/);
         return response({ id: 'job-safe', status: 'pending' });
       }
@@ -116,6 +118,34 @@ test('lost video submission response does not trigger another paid job', async (
     (error) => error.reason === 'video_submission_uncertain',
   );
   assert.equal(posts, 1);
+});
+
+test('confirmed video failure reuses the saved location and scene without another text generation', async (t) => {
+  const config = await setup(t);
+  const mock = provider();
+  let planningCalls = 0;
+  let submittedPrompt;
+  const fetchImpl = async (url, init) => {
+    if (url.endsWith('chat/completions')) planningCalls++;
+    if (url.endsWith('/videos') && init?.method === 'POST') {
+      const prompt = JSON.parse(init.body).prompt;
+      if (submittedPrompt) assert.equal(prompt, submittedPrompt);
+      submittedPrompt = prompt;
+      assert.match(prompt, /Location: A deserted historical waiting room/);
+    }
+    if (url.endsWith('/job-safe'))
+      return response({ status: 'failed', error: { message: 'failed generation' } });
+    return mock.fetch(url, init);
+  };
+  await assert.rejects(generateVideoCover(config, entry, { fetchImpl }), ImagePending);
+  await assert.rejects(generateVideoCover(config, entry, { fetchImpl }), ImageFailure);
+  await assert.rejects(generateVideoCover(config, entry, { fetchImpl }), ImagePending);
+  assert.equal(planningCalls, 1);
+  assert.equal(mock.posts, 2);
+  const receipt = JSON.parse(await readFile(`${coverPath(config, entry.postId)}.video.json`));
+  assert.equal(receipt.sceneLocation, 'A deserted historical waiting room');
+  assert.equal(receipt.sceneFamily, receipt.setting.family);
+  assert.equal(receipt.attempts, 2);
 });
 const post = {
   id: 'literary-test',
@@ -281,7 +311,7 @@ test('confirmed failed video jobs retry with the same model at most three times'
   assert.equal(submissions, 3);
 });
 
-test('real H264 conversion yields a bounded 1280x720 seamless GIF', async (t) => {
+test('real H264 conversion yields a compact seamless GIF within 2 MB', async (t) => {
   // Retain application memory during conversion; run this suite with --memory=256m.
   const applicationMemory = Buffer.alloc(64 * 1024 * 1024, 1);
   const config = await setup(t);
@@ -291,11 +321,11 @@ test('real H264 conversion yields a bounded 1280x720 seamless GIF', async (t) =>
     fileURLToPath(new URL('./fixtures/loop.mp4', import.meta.url)),
     output,
   );
-  assert.equal(result.width, 1280);
-  assert.equal(result.height, 720);
+  assert.ok([768, 640, 512, 480, 384].includes(result.width));
+  assert.equal(result.height, (result.width * 9) / 16);
   assert.ok(result.frames >= 2);
   assert.ok(result.duration >= 4 && result.duration <= 7);
-  assert.ok(result.bytes <= 10000000);
+  assert.ok(result.bytes <= 2000000);
   assert.equal(result.loop, true);
   assert.equal(applicationMemory.at(-1), 1);
   void config;

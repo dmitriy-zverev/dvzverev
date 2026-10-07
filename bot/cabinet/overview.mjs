@@ -22,18 +22,33 @@ import { encodeTask } from '../redis/codec.mjs';
 import { taskKey } from '../redis/keys.mjs';
 import { upsertPlanFromRedisTask } from '../redis/sqlite-bridge.mjs';
 import { heartbeatPath, schedulerHeartbeatStatus } from '../health.mjs';
+import { DELIVERY_SNAPSHOT } from './delivery-snapshot.mjs';
+import { readReportOperatorState } from './reports/status.mjs';
+import { loadServiceForCabinet } from './projects.mjs';
 
 export async function buildOverview(db, { week, projectFilter, statusFilter }, env = process.env) {
   const snapshot = withTransaction(db, () =>
     readOverviewSnapshot(db, { week, projectFilter, statusFilter }),
   );
   const service = await readServiceState(db, env);
-  return { ...snapshot, service };
+  let reports = null;
+  try {
+    const { document } = await loadServiceForCabinet(env);
+    reports = readReportOperatorState(db, document);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  return {
+    ...snapshot,
+    service: reports ? { ...service, reports } : service,
+  };
 }
 
 function readOverviewSnapshot(db, { week, projectFilter, statusFilter }) {
   const timeZone = OPERATOR_TIMEZONE;
-  const weekStart = week ? isoWeekStart(week, timeZone) : isoWeekStart(todayYmd(timeZone), timeZone);
+  const weekStart = week
+    ? isoWeekStart(week, timeZone)
+    : isoWeekStart(todayYmd(timeZone), timeZone);
   const weekEnd = addDaysYmd(weekStart, 7, timeZone);
   const rangeStart = localSlotToUtc(weekStart, '00:00', timeZone).toISOString();
   const rangeEnd = localSlotToUtc(weekEnd, '00:00', timeZone).toISOString();
@@ -56,20 +71,24 @@ function readOverviewSnapshot(db, { week, projectFilter, statusFilter }) {
 
   const slots = db
     .prepare(
-      `SELECT s.*, p.title AS project_title, e.aggregate_status, e.topic AS edition_topic,
+      `${DELIVERY_SNAPSHOT}
+       SELECT s.*, p.title AS project_title, e.aggregate_status, e.topic AS edition_topic,
               e.body_text, e.body_removed_at, d.status AS delivery_status, d.external_id,
               d.platform, d.vk_group_id
        FROM schedule_slots s
        JOIN projects p ON p.project_id = s.project_id
        LEFT JOIN editions e ON e.edition_id = s.edition_id
-       LEFT JOIN deliveries d ON d.edition_id = s.edition_id AND d.destination_id = s.destination_id
+       LEFT JOIN current_deliveries d ON d.edition_id = s.edition_id AND d.destination_id = s.destination_id
        WHERE s.slot_utc >= ? AND s.slot_utc < ?${projectClause}
        ORDER BY s.slot_utc ASC, s.project_id ASC`,
     )
     .all(...params);
 
   const adHocRows = loadAdHocRows(db, rangeStart, rangeEnd, projectFilter);
-  let cards = [...slots.map((row) => mapCard(row, timeZone)), ...adHocRows.map((row) => mapAdHocCard(row, timeZone))];
+  let cards = [
+    ...slots.map((row) => mapCard(row, timeZone)),
+    ...adHocRows.map((row) => mapAdHocCard(row, timeZone)),
+  ];
   cards.sort(
     (left, right) =>
       left.slotUtc.localeCompare(right.slotUtc) ||
@@ -94,7 +113,8 @@ function readOverviewSnapshot(db, { week, projectFilter, statusFilter }) {
   }
   const deliveries = db
     .prepare(
-      `SELECT d.status FROM deliveries d
+      `${DELIVERY_SNAPSHOT}
+       SELECT d.status FROM current_deliveries d
        JOIN editions e ON e.edition_id = d.edition_id
        LEFT JOIN schedule_slots s ON s.edition_id = d.edition_id AND s.destination_id = d.destination_id
        WHERE COALESCE(s.slot_utc, d.sent_at, e.created_at) >= ?
@@ -131,11 +151,12 @@ function loadAdHocRows(db, rangeStart, rangeEnd, projectFilter) {
   }
   return db
     .prepare(
-      `SELECT e.*, p.title AS project_title, d.status AS delivery_status, d.external_id,
+      `${DELIVERY_SNAPSHOT}
+       SELECT e.*, p.title AS project_title, d.status AS delivery_status, d.external_id,
               d.platform, d.vk_group_id, d.destination_id, d.post_id, d.sent_at
        FROM editions e
        JOIN projects p ON p.project_id = e.project_id
-       JOIN deliveries d ON d.edition_id = e.edition_id
+       JOIN current_deliveries d ON d.edition_id = e.edition_id
        LEFT JOIN schedule_slots s ON s.edition_id = e.edition_id
        WHERE s.plan_id IS NULL
          AND COALESCE(d.sent_at, e.created_at) >= ?
@@ -307,7 +328,9 @@ export function getEdition(db, editionId) {
   const events = db
     .prepare('SELECT * FROM events WHERE edition_id = ? ORDER BY created_at DESC LIMIT 50')
     .all(editionId);
-  const plan = db.prepare('SELECT * FROM schedule_slots WHERE edition_id = ? LIMIT 1').get(editionId);
+  const plan = db
+    .prepare('SELECT * FROM schedule_slots WHERE edition_id = ? LIMIT 1')
+    .get(editionId);
   const primaryDelivery = deliveries[0];
   const release = plan ? null : classifyReleaseSource(edition.slot_key, primaryDelivery?.post_id);
   return {
@@ -412,10 +435,18 @@ export function listProjects(db) {
     }));
 }
 
-export async function patchPlan(db, planId, { topic, brief, expectedVersion }, actor = 'owner', env = process.env) {
+export async function patchPlan(
+  db,
+  planId,
+  { topic, brief, expectedVersion },
+  actor = 'owner',
+  env = process.env,
+) {
   if (expectedVersion == null) return { error: 'version_required', status: 400 };
 
-  const sqlitePlan = db.prepare('SELECT edition_id, plan_status FROM schedule_slots WHERE plan_id = ?').get(planId);
+  const sqlitePlan = db
+    .prepare('SELECT edition_id, plan_status FROM schedule_slots WHERE plan_id = ?')
+    .get(planId);
   if (sqlitePlan?.edition_id) return { error: 'already_started', status: 409 };
 
   if (redisConfigured(env)) {

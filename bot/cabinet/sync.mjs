@@ -13,15 +13,17 @@ import {
 } from './time.mjs';
 import { resolveRelativeConfigPath } from '../config/paths.mjs';
 import { bootstrapRedisSchedule } from '../redis/bootstrap.mjs';
+import { materializeBatches } from './batches.mjs';
+import { runReportWorker } from './reports/worker.mjs';
 
 const MATERIALIZE_DAYS_FORWARD = 14;
 const MATERIALIZE_DAYS_BACK = 7;
 const SLOT_WINDOW_MINUTES = 5;
 
 export function materializeScheduleSlots(db, service, env, now = new Date()) {
-  const configVersion = db.prepare('SELECT value FROM cabinet_meta WHERE key = ?').get(
-    'service_config_version',
-  )?.value;
+  const configVersion = db
+    .prepare('SELECT value FROM cabinet_meta WHERE key = ?')
+    .get('service_config_version')?.value;
   if (!configVersion) throw new Error('Service snapshot missing; run cabinet migrate first');
 
   return withTransaction(db, () => {
@@ -71,7 +73,10 @@ export function materializeScheduleSlots(db, service, env, now = new Date()) {
               !existing?.edition_id
             ) {
               planStatus = existing?.plan_status === 'missed' ? 'missed' : 'missed';
-            } else if (existing?.plan_status === 'missed' && slotAgeMinutes <= SLOT_WINDOW_MINUTES) {
+            } else if (
+              existing?.plan_status === 'missed' &&
+              slotAgeMinutes <= SLOT_WINDOW_MINUTES
+            ) {
               planStatus = 'planned';
             } else if (existing) {
               planStatus = existing.plan_status;
@@ -135,21 +140,20 @@ export async function syncProjectState(db, service, projectId, env, now = new Da
   const project = service.projects?.[projectId];
   if (!project) return { editions: 0, deliveries: 0 };
   const configRoot = resolveConfigRoot(env);
-  const promptVersion = db.prepare('SELECT value FROM cabinet_meta WHERE key = ?').get(
-    'service_config_version',
-  )?.value;
+  const promptVersion = db
+    .prepare('SELECT value FROM cabinet_meta WHERE key = ?')
+    .get('service_config_version')?.value;
   const statePath = project.statePath
     ? resolveRelativeConfigPath(configRoot, project.statePath)
     : resolve(configRoot, `state/${projectId}.json`);
   const raw = JSON.parse(await readFile(statePath, 'utf8'));
   const destinationId = project.delivery?.destinations?.[0];
-  const destination = service.destinations?.[destinationId];
 
   return withTransaction(db, () => {
     let editions = 0;
     let deliveries = 0;
     for (const entry of raw.entries || []) {
-      if (!entry.slot) continue;
+      if (!entry.slot || entry.generationRecovered) continue;
       const editionId = editionIdFor(projectId, entry);
       const deliveryId = deliveryIdFor(entry, destinationId);
       const status = mapEntryStatus(entry);
@@ -220,7 +224,7 @@ export async function syncProjectState(db, service, projectId, env, now = new Da
           `UPDATE schedule_slots SET edition_id = ?, plan_status = ?, updated_at = ? WHERE plan_id = ?`,
         ).run(
           editionId,
-          status === 'sent' ? 'sent' : 'generating',
+          ['sent', 'failed', 'exhausted', 'uncertain'].includes(status) ? status : 'generating',
           now.toISOString(),
           plan.plan_id,
         );
@@ -279,13 +283,14 @@ export async function syncProjectState(db, service, projectId, env, now = new Da
       } else {
         db.prepare(
           `UPDATE deliveries SET
-            status = ?, post_id = ?, external_id = ?, retry_at = ?, failure_reason = ?,
+            status = ?, post_id = ?, external_id = ?, vk_group_id = COALESCE(?, vk_group_id), retry_at = ?, failure_reason = ?,
             attempts = ?, sent_at = ?, updated_at = ?
            WHERE delivery_id = ?`,
         ).run(
           deliveryRow.status,
           deliveryRow.postId,
           deliveryRow.externalId,
+          deliveryRow.vkGroupId,
           deliveryRow.retryAt,
           deliveryRow.failureReason,
           deliveryRow.attempts,
@@ -300,16 +305,19 @@ export async function syncProjectState(db, service, projectId, env, now = new Da
         recordIncident(db, projectId, editionId, destinationId, event, now);
       }
 
-      const deliveryStatuses = db
-        .prepare('SELECT status FROM deliveries WHERE edition_id = ?')
-        .all(editionId)
+      const deliveryRows = db
+        .prepare('SELECT status, failure_reason FROM deliveries WHERE edition_id = ?')
+        .all(editionId);
+      const hasDelivery = deliveryRows.some((row) => row.failure_reason !== 'generation_exhausted');
+      const deliveryStatuses = deliveryRows
+        .filter((row) => !hasDelivery || row.failure_reason !== 'generation_exhausted')
         .map((row) => row.status);
-      const aggregate = aggregateEditionStatus(deliveryStatuses.length ? deliveryStatuses : [status]);
-      db.prepare('UPDATE editions SET aggregate_status = ?, updated_at = ? WHERE edition_id = ?').run(
-        aggregate,
-        now.toISOString(),
-        editionId,
+      const aggregate = aggregateEditionStatus(
+        deliveryStatuses.length ? deliveryStatuses : [status],
       );
+      db.prepare(
+        'UPDATE editions SET aggregate_status = ?, updated_at = ? WHERE edition_id = ?',
+      ).run(aggregate, now.toISOString(), editionId);
     }
 
     setSchedulerMeta(db, raw, now);
@@ -429,5 +437,7 @@ export async function cabinetTick(db, service, env, now = new Date()) {
       else throw error;
     }
   }
+  materializeBatches(db, service, now);
+  await runReportWorker(db, service, env, now);
   return results;
 }
