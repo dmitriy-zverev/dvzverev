@@ -1,4 +1,7 @@
 import { resolve, dirname } from 'node:path';
+import { existsSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
+import { cabinetDbPath } from '../cabinet/db.mjs';
 import { DEFAULT_MODEL, DEFAULT_PROMPT } from '../openrouter.mjs';
 import { DEFAULT_IMAGE_MODEL } from '../images.mjs';
 import { readEnvValue, readOptionalEnvValue } from './env.mjs';
@@ -26,6 +29,25 @@ function resolveProvider(service, providerId, env) {
   };
 }
 
+function activePrompts(projectId, env) {
+  const path = cabinetDbPath(env);
+  if (env.BOT_CABINET_ENABLED !== 'true' || !existsSync(path)) return {};
+  const db = new DatabaseSync(path, { readOnly: true });
+  try {
+    return Object.fromEntries(
+      db
+        .prepare(
+          `SELECT role, version_id, content_hash, content_text FROM prompt_versions
+       WHERE project_id = ? AND status = 'active' AND role IN ('editor', 'cover', 'video')`,
+        )
+        .all(projectId)
+        .map((row) => [row.role, row]),
+    );
+  } finally {
+    db.close();
+  }
+}
+
 export async function runtimeConfigForProject(service, projectId, env, { configRoot }) {
   const project = service.projects[projectId];
   if (!project) throw new Error(`Unknown project: ${projectId}`);
@@ -34,6 +56,7 @@ export async function runtimeConfigForProject(service, projectId, env, { configR
   const telegram = destinationByPlatform(project, service, 'telegram');
   const vk = destinationByPlatform(project, service, 'vk');
   const generation = resolveProvider(service, project.generation.provider, env);
+  const prompts = activePrompts(projectId, env);
   const editorPrompt = await readPromptFile(configRoot, project.prompts.editor);
   const coverPrompt = project.prompts.cover
     ? await readPromptFile(configRoot, project.prompts.cover)
@@ -72,10 +95,12 @@ export async function runtimeConfigForProject(service, projectId, env, { configR
     imagesEnabled: telegramMedia,
     mediaTimes: vk?.destination.media?.times || telegram?.destination.media?.times || null,
     coverMode: vk?.destination.media?.kind || telegram?.destination.media?.kind || 'image',
-    coverPrompt,
-    videoPrompt: vk?.destination.media?.prompt
-      ? await readPromptFile(configRoot, vk.destination.media.prompt)
-      : '',
+    coverPrompt: prompts.cover?.content_text ?? coverPrompt,
+    videoPrompt:
+      prompts.video?.content_text ??
+      (vk?.destination.media?.prompt
+        ? await readPromptFile(configRoot, vk.destination.media.prompt)
+        : ''),
     imageMaxAttempts:
       vk?.destination.media?.maxAttempts || telegram?.destination.media?.maxAttempts || 1,
     videoModel: vk?.destination.media?.model || 'bytedance/seedance-1-5-pro',
@@ -90,7 +115,16 @@ export async function runtimeConfigForProject(service, projectId, env, { configR
     openrouterModel: generation.model,
     openrouterModels: generation.models,
     reviewModel: project.generation.reviewModel || generation.models[1] || generation.model,
-    openrouterPrompt: editorPrompt.trim() || DEFAULT_PROMPT,
+    openrouterPrompt: prompts.editor?.content_text ?? (editorPrompt.trim() || DEFAULT_PROMPT),
+    promptVersions: Object.fromEntries(
+      Object.entries(prompts).map(([role, row]) => [
+        role,
+        {
+          versionId: row.version_id,
+          contentHash: row.content_hash,
+        },
+      ]),
+    ),
     times: [...new Set(project.schedule.times)].sort(),
     timezone: project.schedule.timezone,
     weekly: project.schedule.weekly || null,

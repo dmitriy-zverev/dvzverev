@@ -643,7 +643,11 @@ async function generateForSlot(config, state, slot, now, generate, notify, sched
       failure = error;
     }
   }
-  if (post) return post;
+  if (post)
+    return {
+      ...post,
+      generation: { ...post.generation, promptVersions: config.promptVersions || {} },
+    };
   const event = {
     platform: 'openrouter',
     postId: job.id,
