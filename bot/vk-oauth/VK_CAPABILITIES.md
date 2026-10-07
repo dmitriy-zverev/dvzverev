@@ -1,6 +1,16 @@
 # VK capabilities — 7 октября 2026
 
-API `5.199`. Реальный пользовательский OAuth **ещё не пройден**. Код и mock-тесты не доказывают получение нужных прав приложением.
+API `5.199`. Реальный OAuth пройден 2026-10-07 через production callback. Приложение выдало только `vkid.personal_info`, хотя запрос содержал `wall photos groups video`. Это успешная авторизация, но не подтверждение доступа к публикациям.
+
+## Результат реальной проверки на cloudru
+
+- Пользовательский ID: `83357715`; `users.get` успешно проверил identity при callback.
+- Access и refresh сохранены в зашифрованной persistent SQLite. Токены, code и upload URL в отчёт не включены.
+- Принудительный refresh через единственный production broker: HTTP 200, новый expiry, refresh доступен; scope остался `vkid.personal_info`.
+- `account.getAppPermissions`, `utils.resolveScreenName`, `groups.get`: отказ `1051`.
+- `photos.getWallUploadServer` для профиля: отказ `15`, upload URL не получен.
+- Ошибки записаны в логи; отчёт отправлен в настроенный Telegram-бот. Публикаций через этот OAuth не создано.
+- Не установлено, каким способом VK разрешит расширенные API-доступы именно этому приложению. Нужна проверка настроек/ответ поддержки VK; повторный refresh не расширяет scope.
 
 ## Проверенные источники
 
@@ -13,10 +23,10 @@ Upload/save методы указаны с `access_token_type=[user]`. `wall.pos
 
 | Возможность          | Кандидат scope/permission                 | Методы                                                                    | Работает фактически                                         |
 | -------------------- | ----------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| Login и refresh      | Настройки выбранного приложения           | `/authorize`, `/oauth2/auth`                                              | SDK проверен; наш реальный OAuth ещё нет                    |
-| Identity             | User token                                | `users.get`                                                               | Только mock                                                 |
-| Управляемые группы   | `groups`, требует проверки                | `groups.get(filter=admin,editor)`                                         | Не проверено                                                |
-| Новое фото в профиль | `photos`, `wall`, требует проверки        | `photos.getWallUploadServer`, upload, `photos.saveWallPhoto`, `wall.post` | Только mock flow                                            |
+| Login и refresh      | Настройки выбранного приложения           | `/authorize`, `/oauth2/auth`                                              | Реальные login и принудительный refresh успешны             |
+| Identity             | User token                                | `users.get`                                                               | Реальная identity проверена                                 |
+| Управляемые группы   | `groups`, требует проверки                | `groups.get(filter=admin,editor)`                                         | Реальный отказ 1051                                         |
+| Новое фото в профиль | `photos`, `wall`, требует проверки        | `photos.getWallUploadServer`, upload, `photos.saveWallPhoto`, `wall.post` | Первый этап: реальный отказ 15                              |
 | Новое фото в группу  | Те же scopes, права пользователя в группе | Те же методы с `group_id` и отрицательным wall owner                      | Только mock flow; `veshi_kstati` выбран для реального теста |
 | Несколько групп      | Права в каждой группе                     | Те же методы, другой group ID                                             | Реальный тест двух групп не выполнен                        |
 | Обычное MP4          | `video`, `wall`, требует проверки         | `video.save`, multipart `video_file`, `wall.post`                         | Код POC есть; реальный тест не выполнен                     |
@@ -30,8 +40,8 @@ Upload/save методы указаны с `access_token_type=[user]`. `wall.pos
 
 ## Что осталось для P0
 
-1. Подтвердить VK ID client ID и callback, пройти обычный OAuth.
-2. Проверить права; отказ записать как код ошибки без request_params и уточнить доступы приложения у VK.
+1. Уточнить у VK, как получить расширенные API-доступы для приложения 54809454. Client ID/callback, обычный OAuth и force refresh уже проверены.
+2. После изменения доступов пройти новое согласие и повторно проверить реальные права.
 3. Новый локальный JPG/PNG в `veshi_kstati`: upload, post, API attachment verification, визуальная проверка.
 4. Проверить профиль и вторую группу — пока пользователь указал одну цель.
 5. Force refresh, rotation, restart Docker, фактический повтор через сутки.
