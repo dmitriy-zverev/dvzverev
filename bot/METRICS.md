@@ -44,6 +44,32 @@
 
 Расходы провайдера записываются в USD. Для прибыли в RUB импортируйте `generationExpensesRub` из своей сверки либо `generationExpensesUsd` вместе с `usdToRub`. Бот не подставляет текущий курс и не смешивает валюты. Если разные записи периода имеют разные курсы, импортируйте итоговые расходы в RUB. Ручные расходы имеют приоритет над автоматическим расчётом.
 
+## Кабинет: недельный импорт VK per-post (Feature 3)
+
+Community keys по-прежнему не дают `stats.get` / `wall.*`. Per-post охват и реакции
+загружает владелец раз в неделю через кабинет:
+
+1. Вкладка «Аналитика» → «Импорты и покрытие».
+2. Скачать шаблон `GET /bot/api/v1/imports/template` или взять `bot/fixtures/vk-stats/template.csv`.
+3. `POST /bot/api/v1/imports/preview` → проверка сопоставления с `deliveries.external_id`.
+4. `POST /bot/api/v1/imports/:id/commit` (strict по умолчанию; `valid_only` только явно).
+5. Обзор 30 дней: `GET /bot/api/v1/analytics`, посты, сегменты, рекомендации.
+
+Схема: `bot/fixtures/vk-stats/SCHEMA.md`. Пустая ячейка = null («нет данных»), не ноль.
+Аналитика не меняет рабочие промпты и расписание сама — только через approve владельца.
+
+Реальный VK classic `.xls`: только `{group}_posts_content_{from}_{to}.xls` даёт
+per-post KPI; `post_id` в файле нет. Конвертация без зависимости в Docker:
+
+```sh
+uvx --from xlrd python bot/vk-posts-xls-to-json.py ~/Downloads/194579254_posts_content_2026-10-01_2026-10-07.xls
+```
+
+Допишите `post_id`/`wall_url` в `*.vk-stats.json`, затем preview/commit.
+`posts_common` / `posts_audience` — групповые (audience ещё и города); кабинет отклоняет.
+
+После деплоя: `pnpm cabinet:migrate` (SQLite schema v4).
+
 ## Ручной импорт
 
 Шаблоны:

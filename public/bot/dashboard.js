@@ -113,9 +113,24 @@ async function logout() {
 
 function activeTab() {
   const tab = params().get('tab');
-  if (tab === 'incidents') return 'incidents';
-  if (tab === 'service') return 'service';
+  if (
+    [
+      'incidents',
+      'service',
+      'analytics',
+      'analytics-posts',
+      'analytics-imports',
+      'analytics-segments',
+      'analytics-prompts',
+    ].includes(tab)
+  ) {
+    return tab;
+  }
   return 'week';
+}
+
+function isAnalyticsTab(tab = activeTab()) {
+  return String(tab).startsWith('analytics');
 }
 
 function incidentOpenCount(incidents) {
@@ -156,9 +171,11 @@ function renderCabinetTabs(openCount = 0) {
   const tab = activeTab();
   const badge =
     openCount > 0 ? `<span class="cabinet-tab-badge">${escapeText(openCount)}</span>` : '';
+  const analyticsActive = isAnalyticsTab(tab);
   return `
     <nav class="cabinet-tabs" aria-label="Разделы">
       <button type="button" class="cabinet-tab${tab === 'week' ? ' is-active' : ''}" data-tab="week" aria-current="${tab === 'week' ? 'page' : 'false'}">Неделя</button>
+      <button type="button" class="cabinet-tab${analyticsActive ? ' is-active' : ''}" data-tab="analytics" aria-current="${analyticsActive ? 'page' : 'false'}">Аналитика</button>
       <button type="button" class="cabinet-tab${tab === 'incidents' ? ' is-active' : ''}" data-tab="incidents" aria-current="${tab === 'incidents' ? 'page' : 'false'}">Инциденты${badge}</button>
       <button type="button" class="cabinet-tab${tab === 'service' ? ' is-active' : ''}" data-tab="service" aria-current="${tab === 'service' ? 'page' : 'false'}">Сервис</button>
     </nav>`;
@@ -234,6 +251,157 @@ function renderIncidentsSection(incidents) {
               .join('')
           : '<p class="meta">Открытых инцидентов нет.</p>'
       }
+    </section>`;
+}
+
+function renderAnalyticsSubnav(tab) {
+  const items = [
+    ['analytics', 'Обзор 30 дней'],
+    ['analytics-posts', 'Все посты'],
+    ['analytics-imports', 'Импорты и покрытие'],
+    ['analytics-segments', 'Сегменты'],
+    ['analytics-prompts', 'Промпты и эксперименты'],
+  ];
+  return `
+    <nav class="analytics-subnav" aria-label="Аналитика">
+      ${items
+        .map(
+          ([id, label]) =>
+            `<button type="button" class="cabinet-tab${tab === id ? ' is-active' : ''}" data-analytics-tab="${id}">${escapeText(label)}</button>`,
+        )
+        .join('')}
+    </nav>`;
+}
+
+function renderAnalyticsSection(bundle) {
+  const tab = activeTab();
+  const project = params().get('project') || '';
+  const projects = bundle.projects || [];
+  const overview = bundle.overview;
+  const posts = bundle.posts;
+  const imports = bundle.imports;
+  const segments = bundle.segments;
+  const recommendations = bundle.recommendations || [];
+  const versions = bundle.versions || [];
+
+  let body = '';
+  if (bundle.error) {
+    body = `<p class="error-banner" role="alert">${escapeText(bundle.error)}</p>`;
+  } else if (tab === 'analytics' && overview) {
+    const cov = overview.coverage || {};
+    body = `
+      <p class="meta">Окно: последние 30×24ч UTC · отображение дат — Москва</p>
+      <p>Покрытие: ${escapeText(cov.withMetrics ?? 0)} из ${escapeText(cov.sent ?? 0)} отправленных
+        ${cov.ratio != null ? `(${escapeText(Math.round(cov.ratio * 100))}%)` : ''}</p>
+      <p class="meta">${escapeText(overview.definitions?.reachVsViews || '')}</p>
+      <div class="week-stats-kpis">
+        ${renderWeekKpi('Охват med', overview.summary?.organicReach?.median ?? '—', 'sent')}
+        ${renderWeekKpi('Engagement med', overview.summary?.engagementRate?.median != null ? Number(overview.summary.engagementRate.median).toFixed(3) : '—', 'planned')}
+        ${renderWeekKpi('Доставка', overview.summary?.deliverySuccess?.ratio != null ? `${Math.round(overview.summary.deliverySuccess.ratio * 100)}%` : '—', 'materials')}
+      </div>
+      <h3>Топ по organic reach</h3>
+      ${(overview.top || []).map((p) => `<p class="meta">${escapeText(p.editionId)} · reach ${escapeText(p.reachOrganic)} · age ${escapeText(p.ageDays != null ? p.ageDays.toFixed(1) : '—')}д</p>`).join('') || '<p class="meta">Нет данных</p>'}
+      <h3>Низ (только с метриками)</h3>
+      ${(overview.bottom || []).map((p) => `<p class="meta">${escapeText(p.editionId)} · reach ${escapeText(p.reachOrganic)}</p>`).join('') || '<p class="meta">Нет данных</p>'}`;
+  } else if (tab === 'analytics-posts' && posts) {
+    body = `
+      <p class="meta">Постов: ${escapeText(posts.total)} · без метрик не ранжируются как ноль</p>
+      <div class="analytics-table">
+        ${(posts.items || [])
+          .map((p) => {
+            const reach = p.metrics?.reachOrganic ?? '—';
+            const eng = p.derived?.engagement?.value != null ? Number(p.derived.engagement.value).toFixed(3) : '—';
+            const notice = p.bodyNotice || (p.bodyText ? p.bodyText.slice(0, 80) : '—');
+            return `<article class="card"><div class="card-head"><strong>${escapeText(p.projectId)}</strong><span class="meta">${escapeText(p.publishedAt || '')}</span></div>
+              <p>${escapeText(notice)}</p>
+              <p class="meta">reach ${escapeText(reach)} · eng ${escapeText(eng)} · media ${escapeText(p.mediaActual || 'none')} · prompt ${escapeText(p.promptVersion)} · age ${escapeText(p.ageBucket || '—')}
+              ${p.metrics?.promoted ? ' · paid' : ''}
+              ${p.vkUrl ? ` · <a href="${escapeAttr(p.vkUrl)}" rel="noopener noreferrer">VK</a>` : ''}</p></article>`;
+          })
+          .join('') || '<p class="meta">Нет постов в окне</p>'}
+      </div>`;
+  } else if (tab === 'analytics-imports') {
+    body = `
+      <form id="import-form" class="login-form">
+        <label>Проект
+          <select name="projectId" required>
+            <option value="">—</option>
+            ${projects.map((p) => `<option value="${escapeAttr(p.id)}" ${p.id === project ? 'selected' : ''}>${escapeText(p.title || p.id)}</option>`).join('')}
+          </select>
+        </label>
+        <label>VK group id <input name="vkGroupId" required placeholder="194579254"></label>
+        <label>observed_at <input name="observedAt" type="datetime-local" required></label>
+        <label>Файл CSV/JSON <input name="file" type="file" accept=".csv,.json,text/csv,application/json" required></label>
+        <p class="meta">Пустая ячейка = «нет данных», не ноль. Шаблон: <a href="${escapeAttr(apiBase)}/bot/api/v1/imports/template">скачать</a></p>
+        <button type="submit">Preview</button>
+      </form>
+      <div id="import-preview"></div>
+      <h3>Покрытие</h3>
+      <p class="meta">С метриками: ${escapeText(imports?.coverage?.withMetrics ?? 0)} / ${escapeText(imports?.coverage?.sent ?? 0)}</p>
+      ${(imports?.imports || [])
+        .map(
+          (item) =>
+            `<article class="card"><div class="card-head"><strong>${escapeText(item.status)}</strong><span class="meta">${escapeText(item.createdAt)}</span></div>
+              <p class="meta">${escapeText(item.importId)} · rows ${escapeText(item.rowCount)} · matched ${escapeText(item.matchedCount)} · errors ${escapeText(item.errorCount)}</p></article>`,
+        )
+        .join('') || '<p class="meta">Импортов пока нет</p>'}`;
+  } else if (tab === 'analytics-segments' && segments) {
+    body = Object.entries(segments.segments || [])
+      .map(([name, list]) => {
+        return `<h3>${escapeText(name)}</h3>${(list || [])
+          .map(
+            (s) =>
+              `<p class="meta">${escapeText(s.key)} · n=${escapeText(s.posts)} · coverage ${escapeText(s.coverageRatio != null ? Math.round(s.coverageRatio * 100) + '%' : '—')} · reach med ${escapeText(s.organicReach?.median ?? '—')}
+              ${s.note ? ` · ${escapeText(s.note)}` : ''}</p>`,
+          )
+          .join('')}`;
+      })
+      .join('') || '<p class="meta">Нет сегментов</p>';
+    body += `<p class="meta">${escapeText(segments.caution || '')}</p>`;
+  } else if (tab === 'analytics-prompts') {
+    body = `
+      <div class="panel-head"><h3>Рекомендации</h3>
+        <button type="button" id="run-analysis">Запустить анализ</button></div>
+      ${recommendations
+        .map(
+          (r) => `<article class="card" data-rec="${escapeAttr(r.recommendationId)}">
+            <div class="card-head"><strong>${escapeText(r.status)}</strong><span class="meta">${escapeText(r.projectId)}</span></div>
+            <p>${escapeText(r.observation)}</p>
+            <p class="meta">evidence: ${(r.evidence || []).map((e) => escapeText(e.editionId)).join(', ') || '—'}</p>
+            ${r.status === 'proposed' ? `<button type="button" data-decide="reject">Отклонить</button>` : ''}
+          </article>`,
+        )
+        .join('') || '<p class="meta">Рекомендаций нет</p>'}
+      <h3>Версии промптов</h3>
+      ${versions
+        .map(
+          (v) =>
+            `<p class="meta">${escapeText(v.projectId)} / ${escapeText(v.role)} / ${escapeText(v.versionLabel)} · ${escapeText(v.status)} · ${escapeText(v.contentHash?.slice(0, 8))}</p>`,
+        )
+        .join('') || '<p class="meta">Версий нет</p>'}`;
+  } else {
+    body = '<p class="meta">Загрузка…</p>';
+  }
+
+  return `
+    <section class="analytics" aria-label="Аналитика">
+      <div class="panel-head">
+        <h2>Аналитика</h2>
+        <button type="button" class="panel-refresh" id="refresh">Обновить</button>
+      </div>
+      ${renderAnalyticsSubnav(tab)}
+      <div class="toolbar-group toolbar-filters" style="margin:0.75rem 0">
+        <select id="project-filter" aria-label="Проект">
+          <option value="">Все проекты</option>
+          ${projects
+            .map(
+              (item) =>
+                `<option value="${escapeText(item.id)}" ${item.id === project ? 'selected' : ''}>${escapeText(item.title || item.id)}</option>`,
+            )
+            .join('')}
+        </select>
+      </div>
+      ${body}
     </section>`;
 }
 
@@ -548,7 +716,7 @@ function renderSlotSummary(meta) {
     </header>`;
 }
 
-function renderOverview(data, incidents, errorMessage = '') {
+function renderOverview(data, incidents, errorMessage = '', analyticsBundle = null) {
   const retainedModal = document.body.classList.contains('modal-open')
     ? document.getElementById('modal')
     : null;
@@ -658,12 +826,19 @@ function renderOverview(data, incidents, errorMessage = '') {
       : '';
   const incidentsPanel = tab === 'incidents' ? renderIncidentsSection(incidents) : '';
   const servicePanel = tab === 'service' ? renderServiceSection(data) : '';
+  const analyticsPanel = isAnalyticsTab(tab)
+    ? renderAnalyticsSection({
+        ...(analyticsBundle || {}),
+        projects: data.projects || analyticsBundle?.projects || [],
+      })
+    : '';
 
   app.className = 'cabinet';
   app.innerHTML = `
     ${renderSiteHeader(openCount, data)}
     ${errorMessage ? `<div class="error-banner" role="alert">${escapeText(errorMessage)}</div>` : ''}
     ${weekPanel}
+    ${analyticsPanel}
     ${incidentsPanel}
     ${servicePanel}`;
 
@@ -712,6 +887,9 @@ function renderOverview(data, incidents, errorMessage = '') {
     app.querySelectorAll('.slot').forEach((node) => {
       node.addEventListener('click', () => openSlot(readSlotMeta(node)));
     });
+  } else if (isAnalyticsTab(tab)) {
+    bindAnalyticsHandlers();
+    document.getElementById('refresh').onclick = () => loadOverview(true);
   } else {
     document.getElementById('refresh').onclick = () => loadOverview(true);
   }
@@ -871,6 +1049,103 @@ async function loadSlotDetails(meta) {
   document.getElementById('plan-form').addEventListener('submit', handlePlanFormSubmit);
 }
 
+function bindAnalyticsHandlers() {
+  app.querySelectorAll('[data-analytics-tab]').forEach((node) => {
+    node.addEventListener('click', () => {
+      setParam('tab', node.dataset.analyticsTab);
+      loadOverview(true);
+    });
+  });
+  document.getElementById('project-filter')?.addEventListener('change', (event) => {
+    setParam('project', event.target.value);
+    loadOverview(true);
+  });
+  const form = document.getElementById('import-form');
+  if (form) {
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const fd = new FormData(form);
+      const file = fd.get('file');
+      if (!(file instanceof File)) return;
+      const content = await file.text();
+      const observedLocal = String(fd.get('observedAt') || '');
+      const observedAt = observedLocal ? new Date(observedLocal).toISOString() : new Date().toISOString();
+      const previewEl = document.getElementById('import-preview');
+      try {
+        const preview = await api('/bot/api/v1/imports/preview', {
+          method: 'POST',
+          body: JSON.stringify({
+            projectId: fd.get('projectId'),
+            vkGroupId: fd.get('vkGroupId'),
+            observedAt,
+            filename: file.name,
+            content,
+          }),
+        });
+        previewEl.innerHTML = `
+          <p>Preview: valid ${escapeText(preview.preview?.validCount)} · errors ${escapeText(preview.preview?.errorCount)} · matched ${escapeText(preview.matchedCount)}</p>
+          <button type="button" id="import-commit" data-import="${escapeAttr(preview.importId)}">Подтвердить импорт</button>
+          ${preview.preview?.canCommitStrict ? '' : '<p class="meta">Есть ошибки — commit blocked в strict-режиме</p>'}`;
+        document.getElementById('import-commit')?.addEventListener('click', async () => {
+          const result = await api(`/bot/api/v1/imports/${preview.importId}/commit`, {
+            method: 'POST',
+            body: JSON.stringify({ mode: 'strict', confirmAnomalies: true }),
+          });
+          previewEl.innerHTML = `<p>Применено ${escapeText(result.applied)}, пропущено ${escapeText(result.skipped)}, ошибок ${escapeText(result.errors)}</p>`;
+          loadOverview(true);
+        });
+      } catch (error) {
+        previewEl.textContent = error.body?.message || error.message || 'import_failed';
+      }
+    });
+  }
+  document.getElementById('run-analysis')?.addEventListener('click', async () => {
+    const projectId = params().get('project');
+    if (!projectId) {
+      alert('Выберите проект');
+      return;
+    }
+    await api('/bot/api/v1/analysis-jobs', {
+      method: 'POST',
+      body: JSON.stringify({ projectId }),
+    });
+    loadOverview(true);
+  });
+  app.querySelectorAll('[data-decide]').forEach((node) => {
+    node.addEventListener('click', async () => {
+      const card = node.closest('[data-rec]');
+      const id = card?.dataset.rec;
+      if (!id) return;
+      await api(`/bot/api/v1/recommendations/${id}/decide`, {
+        method: 'POST',
+        body: JSON.stringify({ decision: node.dataset.decide }),
+      });
+      loadOverview(true);
+    });
+  });
+}
+
+async function loadAnalyticsBundle(project) {
+  const q = project ? `?project=${encodeURIComponent(project)}` : '';
+  const pq = project ? `?project=${encodeURIComponent(project)}` : '';
+  const [overview, posts, imports, segments, recommendations, versions] = await Promise.all([
+    api(`/bot/api/v1/analytics${q}`),
+    api(`/bot/api/v1/analytics/posts${q}${q ? '&' : '?'}limit=50`),
+    api(`/bot/api/v1/analytics/imports${pq}`),
+    api(`/bot/api/v1/analytics/segments${q}`),
+    api(`/bot/api/v1/recommendations${pq}`),
+    api(`/bot/api/v1/prompt-versions${pq}`),
+  ]);
+  return {
+    overview,
+    posts,
+    imports,
+    segments,
+    recommendations: recommendations.recommendations || [],
+    versions: versions.versions || [],
+  };
+}
+
 async function loadOverview(manual = false) {
   const week = params().get('week');
   const project = params().get('project');
@@ -890,7 +1165,15 @@ async function loadOverview(manual = false) {
       overview.service = { ...(overview.service || {}), stale: true };
     }
     state.dataVersion = overview.data_version;
-    renderOverview(overview, incidents);
+    let analyticsBundle = null;
+    if (isAnalyticsTab()) {
+      try {
+        analyticsBundle = await loadAnalyticsBundle(project);
+      } catch (error) {
+        analyticsBundle = { error: error.message };
+      }
+    }
+    renderOverview(overview, incidents, '', analyticsBundle);
     state.backoffMs = 30000;
   } catch (error) {
     if (error.status === 401) {

@@ -1,0 +1,6 @@
+group_id,post_id,published_at,observed_at,period_from,period_to,metric_mode,views,reach_total,reach_organic,reach_paid,likes,comments,reposts,saves,clicks,link_clicks,subscribers_at_publish,ad_spend,promoted,wall_url
+194579254,1001,2026-09-20T10:00:00.000Z,2026-10-06T12:00:00.000Z,,,cumulative,1200,800,750,50,40,3,5,8,12,10,15000,,false,https://vk.com/wall-194579254_1001
+194579254,1002,2026-09-21T10:00:00.000Z,2026-10-06T12:00:00.000Z,,,cumulative,900,600,600,0,20,1,2,4,5,3,15010,,false,https://vk.com/wall-194579254_1002
+194579254,1003,2026-09-22T18:00:00.000Z,2026-10-06T12:00:00.000Z,,,cumulative,2200,1500,900,600,55,4,6,9,20,15,15020,120.5,true,https://vk.com/wall-194579254_1003
+194579254,1004,2026-09-25T10:00:00.000Z,2026-10-06T12:00:00.000Z,,,cumulative,400,280,280,,10,0,1,2,,,15030,,false,
+194579254,1005,2026-09-28T10:00:00.000Z,2026-10-06T12:00:00.000Z,,,cumulative,1500,1100,1100,0,60,5,7,12,8,6,15040,,false,https://vk.com/wall-194579254_1005

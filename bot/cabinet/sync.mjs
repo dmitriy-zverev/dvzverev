@@ -15,6 +15,8 @@ import { resolveRelativeConfigPath } from '../config/paths.mjs';
 import { bootstrapRedisSchedule } from '../redis/bootstrap.mjs';
 import { materializeBatches } from './batches.mjs';
 import { runReportWorker } from './reports/worker.mjs';
+import { upsertPostFeatures, inferMediaActual } from './analytics/features.mjs';
+import { runAnalyticsCleanup } from './analytics/ttl.mjs';
 
 const MATERIALIZE_DAYS_FORWARD = 14;
 const MATERIALIZE_DAYS_BACK = 7;
@@ -211,6 +213,23 @@ export async function syncProjectState(db, service, projectId, env, now = new Da
           editionId,
         );
       }
+
+      const mediaActual = inferMediaActual(entry);
+      const mediaPlanned = entry.expectedMedia || entry.image?.plannedKind || null;
+      upsertPostFeatures(db, {
+        editionId,
+        projectId,
+        format: project.format,
+        topic: entry.generation?.title || entry.generation?.quoteId || null,
+        bodyText: body,
+        mediaPlanned,
+        mediaActual,
+        slotKey: entry.slot,
+        models,
+        experimentVariant: entry.experimentVariant || null,
+        publishedAt: entry.sentAt || entry.vkSentAt || null,
+        now,
+      });
 
       const plan = destinationId
         ? db
@@ -439,5 +458,10 @@ export async function cabinetTick(db, service, env, now = new Date()) {
   }
   materializeBatches(db, service, now);
   await runReportWorker(db, service, env, now);
+  try {
+    runAnalyticsCleanup(db, { now });
+  } catch (error) {
+    console.error(`Analytics cleanup failed: ${error.message}`);
+  }
   return results;
 }

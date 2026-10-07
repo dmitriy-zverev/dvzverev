@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "vk-stats-v1",
+  "control": [
+    {
+      "post_id": "1001",
+      "views": 1200,
+      "reach_organic": 750,
+      "likes": 40,
+      "engagement": 0.07466666666666667,
+      "link_ctr_views": 0.008333333333333333,
+      "reach_per_1000": 50
+    },
+    {
+      "post_id": "1002",
+      "views": 900,
+      "reach_organic": 600,
+      "likes": 20,
+      "engagement": 0.045,
+      "link_ctr_views": 0.0033333333333333335,
+      "reach_per_1000": 39.97335109926716
+    },
+    {
+      "post_id": "1003",
+      "views": 2200,
+      "reach_organic": 900,
+      "promoted": true,
+      "note": "paid reach excluded from organic prompt conclusions"
+    }
+  ],
+  "rules": {
+    "emptyCell": "null not zero",
+    "duplicateFile": "idempotent by source_hash+project",
+    "cumulativeSnapshots": "sequential not summed",
+    "foreignGroup": "rejected"
+  }
+}

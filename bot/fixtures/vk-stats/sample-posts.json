@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "vk-stats-v1",
+  "projectId": "dark-academia",
+  "groupId": 194579254,
+  "records": [
+    {
+      "group_id": "194579254",
+      "post_id": "1001",
+      "published_at": "2026-09-20T10:00:00.000Z",
+      "observed_at": "2026-10-06T12:00:00.000Z",
+      "metric_mode": "cumulative",
+      "views": 1200,
+      "reach_total": 800,
+      "reach_organic": 750,
+      "reach_paid": 50,
+      "likes": 40,
+      "comments": 3,
+      "reposts": 5,
+      "saves": 8,
+      "clicks": 12,
+      "link_clicks": 10,
+      "subscribers_at_publish": 15000,
+      "promoted": false
+    },
+    {
+      "group_id": "194579254",
+      "post_id": "1002",
+      "published_at": "2026-09-21T10:00:00.000Z",
+      "observed_at": "2026-10-06T12:00:00.000Z",
+      "metric_mode": "cumulative",
+      "views": 900,
+      "reach_total": 600,
+      "reach_organic": 600,
+      "reach_paid": 0,
+      "likes": 20,
+      "comments": 1,
+      "reposts": 2,
+      "saves": 4,
+      "clicks": 5,
+      "link_clicks": 3,
+      "subscribers_at_publish": 15010,
+      "promoted": false
+    }
+  ]
+}

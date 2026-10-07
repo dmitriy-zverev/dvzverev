@@ -40,7 +40,13 @@ node --env-file=bot/.env bot/run.mjs --dry-run --once
 строит before/after/deadline/late-final/recovery, кладёт текст в `reports` + `notification_outbox`,
 шлёт через общий cooldown `notifications.mjs`. По умолчанию `mode: shadow` (без Telegram);
 для теста — `test` + `BOT_REPORT_TEST_CHAT_ID`; для владельца — `owner` + `BOT_ALERT_CHAT_ID`.
-После деплоя: `pnpm cabinet:migrate` (схема SQLite v3).
+После деплоя: `pnpm cabinet:migrate` (схема SQLite v4).
+
+**Аналитика 30 дней + импорт VK** (Feature 3): вкладка «Аналитика» в кабинете —
+обзор, посты, импорты, сегменты, промпты. Недельный CSV/JSON preview→commit
+(`POST /bot/api/v1/imports/preview|…/commit`); рекомендации только после явного
+approve владельца. Fixtures: `bot/fixtures/vk-stats/`. Подробнее: `bot/METRICS.md`
+и `docs/bot-plans/03-analytics-and-prompt-improvement.md`.
 
 Календарь и его счётчики учитывают одну текущую доставку на выпуск и назначение.
 После восстановления генерации реальная доставка имеет приоритет перед старой

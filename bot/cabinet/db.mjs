@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { MIGRATION_SQL, MIGRATION_V2_SQL, SCHEMA_VERSION } from './schema.mjs';
-import { applyMigrationV3 } from './migrate-steps.mjs';
+import { applyMigrationV3, applyMigrationV4 } from './migrate-steps.mjs';
 
 export function cabinetDbPath(env = process.env) {
   return env.BOT_CABINET_DB_PATH || 'bot/data/cabinet.sqlite';
@@ -29,6 +29,9 @@ function migrate(db) {
   }
   if (currentVersion < 3) {
     applyMigrationV3(db);
+  }
+  if (currentVersion < 4) {
+    applyMigrationV4(db);
   }
   if (!row) {
     db.prepare('INSERT INTO cabinet_meta (key, value) VALUES (?, ?)').run(

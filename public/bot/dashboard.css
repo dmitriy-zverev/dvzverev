@@ -454,6 +454,26 @@ body:has(.cabinet:not(.cabinet--gate)) {
   z-index: 1;
 }
 
+.analytics-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.75rem 0 0.25rem;
+}
+
+.analytics-subnav .cabinet-tab {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-block);
+  height: auto;
+  min-height: var(--cabinet-control-h);
+  padding: 0.35rem 0.65rem;
+}
+
+.analytics-table {
+  display: grid;
+  gap: 0.65rem;
+}
+
 .cabinet-tab-badge {
   display: inline-flex;
   align-items: center;

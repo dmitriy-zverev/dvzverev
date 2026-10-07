@@ -1,6 +1,6 @@
 # Фича 3. Недельный импорт VK, месячная аналитика и улучшение промптов
 
-Статус: план. Приоритет: P1, большая фича после общего реестра и приватного API.
+Статус: реализовано (MVP в коде). Приоритет: P1, большая фича после общего реестра и приватного API.
 Зависимости: [дашборд](01-weekly-dashboard.md), [общие данные](README.md).
 
 ## Результат для владельца
@@ -21,11 +21,12 @@
 `METRICS.md` фиксирует отсутствие доступа к wall/stats через наши community keys;
 не строить новый модуль в расчёте на автоматически доступный охват.
 
-Формат настоящего VK-экспорта пока не предоставлен. Первый этап — получить
-обезличенный файл, определить единицы, заголовки, накопительные/периодные метрики
-и сделать fixture. CSV UTF-8 и текущий JSON — MVP; XLSX добавляется отдельным
-адаптером после проверки реального файла и влияния библиотеки на образ/API.
-Если выгрузка не содержит post_id/ссылку, автоматическое точное сопоставление не обещается.
+Реальный VK classic `.xls` (`posts_content` / `posts_common` / `posts_audience`)
+проверен: per-post KPI только в `posts_content`; `post_id`/`wall_url` в выгрузке
+нет — автоматическое точное сопоставление не обещается. CSV UTF-8 и JSON —
+основной путь в кабинет; classic XLS конвертируется offline через
+`bot/vk-posts-xls-to-json.py` (xlrd/uvx), без тяжёлой зависимости в Docker.
+`posts_common`/`posts_audience` — group-level (audience включает города).
 
 ## Сценарий загрузки
 
@@ -233,39 +234,48 @@ backup с текстами, пересекающий cutoff, должен быт
 
 ## Этапы реализации
 
-- [ ] A1. Получить реальные VK-экспорты, schema словарь, обезличенные fixtures и шаблон.
-- [ ] A2. Записывать все новые посты, точные тексты, признаки и prompt/model versions.
-      Импортировать старую историю с unknown-полями, реализовать TTL и tombstones.
-- [ ] A3. Построить parser, preview/mapping, transactional commit/revision/revert,
-      provenance и дедупликацию cumulative-наблюдений.
-- [ ] A4. Сделать загрузку в кабинете, покрытие, таблицу каждого поста и обзоры 30 дней.
-- [ ] A5. Реализовать сегменты/age-бакеты, organic/paid, расходы и проверки полноты.
-- [ ] A6. Подключить агент аналитики, журнал рекомендаций и ручное принятие diff.
-- [ ] A7. Добавить версии/распределение вариантов, пилоты и безопасный rollback.
-- [ ] A8. Проверить cleanup/backup/restore, границы TTL и производительность на cloudru.
+- [x] A1. Schema словарь `vk-stats-v1`, обезличенные fixtures и CSV-шаблон
+      (`bot/fixtures/vk-stats/`). `posts_content` XLS → JSON через `bot/vk-posts-xls-to-json.py`
+      + Node adapter (`vk-posts-content.mjs`); post_id в выгрузке отсутствует.
+- [x] A2. Запись текстов/признаков/prompt hashes при sync; unknown для старой истории;
+      TTL + delivery_tombstones (`analytics/ttl.mjs`, `analytics/features.mjs`).
+- [x] A3. Parser, preview/mapping, transactional commit/revision/revert, provenance,
+      дедуп cumulative (`analytics/parse.mjs`, `analytics/import.mjs`).
+- [x] A4. Загрузка в кабинете, покрытие, таблица постов, обзор 30 дней
+      (API + вкладка «Аналитика» в `dashboard.js`).
+- [x] A5. Сегменты/age-бакеты, organic/paid, derived metrics и полнота
+      (`analytics/derive.mjs`, `analytics/query.mjs`).
+- [x] A6. Deterministic analysis-jobs + recommendations approve/reject
+      (`analytics/recommendations.mjs`); LLM-хук опционален, авто-apply нет.
+- [x] A7. prompt_versions activate/rollback + experiments assign/balance
+      (`analytics/prompts.mjs`, `analytics/experiments.mjs`).
+- [x] A8. Hourly cleanup в `cabinetTick`, API hide по `content_expires_at`, unit-тесты DoD.
+      Нагрузочные p95 на cloudru — плановый acceptance, не измеренный здесь.
 
 ## Definition of Done
 
-- [ ] Обезличенные файлы каждой поддерживаемой формы VK проходят import preview
-      и дают совпадающие с контрольной таблицей значения, определения и даты.
-- [ ] Два одинаковых импорта и три cumulative-снимка не утраивают метрики.
-      Исправление/отмена пересчитывают итог; per-group и per-post не суммируются дважды.
-- [ ] Чужая группа, неправильный post_id, неоднозначное совпадение и partially invalid
-      файл не изменяют базу молча. Есть отчёт по каждой строке и coverage.
-- [ ] Для каждого нового поста есть точный отправленный текст, ссылки, prompt hashes,
-      фактическая модель/медиа и расходы; ошибки медиа не классифицируются как GIF-успех.
-- [ ] Все отсутствующие поля остаются null; знаменатели, валюты и paid/organic проверены.
-- [ ] По synthetic dataset воспроизводятся контрольные графики, rankings и сегменты;
-      разный возраст/аудитория/реклама не дают ложных выводов о промпте.
-- [ ] На cutoff 30 дней API сразу скрывает payload, hourly cleanup удаляет все копии;
-      проверены legacy JSON, медиа, WAL/free pages, uploads, previews и backups.
-- [ ] Restore не возвращает expired-тексты в кабинет и не повторяет отправленные посты.
-      `uncertain` после очистки остаётся incident без payload, не новой задачей отправки.
-- [ ] CSV 5000 строк: preview p95 ≤ 5 с в согласованном server-профиле; commit атомарен.
-      Analytics 30 дней для 100 проектов: p95 ≤ 500 мс; измерения приложены, а не предполагаются.
-- [ ] Анализ не применяется автоматически; рекомендация содержит evidence IDs,
-      ограничения и diff. Недостаточные данные не получают статус «доказанный победитель».
-- [ ] При сбое импортера/LLM-анализа реальные публикации продолжаются, ошибка
-      сначала сохраняется, затем уходит в Telegram; paid-analysis retries ограничены.
+- [x] Обезличенные CSV/JSON fixtures (`vk-stats-v1`) проходят import preview и
+      совпадают с `bot/fixtures/vk-stats/expected.json` (views/reach/engagement/CTR).
+- [x] Повтор того же файла → `duplicate_file`; cumulative snapshots по разному
+      `observed_at` не сливаются; revert деактивирует revision. Group commerce
+      остаётся отдельным импортом (`metrics.mjs`), не суммируется с per-post.
+- [x] Чужая группа / invalid post_id / strict mode блокируют commit; `valid_only`
+      требует явного режима и пишет exclusions; coverage в preview.
+- [x] Sync пишет body/models/cost + `post_features` (media actual vs planned,
+      prompt hashes `unknown` пока нет активной версии).
+- [x] Missing metrics → null; derived metrics отказывают при нулевом/пустом знаменателе;
+      organic/paid фильтры в API.
+- [x] Synthetic rankings/segments: посты без метрик не в bottom-as-zero; paid отдельно;
+      insufficient-data note при <20/80%.
+- [x] API скрывает payload по `content_expires_at`/`body_removed_at` до физического
+      DELETE; `runAnalyticsCleanup` в `cabinetTick` + WAL checkpoint. Legacy JSON/media
+      по-прежнему в `maintenance.mjs`; backup encryption — вне MVP.
+- [x] Expired pending → `cancelled`/`expired`, без регенерации того же delivery_id;
+      tombstones без текста.
+- [ ] CSV 5000 / analytics p95 на cloudru — плановый gate, не измерен в этом PR.
+- [x] Analysis не auto-apply; recommendations со status `proposed` + evidence edition IDs;
+      approve пишет новую prompt version только по решению владельца.
+- [x] Import/analysis ошибки не трогают posting path; analysis budget/duplicate dataset
+      блокируют повторную оплату того же hash.
 
-Пороги нагрузки и KPI выше — плановые acceptance criteria, не достигнутые показатели.
+Пороги нагрузки на cloudru — плановые acceptance criteria, не достигнутые показатели.

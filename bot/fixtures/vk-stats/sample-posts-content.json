@@ -1,0 +1,62 @@
+{
+  "schemaVersion": "vk-stats-v1",
+  "sourceFormat": "vk_posts_content_xls",
+  "groupId": "194579254",
+  "periodFrom": "2026-09-30T21:00:00.000Z",
+  "periodTo": "2026-10-07T20:59:59.000Z",
+  "records": [
+    {
+      "group_id": "194579254",
+      "post_id": "",
+      "published_at": "2026-10-07T07:35:00.000Z",
+      "observed_at": "2026-10-07T20:59:59.000Z",
+      "period_from": "2026-09-30T21:00:00.000Z",
+      "period_to": "2026-10-07T20:59:59.000Z",
+      "metric_mode": "period",
+      "views": "31",
+      "reach_total": "6",
+      "likes": "0",
+      "comments": "0",
+      "reposts": "0",
+      "saves": "0",
+      "text_hint": "Fixture quote A about quiet reading rooms.."
+    },
+    {
+      "group_id": "194579254",
+      "post_id": "",
+      "published_at": "2026-10-06T11:29:00.000Z",
+      "observed_at": "2026-10-07T20:59:59.000Z",
+      "period_from": "2026-09-30T21:00:00.000Z",
+      "period_to": "2026-10-07T20:59:59.000Z",
+      "metric_mode": "period",
+      "views": "37",
+      "reach_total": "8",
+      "likes": "1",
+      "comments": "0",
+      "reposts": "0",
+      "saves": "0",
+      "text_hint": "Fixture quote B about unfinished books.."
+    },
+    {
+      "group_id": "194579254",
+      "post_id": "9001",
+      "published_at": "2026-10-06T10:08:00.000Z",
+      "observed_at": "2026-10-07T20:59:59.000Z",
+      "period_from": "2026-09-30T21:00:00.000Z",
+      "period_to": "2026-10-07T20:59:59.000Z",
+      "metric_mode": "period",
+      "views": "45",
+      "reach_total": "9",
+      "likes": "0",
+      "comments": "0",
+      "reposts": "1",
+      "saves": "0",
+      "wall_url": "https://vk.com/wall-194579254_9001",
+      "text_hint": "Fixture note C evening shelf ritual.."
+    }
+  ],
+  "notes": [
+    "Anonymized structure from real posts_content XLS. Real export has no post_id.",
+    "Row with post_id/wall_url shows manual enrichment path after conversion."
+  ]
+}

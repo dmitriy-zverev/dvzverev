@@ -31,8 +31,10 @@ import { listBatchReports } from './reports/store.mjs';
 import { getRedis, redisConfigured } from '../redis/client.mjs';
 import { createAdHocTask, discardTask } from '../redis/schedule.mjs';
 import { upsertPlanFromRedisTask } from '../redis/sqlite-bridge.mjs';
+import { createLargeBodyReader, handleAnalyticsRoute } from './analytics/routes.mjs';
 
 const API_PREFIX = '/bot/api/v1';
+const readBodyLarge = createLargeBodyReader();
 
 function auditAuth(db, action, detail = {}) {
   db.prepare(
@@ -372,6 +374,22 @@ async function handleRequest(request, response, env) {
       json(response, 200, { ok: true }, cors);
       return;
     }
+
+    const analyticsHandled = await handleAnalyticsRoute({
+      route,
+      method: request.method,
+      url,
+      request,
+      response,
+      db,
+      env,
+      json,
+      cors,
+      assertOrigin,
+      readBodyLarge,
+      parseJson,
+    });
+    if (analyticsHandled) return;
 
     json(response, 404, { error: 'not_found' }, cors);
   } catch (error) {

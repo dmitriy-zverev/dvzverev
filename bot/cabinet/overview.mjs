@@ -73,8 +73,8 @@ function readOverviewSnapshot(db, { week, projectFilter, statusFilter }) {
     .prepare(
       `${DELIVERY_SNAPSHOT}
        SELECT s.*, p.title AS project_title, e.aggregate_status, e.topic AS edition_topic,
-              e.body_text, e.body_removed_at, d.status AS delivery_status, d.external_id,
-              d.platform, d.vk_group_id
+              e.body_text, e.body_removed_at, e.content_expires_at, d.status AS delivery_status,
+              d.external_id, d.platform, d.vk_group_id
        FROM schedule_slots s
        JOIN projects p ON p.project_id = s.project_id
        LEFT JOIN editions e ON e.edition_id = s.edition_id
@@ -174,7 +174,7 @@ function mapAdHocCard(row, timeZone) {
   const operator = OPERATOR_STATUS[status] || OPERATOR_STATUS.planned;
   const topic = row.topic;
   let contentPreview = null;
-  if (row.body_removed_at) contentPreview = 'содержимое удалено после 30 дней';
+  if (isPayloadExpired(row)) contentPreview = 'содержимое удалено после 30 дней';
   else if (row.body_text) contentPreview = row.body_text.slice(0, 160);
   const release = classifyReleaseSource(row.slot_key, row.post_id);
   const vkUrl = vkPostUrl(row);
@@ -240,8 +240,9 @@ function mapCard(row, timeZone) {
   const status = row.aggregate_status ?? row.plan_status;
   const operator = OPERATOR_STATUS[status] || OPERATOR_STATUS.planned;
   const topic = row.topic || row.edition_topic;
+  const expired = isPayloadExpired(row);
   let contentPreview = null;
-  if (row.body_removed_at) contentPreview = 'содержимое удалено после 30 дней';
+  if (expired) contentPreview = 'содержимое удалено после 30 дней';
   else if (row.body_text) contentPreview = row.body_text.slice(0, 160);
   const vkUrl = vkPostUrl(row);
   return {
@@ -260,7 +261,7 @@ function mapCard(row, timeZone) {
     topic: topic || null,
     topicLabel: topic || 'тема ещё не выбрана',
     topicState: topic ? 'known' : row.topic_state,
-    brief: row.brief,
+    brief: expired ? null : row.brief,
     status,
     statusLabel: operator.label,
     statusIcon: operator.icon,
@@ -268,6 +269,12 @@ function mapCard(row, timeZone) {
     vkUrl,
     version: row.version,
   };
+}
+
+function isPayloadExpired(row, now = new Date()) {
+  if (row.body_removed_at) return true;
+  if (row.content_expires_at && row.content_expires_at <= now.toISOString()) return true;
+  return false;
 }
 
 function vkPostUrl(row) {
@@ -333,6 +340,7 @@ export function getEdition(db, editionId) {
     .get(editionId);
   const primaryDelivery = deliveries[0];
   const release = plan ? null : classifyReleaseSource(edition.slot_key, primaryDelivery?.post_id);
+  const expired = isPayloadExpired(edition);
   return {
     edition: {
       id: edition.edition_id,
@@ -340,9 +348,9 @@ export function getEdition(db, editionId) {
       slotKey: edition.slot_key,
       format: edition.format,
       topic: edition.topic || plan?.topic || null,
-      brief: edition.brief || plan?.brief || null,
-      bodyText: edition.body_removed_at ? null : edition.body_text,
-      bodyNotice: edition.body_removed_at ? 'содержимое удалено после 30 дней' : null,
+      brief: expired ? null : edition.brief || plan?.brief || null,
+      bodyText: expired ? null : edition.body_text,
+      bodyNotice: expired ? 'содержимое удалено после 30 дней' : null,
       promptVersion: edition.prompt_version,
       models: edition.models_json ? JSON.parse(edition.models_json) : null,
       costUsd: edition.cost_usd,
