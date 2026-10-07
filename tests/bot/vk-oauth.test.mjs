@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { OAuthStore } from '../../bot/vk-oauth/store.mjs';
 import { VkOAuthClient } from '../../bot/vk-oauth/client.mjs';
-import { getOAuthBroker } from '../../bot/vk-oauth/routes.mjs';
+import { getOAuthBroker, getTrialOAuthBroker } from '../../bot/vk-oauth/routes.mjs';
 import { openCabinetDb } from '../../bot/cabinet/db.mjs';
 import { createSession, ensurePasswordHash } from '../../bot/cabinet/auth.mjs';
 import { startCabinetServer } from '../../bot/cabinet/server.mjs';
@@ -285,6 +285,7 @@ test('HTTP OAuth routes require cabinet session; POST requires Origin; callback 
     BOT_LOG_DIR: dir,
     VK_OAUTH_ENABLED: 'true',
     VK_OAUTH_CLIENT_ID: '123',
+    VK_OAUTH_TRIAL_CLIENT_ID: '456',
     VK_OAUTH_REDIRECT_URI: 'https://example.test/vk/callback',
     VK_OAUTH_STORE_PATH: join(dir, 'oauth.sqlite'),
     VK_OAUTH_ENCRYPTION_KEY: randomBytes(32).toString('hex'),
@@ -294,14 +295,25 @@ test('HTTP OAuth routes require cabinet session; POST requires Origin; callback 
   const session = createSession(db, env);
   db.close();
   const client = getOAuthBroker(env);
+  const trialClient = getTrialOAuthBroker(env);
   client.fetcher = async (url, options) =>
     url.includes('/oauth2/') ? tokenResponse(options) : json({ response: [{ id: 42 }] });
+  const trialExchanges = [];
+  trialClient.fetcher = async (url, options) => {
+    if (url.includes('/oauth2/')) {
+      trialExchanges.push(options.body.get('client_id'));
+      return tokenResponse(options);
+    }
+    return json({ response: [{ id: 42 }] });
+  };
   const server = startCabinetServer(env);
   await new Promise((r) => server.once('listening', r));
   const root = `http://127.0.0.1:${server.address().port}`;
+  env.BOT_CABINET_ALLOWED_ORIGINS = root;
   t.after(async () => {
     await new Promise((r) => server.close(r));
     client.store.close();
+    trialClient.store.close();
     await rm(dir, { recursive: true, force: true });
   });
   assert.equal((await fetch(root + '/vk/login', { redirect: 'manual' })).status, 401);
@@ -323,4 +335,51 @@ test('HTTP OAuth routes require cabinet session; POST requires Origin; callback 
     403,
   );
   assert.equal((await fetch(root + '/bot/api/v1/vk/status', { headers })).status, 200);
+  const primaryToken = client.store.get('token');
+  assert.equal((await fetch(root + '/vk/trial/login', { redirect: 'manual' })).status, 401);
+  const trialLogin = await fetch(root + '/vk/trial/login', { redirect: 'manual', headers });
+  assert.equal(trialLogin.status, 303);
+  const trialUrl = new URL(trialLogin.headers.get('location'));
+  assert.equal(trialUrl.searchParams.get('client_id'), '456');
+  assert.equal(trialUrl.searchParams.get('scope'), 'wall photos groups');
+  const trialCallback = await fetch(
+    `${root}/vk/callback?state=${trialUrl.searchParams.get('state')}&code=code&device_id=device`,
+    { headers },
+  );
+  assert.equal(trialCallback.status, 200);
+  const trialBody = await trialCallback.json();
+  assert.equal(trialBody.trial, true);
+  assert.equal(trialBody.clientId, '456');
+  assert.equal(trialBody.refreshAvailable, true);
+  assert.equal(JSON.stringify(trialBody).includes('refresh-b'), false);
+  assert.deepEqual(client.store.get('token'), primaryToken);
+  assert.equal(trialClient.status().connected, true);
+  assert.deepEqual(trialExchanges, ['456']);
+  assert.equal((await fetch(root + '/vk/trial/refresh', { method: 'POST', headers })).status, 403);
+  const trialRefresh = await fetch(root + '/vk/trial/refresh', {
+    method: 'POST',
+    headers: { ...headers, origin: root },
+    body: '{}',
+  });
+  assert.equal(trialRefresh.status, 200);
+  assert.deepEqual(trialExchanges, ['456', '456']);
+  assert.deepEqual(client.store.get('token'), primaryToken);
+  assert.equal((await fetch(root + '/vk/trial/posts', { method: 'POST', headers })).status, 400);
+  const savedTrialToken = trialClient.store.get('token');
+  trialClient.fetcher = async (url, options) => {
+    if (!url.includes('/oauth2/')) return json({ response: [{ id: 42 }] });
+    const token = await tokenResponse(options).json();
+    delete token.refresh_token;
+    return json(token);
+  };
+  const noRefreshLogin = await fetch(root + '/vk/trial/login', { redirect: 'manual', headers });
+  const noRefreshState = new URL(noRefreshLogin.headers.get('location')).searchParams.get('state');
+  const rejectedCallback = await fetch(
+    `${root}/vk/callback?state=${noRefreshState}&code=code&device_id=device`,
+    { headers },
+  );
+  assert.equal(rejectedCallback.status, 400);
+  assert.equal((await rejectedCallback.json()).error, 'vk_oauth_refresh_token_missing');
+  assert.deepEqual(trialClient.store.get('token'), savedTrialToken);
+  assert.deepEqual(client.store.get('token'), primaryToken);
 });

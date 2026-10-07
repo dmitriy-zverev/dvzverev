@@ -6,6 +6,7 @@ import { sendNotification } from '../notifications.mjs';
 import { publicationBackoffSeconds, sendTelegram } from '../core.mjs';
 
 let broker;
+let trialBroker;
 export function getOAuthBroker(env) {
   if (!broker) {
     const path =
@@ -14,6 +15,24 @@ export function getOAuthBroker(env) {
     broker = new VkOAuthClient(new OAuthStore(path, env.VK_OAUTH_ENCRYPTION_KEY), oauthConfig(env));
   }
   return broker;
+}
+
+export function getTrialOAuthBroker(env) {
+  if (!/^\d+$/.test(env.VK_OAUTH_TRIAL_CLIENT_ID || ''))
+    throw new Error('vk_oauth_trial_not_configured');
+  if (env.VK_OAUTH_TRIAL_CLIENT_ID === env.VK_OAUTH_CLIENT_ID)
+    throw new Error('vk_oauth_trial_requires_separate_app');
+  if (!trialBroker) {
+    const primary = getOAuthBroker(env);
+    const path =
+      env.VK_OAUTH_STORE_PATH ||
+      resolve(dirname(env.BOT_CABINET_DB_PATH || 'bot/data/cabinet.sqlite'), 'vk-oauth.sqlite');
+    trialBroker = new VkOAuthClient(
+      new OAuthStore(`${path}.trial-${env.VK_OAUTH_TRIAL_CLIENT_ID}`, env.VK_OAUTH_ENCRYPTION_KEY),
+      { ...primary.config, clientId: env.VK_OAUTH_TRIAL_CLIENT_ID, scope: 'wall photos groups' },
+    );
+  }
+  return trialBroker;
 }
 
 export async function handleVkOAuthRoute({
@@ -31,7 +50,24 @@ export async function handleVkOAuthRoute({
 }) {
   if (!route.startsWith('/vk/') || env.VK_OAUTH_ENABLED !== 'true') return false;
   try {
-    const client = getOAuthBroker(env);
+    let client = getOAuthBroker(env);
+    let trial = false;
+    if (route.startsWith('/vk/trial/')) {
+      client = getTrialOAuthBroker(env);
+      trial = true;
+      route = route.replace('/vk/trial/', '/vk/');
+      if (!['/vk/login', '/vk/status', '/vk/refresh', '/vk/capabilities'].includes(route))
+        throw new Error('vk_oauth_trial_read_only');
+    } else if (route === '/vk/callback' && env.VK_OAUTH_TRIAL_CLIENT_ID) {
+      const state = url.searchParams.get('state');
+      if (state && /^[\w-]{43}$/.test(state)) {
+        const candidate = getTrialOAuthBroker(env);
+        if (candidate.store.get('state:' + state)) {
+          client = candidate;
+          trial = true;
+        }
+      }
+    }
     if (request.method === 'GET' && route === '/vk/login') {
       response.writeHead(303, {
         Location: client.begin(session.sessionId),
@@ -46,7 +82,14 @@ export async function handleVkOAuthRoute({
       json(
         response,
         200,
-        { ...result, message: 'VK подключён. Токены сохранены на сервере; вернитесь в кабинет.' },
+        {
+          ...result,
+          clientId: client.config.clientId,
+          trial,
+          message: trial
+            ? 'Тестовое подключение сохранено отдельно. Права и refresh ещё нужно проверить; основное подключение не изменено.'
+            : 'VK подключён. Токены сохранены на сервере; вернитесь в кабинет.',
+        },
         cors,
       );
       return true;

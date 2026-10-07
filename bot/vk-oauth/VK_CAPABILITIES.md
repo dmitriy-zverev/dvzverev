@@ -10,7 +10,56 @@ API `5.199`. Реальный OAuth пройден 2026-10-07 через product
 - `account.getAppPermissions`, `utils.resolveScreenName`, `groups.get`: отказ `1051`.
 - `photos.getWallUploadServer` для профиля: отказ `15`, upload URL не получен.
 - Ошибки записаны в логи; отчёт отправлен в настроенный Telegram-бот. Публикаций через этот OAuth не создано.
-- Не установлено, каким способом VK разрешит расширенные API-доступы именно этому приложению. Нужна проверка настроек/ответ поддержки VK; повторный refresh не расширяет scope.
+- Не установлено, каким способом VK разрешит расширенные API-доступы именно этому приложению. Повторный refresh не расширяет scope. Поддержка не считается обязательным следующим шагом: сначала проверяем собственное Mini App и VK Bridge, как описано ниже.
+
+## Проверка способов без поддержки
+
+### Новый пользовательский токен приложения 54809516
+
+После включения приложения на dev.vk.ru пользователь прошёл авторизацию в собственном браузере и сохранил токен локально в `bot/.env` (`VK_PHOTOS_ACCESS_TOKEN`). Проверено 2026-10-07 без публикаций:
+
+- `users.get`: пользователь `83357715`.
+- `account.getAppPermissions`: маска `270340`, содержит `wall`, `photos`, `groups`.
+- `groups.get(filter=admin)`: 5 сообществ.
+- `photos.getWallUploadServer` для собственного профиля: upload URL получен, в вывод не включён.
+- `utils.resolveScreenName(veshi_kstati)`: это профиль пользователя `894650885`, а не сообщество и не авторизованный пользователь. Доступ к публикации на его стене этим тестом не подтверждён.
+
+Это отдельный пользовательский VK API токен приложения `54809516`, а не VK ID токен приложения `54809454`. Refresh token и срок действия для нового токена не предоставлены; переносить на него проверенный refresh VK ID другого приложения нельзя. Токен не переносился на production, production-постер не переключался.
+
+2026-10-07 выполнены анонимные HTTP-запросы к `https://oauth.vk.com/authorize`; вход, согласие и выдача токена не выполнялись.
+
+| Приложение          | Запрос                                                                                      | Фактический ответ                                      |
+| ------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| VK ID `54809454`    | Implicit Flow, `wall,photos,groups,offline`, `redirect_uri=https://oauth.vk.com/blank.html` | HTTP 401, `invalid_request`, `Security Error`          |
+| Mini App `54805806` | Те же параметры                                                                             | HTTP 401, `invalid_request`, `invalid scope`           |
+| Mini App `54805806` | Без `offline`: `wall,photos,groups`                                                         | HTTP 401, `invalid_request`, `application is disabled` |
+
+Ответ `application is disabled` — основание проверить включение Mini App в кабинете разработчика. Он не доказывает, что после включения права будут выданы или токен будет бессрочным.
+
+Официальный [VK Bridge](https://github.com/VKCOM/vk-bridge/blob/master/packages/core/src/types/data.ts) определяет:
+
+- `PersonalAuthScope`: в том числе `wall`, `photos`, `groups`, `video`; `offline` в перечислении отсутствует.
+- `VKWebAppCheckAllowedScopes({ scopes })`: результат — список `{ scope, allowed }` для проверки доступности запрашиваемых прав.
+- `VKWebAppGetAuthToken({ app_id, scope })`: ответ содержит `access_token`, `scope`, необязательный `expires`; `refresh_token` в типе ответа отсутствует.
+
+Следующий тест выполняется **внутри собственного Mini App в VK**, с согласием владельца:
+
+```js
+await bridge.send('VKWebAppInit');
+const allowed = await bridge.send('VKWebAppCheckAllowedScopes', {
+  scopes: 'wall,photos,groups',
+});
+// Сначала показать allowed владельцу. Не запрашивать запрещённые права.
+const auth = await bridge.send('VKWebAppGetAuthToken', {
+  app_id: 54805806,
+  scope: 'wall,photos,groups',
+});
+// Не выводить auth/access_token в консоль и логи.
+```
+
+После получения проверить фактические `scope`, срок действия и read-only методы `account.getAppPermissions`, `groups.get`, `photos.getWallUploadServer`. До этой проверки Mini App/Bridge — кандидат, а не подтверждённая авторизация для постоянного серверного автопостинга. Не передавать этот токен в VK ID refresh другого приложения.
+
+Пользовательская страница документации токенов VK ID не прочитана: web-инструмент не получил содержимое, браузер заблокировал URL политикой безопасности. Выводы выше основаны на официальном коде VK Bridge и фактических HTTP-ответах, а не на предположении о содержимом этой страницы.
 
 ## Проверенные источники
 
