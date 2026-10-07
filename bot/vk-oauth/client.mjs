@@ -159,10 +159,29 @@ export class VkOAuthClient {
     }
     const body = await response.json();
     if (!response.ok || body.error) {
+      const vkCode = Number(body.error?.error_code) || null;
+      // Classify known authentication failures without retaining provider text or request_params.
+      const description = typeof body.error?.error_msg === 'string' ? body.error.error_msg : '';
+      const authReason =
+        vkCode === 5
+          ? /another ip address|ip mismatch/i.test(description)
+            ? 'ip_mismatch'
+            : /expired/i.test(description)
+              ? 'expired'
+              : /revoked/i.test(description)
+                ? 'revoked'
+                : /invalid access_token/i.test(description)
+                  ? 'invalid_token'
+                  : null
+          : null;
       const error = new Error(
-        `vk_api_rejected_${Number(body.error?.error_code) || response.status}`,
+        `vk_api_rejected_${vkCode || response.status}${authReason ? '_' + authReason : ''}`,
       );
-      error.vkCode = Number(body.error?.error_code) || null;
+      error.vkCode = vkCode;
+      error.vkSubcode = Number.isSafeInteger(body.error?.error_subcode)
+        ? body.error.error_subcode
+        : null;
+      error.vkMethod = /^[a-zA-Z]+\.[a-zA-Z]+$/.test(method) ? method : null;
       throw error; // Do not retain VK request_params: they may contain the access token.
     }
     return body.response;

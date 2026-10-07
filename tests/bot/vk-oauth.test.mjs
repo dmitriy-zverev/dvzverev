@@ -6,7 +6,11 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { OAuthStore } from '../../bot/vk-oauth/store.mjs';
 import { VkOAuthClient } from '../../bot/vk-oauth/client.mjs';
-import { getOAuthBroker, getTrialOAuthBroker } from '../../bot/vk-oauth/routes.mjs';
+import {
+  getOAuthBroker,
+  getTrialOAuthBroker,
+  reportOAuthError,
+} from '../../bot/vk-oauth/routes.mjs';
 import { openCabinetDb } from '../../bot/cabinet/db.mjs';
 import { createSession, ensurePasswordHash } from '../../bot/cabinet/auth.mjs';
 import { startCabinetServer } from '../../bot/cabinet/server.mjs';
@@ -382,4 +386,44 @@ test('HTTP OAuth routes require cabinet session; POST requires Origin; callback 
   assert.equal((await rejectedCallback.json()).error, 'vk_oauth_refresh_token_missing');
   assert.deepEqual(trialClient.store.get('token'), savedTrialToken);
   assert.deepEqual(client.store.get('token'), primaryToken);
+});
+
+test('VK authentication diagnostics retain only known reasons, method and numeric subcode', async (t) => {
+  const { client, dir } = await fixture(t, async () => json({ error: { error_code: 5 } }));
+  for (const [description, reason] of [
+    ['User authorization failed: access_token was given to another ip address.', '_ip_mismatch'],
+    ['User authorization failed: access_token has expired.', '_expired'],
+    ['User authorization failed: access revoked.', '_revoked'],
+    ['User authorization failed: invalid access_token (4).', '_invalid_token'],
+    ['secret-provider-detail', ''],
+  ]) {
+    client.fetcher = async () =>
+      json({
+        error: {
+          error_code: 5,
+          error_subcode: 1130,
+          error_msg: description,
+          request_params: [{ key: 'access_token', value: 'secret-token' }],
+        },
+      });
+    let rejected;
+    await assert.rejects(client.rawApi('users.get', {}, 'secret-token'), (error) => {
+      rejected = error;
+      assert.equal(error.message, 'vk_api_rejected_5' + reason);
+      assert.equal(error.vkCode, 5);
+      assert.equal(error.vkSubcode, 1130);
+      assert.equal(error.vkMethod, 'users.get');
+      assert.equal(JSON.stringify(error).includes('secret'), false);
+      assert.equal(error.stack.includes('secret'), false);
+      return true;
+    });
+    await reportOAuthError({ BOT_LOG_DIR: dir }, rejected);
+    const record = JSON.parse(
+      (await readFile(join(dir, 'errors.jsonl'), 'utf8')).trim().split('\n').at(-1),
+    );
+    assert.equal(record.vkMethod, 'users.get');
+    assert.equal(record.vkSubcode, 1130);
+    assert.equal(record.message, 'vk_api_rejected_5' + reason);
+    assert.equal(JSON.stringify(record).includes('secret'), false);
+  }
 });

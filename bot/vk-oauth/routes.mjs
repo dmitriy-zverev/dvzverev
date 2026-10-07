@@ -280,7 +280,14 @@ export async function reportOAuthError(env, error) {
   };
   const logId = await logError(
     notifyConfig,
-    { platform: 'vk-oauth', reason: 'vk_oauth_operation_failed' },
+    {
+      platform: 'vk-oauth',
+      reason: 'vk_oauth_operation_failed',
+      ...(typeof error.vkMethod === 'string' && /^[a-zA-Z]+\.[a-zA-Z]+$/.test(error.vkMethod)
+        ? { vkMethod: error.vkMethod }
+        : {}),
+      ...(Number.isSafeInteger(error.vkSubcode) ? { vkSubcode: error.vkSubcode } : {}),
+    },
     new Error(/^vk_[a-z0-9_]+$/.test(error.message) ? error.message : 'vk_oauth_internal_failure'),
   );
   if (notifyConfig.token && notifyConfig.alertChatId) {

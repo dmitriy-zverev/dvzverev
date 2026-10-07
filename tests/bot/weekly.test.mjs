@@ -348,3 +348,38 @@ test('login verifies real user and permissions, consumes state once and never re
     /invalid_state/,
   );
 });
+
+test('rejected manual token is never stored and its attempt cannot be replayed', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'vk-rejected-'));
+  const store = new OAuthStore(join(root, 'oauth.sqlite'), randomBytes(32).toString('hex'));
+  t.after(async () => {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const client = new LegacyVkClient(
+    store,
+    {
+      clientId: '54809516',
+      redirectUri: 'https://oauth.vk.ru/blank.html',
+      allowedUserId: '42',
+    },
+    async () => ({
+      ok: true,
+      json: async () => ({
+        error: {
+          error_code: 5,
+          error_msg: 'User authorization failed: access_token was given to another ip address.',
+        },
+      }),
+    }),
+  );
+  const body = {
+    state: new URL(client.begin('session')).searchParams.get('state'),
+    access_token: 'vk1.a.' + 'a'.repeat(30),
+    expires_in: '86400',
+  };
+  await assert.rejects(client.complete(body, 'session'), /vk_api_rejected_5_ip_mismatch/);
+  assert.equal(store.get('token'), null);
+  assert.equal(client.status().connected, false);
+  await assert.rejects(client.complete(body, 'session'), /invalid_state/);
+});

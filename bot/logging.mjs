@@ -39,6 +39,8 @@ export async function logError(config, event, error = null) {
     'status',
     'model',
     'errorCode',
+    'vkMethod',
+    'vkSubcode',
     'attempts',
     'retryAt',
     'postingContinues',

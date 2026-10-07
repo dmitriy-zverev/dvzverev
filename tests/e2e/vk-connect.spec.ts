@@ -53,3 +53,29 @@ test('manual VK connection fits mobile, is accessible and explains rejected iden
   await expect(page.getByRole('button', { name: 'Подключить VK', exact: true })).toBeEnabled();
   await page.screenshot({ path: 'test-results/vk-connect-mobile.png' });
 });
+
+for (const [error, message] of [
+  ['vk_api_rejected_5', 'VK отклонил ключ'],
+  ['vk_api_rejected_5_ip_mismatch', 'Повторный вход таким способом не решит проблему'],
+  ['vk_api_rejected_5_expired', 'Срок действия ключа VK истёк'],
+]) {
+  test(`manual VK connection explains ${error}`, async ({ page }) => {
+    await page.route('**/bot/api/v1/vk/legacy/login', (route) =>
+      route.fulfill({
+        contentType: 'text/html',
+        body: legacyManualLoginPage(authorize).html,
+      }),
+    );
+    await page.route('**/bot/api/v1/vk/legacy/complete', (route) =>
+      route.fulfill({
+        status: 400,
+        json: { error },
+      }),
+    );
+    await page.goto('/bot/api/v1/vk/legacy/login');
+    await page.getByLabel('Адрес страницы после входа').fill(returned);
+    await page.getByRole('button', { name: 'Подключить VK', exact: true }).click();
+    await expect(page.getByRole('status')).toContainText(message);
+    await expect(page.getByLabel('Адрес страницы после входа')).toHaveValue('');
+  });
+}
