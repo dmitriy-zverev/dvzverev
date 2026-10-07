@@ -207,3 +207,32 @@ test('anomalies need explicit consent; commit and analysis errors recover inline
   await expect(page.locator('#analytics-feedback')).toContainText('Не удалось');
   await expect(page.locator('#run-analysis')).toBeEnabled();
 });
+
+test('header styles remain consistent between tabs at every breakpoint', async ({ page }) => {
+  await workspace(page);
+  for (const width of [320, 768, 1280, 1465]) {
+    await page.setViewportSize({ width, height: 900 });
+    let baseline: unknown;
+    for (const tab of ['', 'editorial', 'analytics', 'incidents', 'service']) {
+      await page.goto(`/bot/?tab=${tab}`);
+      await expect(page.locator('.cabinet-header')).toBeVisible();
+      const styles = await page.locator('.cabinet-header').evaluate((header) => {
+        const shell = getComputedStyle(header.querySelector('.cabinet-header-shell')!);
+        const button = getComputedStyle(header.querySelector('.cabinet-tab')!);
+        return {
+          display: shell.display,
+          areas: shell.gridTemplateAreas,
+          font: button.fontSize,
+          padding: button.padding,
+          radius: button.borderRadius,
+          minHeight: button.minHeight,
+        };
+      });
+      if (!tab) baseline = styles;
+      else expect(styles).toEqual(baseline);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
+        false,
+      );
+    }
+  }
+});
