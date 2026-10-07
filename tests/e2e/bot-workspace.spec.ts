@@ -215,7 +215,7 @@ test('anomalies need explicit consent; commit and analysis errors recover inline
 
 test('header styles remain consistent between tabs at every breakpoint', async ({ page }) => {
   await workspace(page);
-  for (const width of [320, 768, 1280, 1465, 1626]) {
+  for (const width of [320, 768, 1024, 1280, 1327, 1465, 1626]) {
     await page.setViewportSize({ width, height: 900 });
     let baseline: unknown;
     for (const tab of ['', 'rubrics', 'editorial', 'analytics', 'incidents', 'service']) {
@@ -252,6 +252,22 @@ test('header styles remain consistent between tabs at every breakpoint', async (
         );
       });
       expect(overlaps).toBe(false);
+      if (width > 1000) {
+        const layout = await page.locator('.cabinet-header-shell').evaluate((shell) => {
+          const brand = shell.querySelector('.cabinet-header-brand')!.getBoundingClientRect();
+          const actions = shell.querySelector('.cabinet-header-actions')!.getBoundingClientRect();
+          const tabs = shell.querySelector('.cabinet-tabs')!.getBoundingClientRect();
+          return {
+            aligned: Math.abs(brand.top + brand.height / 2 - actions.top - actions.height / 2) < 1,
+            navigationBelow: tabs.top >= Math.max(brand.bottom, actions.bottom),
+          };
+        });
+        expect(layout).toEqual({ aligned: true, navigationBelow: true });
+      }
+      if (width === 1327 && !tab)
+        await page
+          .locator('.cabinet-header')
+          .screenshot({ path: 'test-results/header-desktop.png' });
     }
   }
 });

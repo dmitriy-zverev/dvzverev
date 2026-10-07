@@ -12,6 +12,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('output')
 parser.add_argument('--image', required=True)
 parser.add_argument('--proxy', required=True)
+parser.add_argument('--preserve-env', type=Path)
 args = parser.parse_args()
 os.umask(0o077)
 root = Path(__file__).resolve().parents[1]
@@ -51,6 +52,24 @@ def set_env(key, value):
     global lines
     lines = [line for line in lines if not line.startswith(key + '=')]
     lines.append(key + '=' + value)
+
+# OAuth configuration and encryption keys belong to the server. User tokens
+# remain in encrypted SQLite and are never copied from a developer's .env.
+oauth_config_keys = {
+    'VK_OAUTH_ENABLED', 'VK_OAUTH_CLIENT_ID', 'VK_OAUTH_CLIENT_SECRET',
+    'VK_OAUTH_TRIAL_CLIENT_ID', 'VK_OAUTH_REDIRECT_URI', 'VK_OAUTH_SCOPES',
+    'VK_OAUTH_ENCRYPTION_KEY', 'VK_OAUTH_STORE_PATH', 'VK_OAUTH_MEDIA_DIR',
+    'VK_OAUTH_ALLOWED_USER_ID', 'VK_LEGACY_OAUTH_ENABLED', 'VK_LEGACY_CLIENT_ID',
+    'VK_LEGACY_REDIRECT_URI', 'BOT_CABINET_MEMORY_LIMIT',
+}
+if args.preserve_env:
+    for line in args.preserve_env.read_text().splitlines():
+        if not line.strip() or line.lstrip().startswith('#') or '=' not in line:
+            continue
+        key, value = line.split('=', 1)
+        key = key.strip()
+        if key in oauth_config_keys:
+            set_env(key, value)
 
 for key, value in {
     'BOT_CABINET_DB_PATH': '/app/data/cabinet.sqlite',

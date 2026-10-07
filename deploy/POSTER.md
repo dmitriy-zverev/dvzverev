@@ -43,8 +43,13 @@ OAuth-сессии и refresh_token исключены. Runtime не читае�
 `prompts/*.md` (read-only mount). `.env` содержит только используемые
 credentials и инфраструктуру: кабинет, Redis, image tag и прокси.
 `VK_ACCESS_TOKEN` — действующий ключ сообщества «Код на подумать».
-Не добавлять `BOT_PROMPT`, legacy-модели/расписания, пользовательские VK-токены
-или OAuth-параметры. Локальный шаблон: `bot/.env.example`; production использует
+Не добавлять `BOT_PROMPT`, legacy-модели/расписания или пользовательские VK-токены.
+OAuth-параметры кабинета и исходный `VK_OAUTH_ENCRYPTION_KEY` сохраняются из
+серверного `.env` при релизе; токены остаются в зашифрованной SQLite. Для недельной
+подготовки включён `VK_LEGACY_OAUTH_ENABLED`, вход ограничен владельцем через
+`VK_OAUTH_ALLOWED_USER_ID`. Не менять ключ шифрования при обновлении.
+Проверка сохранения параметров: `python3 tests/deploy-env.test.py`.
+Локальный шаблон: `bot/.env.example`; production использует
 hash пароля кабинета и прокси, локальная разработка — VPN без прокси.
 
 VK вызывается напрямую. OpenRouter и Telegram работают через выделенный Squid

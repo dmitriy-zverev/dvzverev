@@ -225,7 +225,6 @@ function renderSiteHeader(openCount = 0, data = null) {
         <div class="cabinet-header-brand">
           <h1 class="cabinet-header-title">Редакционный кабинет</h1>
         </div>
-        ${renderCabinetTabs(openCount)}
         <div class="cabinet-header-actions">
           <button type="button" class="cabinet-header-home" id="ozon-open">Выпустить рекламный пост</button>
           ${data ? renderStaleIndicator(Boolean(data.service?.stale)) : ''}
@@ -234,6 +233,7 @@ function renderSiteHeader(openCount = 0, data = null) {
           <a class="cabinet-header-home" href="/">На сайт</a>
           <button type="button" class="cabinet-header-logout" id="logout">Выйти</button>
         </div>
+        ${renderCabinetTabs(openCount)}
       </div>
     </header>`;
 }

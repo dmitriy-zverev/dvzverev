@@ -21,7 +21,10 @@ export BOT_CABINET_PASSWORD="${BOT_CABINET_PASSWORD:-$EXISTING_CABINET_PASSWORD}
 
 STAGING="$(mktemp -d /tmp/dvzverev-poster.XXXXXX)"
 trap 'rm -rf "$STAGING"' EXIT
-python3 deploy/prepare-poster.py "$STAGING" --image "$IMAGE" --proxy "$PROXY_URL"
+umask 077
+ssh -o BatchMode=yes "$DEPLOY_HOST" "cat '$REMOTE/.env'" > "$STAGING/server.env"
+python3 deploy/prepare-poster.py "$STAGING" --image "$IMAGE" --proxy "$PROXY_URL" --preserve-env "$STAGING/server.env"
+rm "$STAGING/server.env"
 
 echo "Loading image on ${DEPLOY_HOST}..."
 docker save "$IMAGE" | gzip | ssh -o BatchMode=yes "$DEPLOY_HOST" 'gunzip | docker load'
