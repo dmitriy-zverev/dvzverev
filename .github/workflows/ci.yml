@@ -20,6 +20,8 @@ jobs:
 
       - name: Install media test dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
           python3 -m venv "$RUNNER_TEMP/media-python"
           "$RUNNER_TEMP/media-python/bin/pip" install Pillow
           echo "$RUNNER_TEMP/media-python/bin" >> "$GITHUB_PATH"
