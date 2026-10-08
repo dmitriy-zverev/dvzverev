@@ -282,16 +282,16 @@ function ownerMissingRights(owner = state.vk?.ownerOAuth) {
 function renderVkRightsList(owner) {
   const rights = owner?.rights || {};
   const rows = [
-    ['wall', 'Стена (wall)'],
-    ['photos', 'Фотографии (photos)'],
-    ['groups', 'Сообщества (groups)'],
-    ['video', 'Видео (video)'],
-    ['offline', 'Offline / refresh'],
+    ['wall', 'wall'],
+    ['photos', 'photos'],
+    ['groups', 'groups'],
+    ['video', 'video'],
+    ['offline', 'offline'],
   ];
   return `<ul class="vk-rights" aria-label="Права owner VK">${rows
     .map(([key, label]) => {
       const ok = rights[key] === true;
-      return `<li class="${ok ? 'is-ok' : 'is-missing'}"><span class="vk-right-mark" aria-hidden="true">${ok ? '✓' : '✗'}</span>${escapeText(label)}${ok ? '' : ' — нет'}</li>`;
+      return `<li class="${ok ? 'is-ok' : 'is-missing'}"><span class="vk-right-mark" aria-hidden="true">${ok ? '✓' : '✗'}</span>${escapeText(label)}</li>`;
     })
     .join('')}</ul>`;
 }
@@ -325,10 +325,10 @@ function renderVkOauthFeedback() {
     const canPhoto = ownerCanPhoto(owner);
     const missing = ownerMissingRights(owner);
     return `<div class="vk-feedback ${canPhoto ? 'is-success' : 'is-warning'}" role="status">
-      <div><strong>${canPhoto ? 'Owner VK подключён' : 'Owner VK подключён без нужных прав'}</strong>
-      <p class="meta">ID ${escapeText(owner?.userId || '—')} · приложение ${appId} · scope: ${escapeText(owner?.grantedScope || 'не указан')}.</p>
+      <div><strong>${canPhoto ? 'Owner VK подключён' : 'Owner VK без photo-прав'}</strong>
+      <p class="meta">ID ${escapeText(owner?.userId || '—')} · app ${appId} · ${escapeText(owner?.grantedScope || 'scope?')}</p>
       ${renderVkRightsList(owner)}
-      <p class="meta">${canPhoto ? 'Права для photo-загрузки подтверждены.' : `Не хватает: ${escapeText(missing.join(', ') || 'wall, photos, groups')}. Посты недели идут community GIF.`}</p></div>
+      <p class="meta">${canPhoto ? 'Photo-загрузка доступна.' : `Нет: ${escapeText(missing.join(', ') || 'wall, photos, groups')}. Неделя — community GIF.`}</p></div>
       <button type="button" class="cabinet-header-home" id="vk-feedback-dismiss">Закрыть</button>
     </div>`;
   }
@@ -364,12 +364,11 @@ function renderOwnerOAuthCard(owner) {
     <div><h3>Аккаунт владельца VK</h3><p>${connected ? `Подключён · ID ${escapeText(owner.userId)}` : 'Не подключён'}</p>
     ${
       connected
-        ? `<p class="meta">${owner.refreshAvailable ? 'Refresh включён' : 'Без refresh — нужен повторный вход'} · до ${escapeText(editorialDate(owner.expiresAt))}</p>
-    <p class="meta">Scope: ${escapeText(owner.grantedScope || 'не указан')}.</p>
+        ? `<p class="meta">${owner.refreshAvailable ? 'Refresh ок' : 'Без refresh'} · до ${escapeText(editorialDate(owner.expiresAt))} · ${escapeText(owner.grantedScope || 'scope?')}</p>
     ${renderVkRightsList(owner)}
-    <p class="meta">${canPhoto ? 'Права wall + photos + groups подтверждены.' : `Не хватает прав: ${escapeText(missing.join(', ') || 'wall, photos, groups')}. Нужны доступы приложения в кабинете VK ID.`}</p>
-    <p class="meta">Публикации недели идут community GIF, пока нет полного photo-scope.</p>`
-        : `<p class="meta">Серверный вход (приложение ${escapeText(owner.clientId || 'VK')}) для будущих photo-вложений. Сейчас посты — текст + GIF.</p>`
+    <p class="meta">${canPhoto ? 'wall+photos+groups ок.' : `Нет: ${escapeText(missing.join(', ') || 'wall, photos, groups')}. Нужны доступы в VK ID.`}</p>
+    <p class="meta">Неделя пока community GIF.</p>`
+        : `<p class="meta">App ${escapeText(owner.clientId || 'VK')}: вход для photo. Сейчас текст + GIF.</p>`
     }</div>
     <div class="vk-connection-actions">
       <a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/bot/api/v1/vk/legacy/login">${connected ? 'Переподключить' : 'Войти в VK'}</a>
@@ -815,7 +814,7 @@ function renderSlotSummary(meta) {
       meta.publicationKind ||
       '—',
   );
-  const channel = escapeText(meta.channel || '—');
+  const channel = escapeText(meta.channel || '');
   const project = escapeText(meta.project || '—');
   const topicRaw = (meta.topicLabel || '').trim();
   const showTopic =
