@@ -11,13 +11,16 @@ function escapeHtml(value) {
     .replaceAll('"', '&quot;');
 }
 
-export function summarizeWeek(db, weekStart) {
+export function summarizeWeek(db, weekStart, now = new Date()) {
   const end = addDaysYmd(weekStart, 6);
   const from = localSlotToUtc(weekStart, '00:00', 'Europe/Moscow').toISOString();
   const to = localSlotToUtc(addDaysYmd(weekStart, 7), '00:00', 'Europe/Moscow').toISOString();
   const rows = db
     .prepare(
-      `SELECT s.project_id, p.title, w.status, w.error, s.slot_utc
+      `SELECT s.project_id, p.title, w.status, w.error, s.slot_utc, s.plan_status,
+        (SELECT d.status FROM deliveries d
+          WHERE d.edition_id = s.edition_id AND d.platform = 'vk'
+          ORDER BY d.updated_at DESC LIMIT 1) AS delivery_status
        FROM schedule_slots s
        JOIN projects p USING(project_id)
        LEFT JOIN vk_weekly_posts w USING(plan_id)
@@ -32,11 +35,17 @@ export function summarizeWeek(db, weekStart) {
   const groupsMap = new Map();
   const holes = [];
   let deferred = 0;
+  let actionable = 0;
+  const nowMs = now.getTime();
   for (const row of rows) {
-    const status = row.status || 'pending';
+    const published = row.plan_status === 'sent' || row.delivery_status === 'sent';
+    const status = published ? 'sent' : row.status || 'pending';
+    const past = Date.parse(row.slot_utc) <= nowMs;
     const isDeferred = deferredStatuses.has(status);
     if (isDeferred) deferred += 1;
-    else {
+    // Past unpublished slots are elapsed — not prepare holes.
+    else if (!past) {
+      actionable += 1;
       holes.push({
         title: row.title,
         when: new Date(row.slot_utc).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' }),
@@ -52,7 +61,7 @@ export function summarizeWeek(db, weekStart) {
     };
     group.total += 1;
     if (isDeferred) group.deferred += 1;
-    else if (row.error) group.problems.push(row.error);
+    else if (!past && row.error) group.problems.push(row.error);
     groupsMap.set(row.project_id, group);
   }
 
@@ -60,7 +69,7 @@ export function summarizeWeek(db, weekStart) {
     end,
     total: rows.length,
     deferred,
-    missing: rows.length - deferred,
+    missing: actionable,
     groups: [...groupsMap.values()].map((group) => ({
       title: group.title,
       total: group.total,

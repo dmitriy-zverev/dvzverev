@@ -35,8 +35,7 @@ import { retryEditionNow } from './retry.mjs';
 import {
   ensureWeeklySnapshot,
   weeklySnapshot,
-  claimWeeklyJob,
-  prepareWeeklyPosts,
+  queueWeeklyPrepare,
 } from './weekly.mjs';
 import { handleOzonRoute } from './ozon.mjs';
 
@@ -329,16 +328,15 @@ async function handleRequest(request, response, env) {
           return;
         }
         if (!snapshot.running && (snapshot.missing > 0 || snapshot.uncertain > 0)) {
-          const owner = claimWeeklyJob(db, snapshot.week.start);
-          if (owner) {
-            auditAuth(db, 'vk_weekly_preparation', {
-              week: snapshot.week.start,
-              scope,
-              missing: snapshot.missing,
-              uncertain: snapshot.uncertain,
-            });
-            void prepareWeeklyPosts(env, snapshot.week.start, owner, { source: 'button' });
-          }
+          auditAuth(db, 'vk_weekly_preparation', {
+            week: snapshot.week.start,
+            scope,
+            missing: snapshot.missing,
+            uncertain: snapshot.uncertain,
+            queued: true,
+          });
+          // Poster runs prepare (256MB). Cabinet is 128MB and OOMs on OpenRouter+GIF.
+          queueWeeklyPrepare(db, snapshot.week.start, 'button');
         }
       }
       json(

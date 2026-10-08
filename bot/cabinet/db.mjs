@@ -65,6 +65,10 @@ export function setMeta(db, key, value) {
   ).run(key, String(value));
 }
 
+export function deleteMeta(db, key) {
+  db.prepare('DELETE FROM cabinet_meta WHERE key = ?').run(key);
+}
+
 export function bumpDataVersion(db) {
   const next = Number(getMeta(db, 'data_version', '0')) + 1;
   setMeta(db, 'data_version', next);

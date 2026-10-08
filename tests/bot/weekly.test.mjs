@@ -12,6 +12,8 @@ import {
   prepareWeeklyPosts,
   isSundayWeeklyPrepareWindow,
   maybeStartSundayWeeklyPrepare,
+  maybeRunQueuedWeeklyPrepare,
+  queueWeeklyPrepare,
   currentWeek,
 } from '../../bot/cabinet/weekly.mjs';
 import { notifyWeeklyPrepareDigest, summarizeWeek } from '../../bot/cabinet/weekly-notify.mjs';
@@ -423,6 +425,60 @@ test('weekly digest summarizes deferred holes once', async (t) => {
   assert.equal(second.skipped, 'deduped');
   assert.equal(messages.length, 1);
   assert.equal(summarizeWeek(f.db, f.week.start).deferred, 1);
+  f.db.close();
+});
+
+test('digest ignores past pending slots for current week', async (t) => {
+  const f = await fixture(t);
+  const week = currentWeek(new Date('2026-10-08T12:00:00Z'));
+  f.db.prepare('DELETE FROM schedule_slots').run();
+  const stamp = new Date().toISOString();
+  f.db
+    .prepare(
+      `INSERT INTO schedule_slots(plan_id,project_id,destination_id,slot_utc,slot_key,publication_kind,expected_media,config_version,created_at,updated_at)
+       VALUES ('past','things','things-vk',?,?, 'text',NULL,'v1',?,?)`,
+    )
+    .run('2026-10-06T07:00:00.000Z', '2026-10-06@10:00[Europe/Moscow]', stamp, stamp);
+  f.db
+    .prepare(
+      `INSERT INTO schedule_slots(plan_id,project_id,destination_id,slot_utc,slot_key,publication_kind,expected_media,config_version,created_at,updated_at)
+       VALUES ('future','things','things-vk',?,?, 'text',NULL,'v1',?,?)`,
+    )
+    .run('2026-10-10T07:00:00.000Z', '2026-10-10@10:00[Europe/Moscow]', stamp, stamp);
+  const summary = summarizeWeek(f.db, week.start, new Date('2026-10-08T12:00:00Z'));
+  assert.equal(summary.total, 2);
+  assert.equal(summary.missing, 1);
+  assert.equal(summary.holes.length, 1);
+  assert.match(summary.holes[0].when, /10\.10\.2026/);
+  f.db.close();
+});
+
+test('cabinet button queues prepare for poster to run', async (t) => {
+  const f = await fixture(t);
+  queueWeeklyPrepare(f.db, f.week.start, 'button');
+  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z'), 'next').running, true);
+  let started = 0;
+  const result = await maybeRunQueuedWeeklyPrepare(f.env, new Date('2026-10-07T10:00:00Z'), {
+    client: { status: () => ({ canPrepare: true }) },
+    prepare: async (_env, week, owner) => {
+      started += 1;
+      assert.equal(week, f.week.start);
+      assert.ok(owner);
+    },
+  });
+  assert.equal(result.started, true);
+  assert.equal(started, 1);
+  // Meta cleared; job lease still held until real prepare finishes.
+  const snap = weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z'), 'next');
+  assert.equal(snap.running, true);
+  const again = await maybeRunQueuedWeeklyPrepare(f.env, new Date('2026-10-07T10:00:00Z'), {
+    client: { status: () => ({ canPrepare: true }) },
+    prepare: async () => {
+      started += 1;
+    },
+  });
+  assert.equal(again.skipped, 'nothing_queued');
+  assert.equal(started, 1);
   f.db.close();
 });
 

@@ -1,6 +1,13 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { openCabinetDb, withTransaction, bumpDataVersion, getMeta, setMeta } from './db.mjs';
+import {
+  openCabinetDb,
+  withTransaction,
+  bumpDataVersion,
+  getMeta,
+  setMeta,
+  deleteMeta,
+} from './db.mjs';
 import { addDaysYmd, isoWeekStart, localSlotToUtc, zonedParts } from './time.mjs';
 import { materializeScheduleSlots } from './sync.mjs';
 import { loadAppConfig } from '../app-config.mjs';
@@ -48,6 +55,62 @@ export function weekForScope(now = new Date(), scope = 'current') {
   return scope === 'next' ? nextWeek(now) : currentWeek(now);
 }
 
+function weeklyPrepareRequestKey(weekStart) {
+  return `weekly_prepare_request:${weekStart}`;
+}
+
+/** Cabinet button queues work; poster (256MB) runs prepare — not the 128MB cabinet. */
+export function queueWeeklyPrepare(db, weekStart, source = 'button') {
+  setMeta(
+    db,
+    weeklyPrepareRequestKey(weekStart),
+    JSON.stringify({ source, at: new Date().toISOString() }),
+  );
+  bumpDataVersion(db);
+  return { queued: true, week: weekStart, source };
+}
+
+export async function maybeRunQueuedWeeklyPrepare(env, now = new Date(), dependencies = {}) {
+  const db = openCabinetDb(env);
+  try {
+    for (const scope of ['current', 'next']) {
+      const week = weekForScope(now, scope);
+      const key = weeklyPrepareRequestKey(week.start);
+      const raw = getMeta(db, key);
+      if (!raw) continue;
+      let source = 'button';
+      try {
+        source = JSON.parse(raw).source || 'button';
+      } catch {
+        source = 'button';
+      }
+      const client = dependencies.client || getWeeklyVkClient(env);
+      if (!client?.status().canPrepare) return { skipped: 'vk_community_not_ready', week: week.start };
+      const snapshot = weeklySnapshot(db, now, scope);
+      if (snapshot.missing <= 0 && snapshot.uncertain <= 0) {
+        deleteMeta(db, key);
+        bumpDataVersion(db);
+        continue;
+      }
+      // queued flag is in meta; claimWeeklyJob needs a free lease (ignore synthetic running).
+      const job = db.prepare('SELECT * FROM vk_weekly_jobs WHERE week_start = ?').get(week.start);
+      if (job?.status === 'running' && job.lease_until > now.getTime()) {
+        continue;
+      }
+      const owner = claimWeeklyJob(db, week.start, now);
+      if (!owner) continue;
+      deleteMeta(db, key);
+      bumpDataVersion(db);
+      const prepare = dependencies.prepare || prepareWeeklyPosts;
+      void prepare(env, week.start, owner, { ...dependencies, source });
+      return { started: true, week: week.start, scope, source };
+    }
+    return { skipped: 'nothing_queued' };
+  } finally {
+    db.close();
+  }
+}
+
 export function isSundayWeeklyPrepareWindow(now = new Date()) {
   const p = zonedParts(now, 'Europe/Moscow');
   const dateYmd = `${p.year}-${p.month}-${p.day}`;
@@ -68,7 +131,9 @@ export function weeklySnapshot(db, now = new Date(), scope = 'current') {
   ).run(new Date(now.getTime() - 30 * 86400000).toISOString());
   const week = weekForScope(now, scopeKey);
   const job = db.prepare('SELECT * FROM vk_weekly_jobs WHERE week_start = ?').get(week.start);
-  const running = job?.status === 'running' && job.lease_until > now.getTime();
+  const queued = Boolean(getMeta(db, weeklyPrepareRequestKey(week.start)));
+  const running =
+    queued || (job?.status === 'running' && job.lease_until > now.getTime());
   const rows = db
     .prepare(
       `SELECT s.plan_id, s.project_id, p.title, s.destination_id, s.slot_utc, s.plan_status,
@@ -482,6 +547,9 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
         markDeferred(db, slot, config, message, result.post_id, stamp);
         consecutiveFailures = 0;
       } catch (error) {
+        console.error(
+          `weekly prepare slot=${slot.plan_id} week=${week}: ${error.message || error}`,
+        );
         const uncertain = created || (dispatching && !error.vkCode);
         const attempts =
           db.prepare('SELECT attempts FROM vk_weekly_posts WHERE plan_id=?').get(slot.plan_id)
