@@ -337,7 +337,7 @@ test('confirmed failed video jobs retry with the same model at most three times'
   assert.equal(submissions, 3);
 });
 
-test('real H264 conversion yields a compact seamless GIF within 2 MB', async (t) => {
+test('real H264 conversion yields a compact one-way GIF within 2 MB', async (t) => {
   // Retain application memory during conversion; run this suite with --memory=256m.
   const applicationMemory = Buffer.alloc(64 * 1024 * 1024, 1);
   const config = await setup(t);
@@ -350,7 +350,7 @@ test('real H264 conversion yields a compact seamless GIF within 2 MB', async (t)
   assert.ok([768, 640, 512, 480, 384].includes(result.width));
   assert.equal(result.height, (result.width * 9) / 16);
   assert.ok(result.frames >= 2);
-  assert.ok(result.duration >= 4 && result.duration <= 7);
+  assert.ok(result.duration >= 2.5 && result.duration <= 5);
   assert.ok(result.bytes <= 2000000);
   assert.equal(result.loop, true);
   assert.equal(applicationMemory.at(-1), 1);
