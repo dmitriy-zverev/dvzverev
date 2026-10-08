@@ -1014,7 +1014,7 @@ function renderWeeklyPreparation() {
     }).format(new Date(value + 'T12:00:00Z'));
   const projects = [...new Set(batch.posts.map((post) => post.projectId))];
   const errors = [...batch.posts, ...(batch.current?.posts || [])].filter((post) =>
-    ['failed', 'uncertain'].includes(post.status),
+    ['failed', 'exhausted', 'uncertain'].includes(post.status),
   );
   return `<section class="weekly-prepare${batch.complete ? ' is-complete' : ''}" aria-labelledby="prepare-title">
     <div class="weekly-prepare-main">
@@ -1032,11 +1032,11 @@ function renderWeeklyPreparation() {
       .map((id) => {
         const posts = batch.posts.filter((p) => p.projectId === id);
         const done = posts.filter((p) => ['scheduled', 'sent'].includes(p.status)).length;
-        return `<div class="weekly-project"><span>${escapeText(posts[0].title)}</span><strong>${done}<span> / ${posts.length}</span></strong><div class="weekly-days" aria-label="Готовность постов ${escapeAttr(posts[0].title)}">${posts.map((p) => `<span class="weekly-day is-${escapeAttr(p.status)}" title="${escapeAttr(new Date(p.date).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }))} · ${escapeAttr(p.status === 'scheduled' ? 'В отложенных VK' : p.status === 'sent' ? 'Опубликован' : p.status === 'preparing' ? 'Готовится' : p.status === 'failed' ? 'Ошибка' : p.status === 'uncertain' ? 'Нужна проверка' : 'Ожидает подготовки')}"></span>`).join('')}</div></div>`;
+        return `<div class="weekly-project"><span>${escapeText(posts[0].title)}</span><strong>${done}<span> / ${posts.length}</span></strong><div class="weekly-days" aria-label="Готовность постов ${escapeAttr(posts[0].title)}">${posts.map((p) => `<span class="weekly-day is-${escapeAttr(p.status === 'exhausted' ? 'failed' : p.status)}" title="${escapeAttr(new Date(p.date).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }))} · ${escapeAttr(p.status === 'scheduled' ? 'В отложенных VK' : p.status === 'sent' ? 'Опубликован' : p.status === 'preparing' ? 'Готовится' : p.status === 'exhausted' ? 'Остановлено после 3 попыток' : p.status === 'failed' ? 'Ошибка' : p.status === 'uncertain' ? 'Нужна проверка' : 'Ожидает подготовки')}"></span>`).join('')}</div></div>`;
       })
       .join('')}</div>
     <div class="weekly-feedback" aria-live="polite">${state.preparationError ? `<p role="alert">${escapeText(state.preparationError)}</p>` : ''}</div>
-    ${errors.length ? `<details class="weekly-errors"><summary>Требуют внимания · ${errors.length}</summary>${errors.map((p) => `<p><strong>${escapeText(p.title)}</strong> · ${escapeText(new Date(p.date).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }))}<br>${p.status === 'uncertain' ? 'Результат отправки неизвестен. Проверьте отложенные VK: повторная отправка заблокирована.' : 'Не удалось подготовить запись. Следующий запуск продолжит с сохранённого этапа.'}</p>`).join('')}</details>` : ''}
+    ${errors.length ? `<details class="weekly-errors"><summary>Требуют внимания · ${errors.length}</summary>${errors.map((p) => `<p><strong>${escapeText(p.title)}</strong> · ${escapeText(new Date(p.date).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }))}<br>${p.status === 'uncertain' ? 'Результат отправки неизвестен. Проверьте отложенные VK: повторная отправка заблокирована.' : p.status === 'exhausted' ? 'Остановлено после 3 попыток — VK больше не дергаем. Исправьте доступ и сбросьте слот вручную.' : 'Не удалось подготовить запись. До 3 попыток, потом стоп.'}</p>`).join('')}</details>` : ''}
     ${
       ready
         ? `<details class="weekly-links"><summary>Записи в VK · ${ready}</summary><div>${batch.posts

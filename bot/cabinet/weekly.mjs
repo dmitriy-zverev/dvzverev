@@ -13,6 +13,11 @@ import { formatVkPost } from '../content.mjs';
 import { getWeeklyVkClient } from '../vk-oauth/legacy.mjs';
 import { reportOAuthError } from '../vk-oauth/routes.mjs';
 
+/** Cap slot retries so a broken token/API cannot hammer VK or spam alerts. */
+export const WEEKLY_MAX_ATTEMPTS = 3;
+/** Abort the rest of the job after this many consecutive slot failures. */
+export const WEEKLY_MAX_CONSECUTIVE_FAILURES = 3;
+
 export function nextWeek(now = new Date()) {
   const p = zonedParts(now, 'Europe/Moscow');
   const start = addDaysYmd(isoWeekStart(`${p.year}-${p.month}-${p.day}`), 7);
@@ -41,7 +46,7 @@ export function weeklySnapshot(db, now = new Date(), current = false) {
   const rows = db
     .prepare(
       `SELECT s.plan_id, s.project_id, p.title, s.destination_id, s.slot_utc,
-      s.topic, s.brief, s.expected_media, w.status, w.post_id, w.group_id, w.error
+      s.topic, s.brief, s.expected_media, w.status, w.post_id, w.group_id, w.error, w.attempts
     FROM schedule_slots s JOIN projects p USING(project_id)
     LEFT JOIN vk_weekly_posts w USING(plan_id)
     WHERE s.slot_utc >= ? AND s.slot_utc < ? AND s.publication_kind IN ('image','video')
@@ -58,11 +63,13 @@ export function weeklySnapshot(db, now = new Date(), current = false) {
     media: r.expected_media,
     status: r.status === 'posting' && !running ? 'uncertain' : r.status || 'pending',
     error: r.error,
+    attempts: r.attempts || 0,
     url: r.post_id ? `https://vk.ru/wall-${r.group_id}_${r.post_id}` : null,
   }));
   const ready = posts.filter((p) => ['scheduled', 'sent'].includes(p.status)).length;
   const uncertain = posts.filter((p) => p.status === 'uncertain').length;
-  const missing = posts.length - ready - uncertain;
+  const exhausted = posts.filter((p) => p.status === 'exhausted').length;
+  const missing = posts.length - ready - uncertain - exhausted;
   return {
     week,
     posts,
@@ -70,6 +77,7 @@ export function weeklySnapshot(db, now = new Date(), current = false) {
     ready,
     missing,
     uncertain,
+    exhausted,
     running,
     complete: posts.length > 0 && ready === posts.length,
   };
@@ -134,13 +142,16 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
         `SELECT s.* FROM schedule_slots s JOIN projects p USING(project_id)
       LEFT JOIN vk_weekly_posts w USING(plan_id) WHERE s.slot_utc>=? AND s.slot_utc<?
       AND s.publication_kind IN ('image','video') AND s.plan_status!='cancelled' AND p.enabled=1
-      AND (w.status IS NULL OR w.status NOT IN ('scheduled','sent','uncertain','posting'))
+      AND (w.status IS NULL OR w.status NOT IN ('scheduled','sent','uncertain','posting','exhausted'))
+      AND COALESCE(w.attempts, 0) < ?
       ORDER BY s.slot_utc,s.project_id`,
       )
       .all(
         localSlotToUtc(week, '00:00', 'Europe/Moscow').toISOString(),
         localSlotToUtc(addDaysYmd(week, 7), '00:00', 'Europe/Moscow').toISOString(),
+        WEEKLY_MAX_ATTEMPTS,
       );
+    let consecutiveFailures = 0;
     for (const slot of rows) {
       if (Date.parse(slot.slot_utc) <= Date.now()) continue;
       if (!owned()) throw new Error('vk_weekly_lease_lost');
@@ -148,8 +159,8 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
       let created = false;
       const stamp = new Date().toISOString();
       db.prepare(
-        `INSERT INTO vk_weekly_posts(plan_id,week_start,status,updated_at) VALUES (?,?,'preparing',?)
-        ON CONFLICT(plan_id) DO UPDATE SET status='preparing',error=NULL,updated_at=excluded.updated_at`,
+        `INSERT INTO vk_weekly_posts(plan_id,week_start,status,attempts,updated_at) VALUES (?,?,'preparing',1,?)
+        ON CONFLICT(plan_id) DO UPDATE SET status='preparing',error=NULL,attempts=attempts+1,updated_at=excluded.updated_at`,
       ).run(slot.plan_id, week, stamp);
       bumpDataVersion(db);
       try {
@@ -245,9 +256,10 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
         assertSlotCurrent(db, slot);
         if (Date.parse(slot.slot_utc) <= Date.now() + 60000)
           throw new Error('vk_weekly_slot_too_late');
-        db.prepare(
-          "UPDATE vk_weekly_posts SET status='posting',attempts=attempts+1,updated_at=? WHERE plan_id=?",
-        ).run(new Date().toISOString(), slot.plan_id);
+        db.prepare("UPDATE vk_weekly_posts SET status='posting',updated_at=? WHERE plan_id=?").run(
+          new Date().toISOString(),
+          slot.plan_id,
+        );
         dispatching = true;
         const result = await client.api('wall.post', {
           owner_id: -Number(config.vkGroupId),
@@ -321,18 +333,33 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
           );
           bumpDataVersion(db);
         });
+        consecutiveFailures = 0;
       } catch (error) {
         // Only an explicit API rejection proves the write did not happen.
         const uncertain = created || (dispatching && !error.vkCode);
+        const attempts =
+          db.prepare('SELECT attempts FROM vk_weekly_posts WHERE plan_id=?').get(slot.plan_id)
+            ?.attempts || 0;
+        const terminal =
+          !uncertain &&
+          (attempts >= WEEKLY_MAX_ATTEMPTS ||
+            /login_required|wrong_user|lease_lost/.test(error.message) ||
+            error.vkCode === 5);
         db.prepare('UPDATE vk_weekly_posts SET status=?,error=?,updated_at=? WHERE plan_id=?').run(
-          uncertain ? 'uncertain' : 'failed',
+          uncertain ? 'uncertain' : terminal ? 'exhausted' : 'failed',
           safeError(error),
           new Date().toISOString(),
           slot.plan_id,
         );
         bumpDataVersion(db);
+        consecutiveFailures += 1;
         await (dependencies.report || reportOAuthError)(env, error);
-        if (/login_required|wrong_user|lease_lost/.test(error.message) || error.vkCode === 5) break;
+        if (
+          /login_required|wrong_user|lease_lost/.test(error.message) ||
+          error.vkCode === 5 ||
+          consecutiveFailures >= WEEKLY_MAX_CONSECUTIVE_FAILURES
+        )
+          break;
         await pause(error.vkCode === 6 || error.vkCode === 9 ? 60000 : 3000);
       }
       await pause(1200);

@@ -193,6 +193,90 @@ test('explicit write rejection allows retry; successful slots and saved content 
   f.db.close();
 });
 
+test('slot stops after three attempts and is not selected again', async (t) => {
+  const f = await fixture(t);
+  f.db.prepare("DELETE FROM schedule_slots WHERE plan_id='p1'").run();
+  let writes = 0;
+  let reports = 0;
+  const c = {
+    accessToken: async () => 'test-secret',
+    api: async (method) => {
+      if (method === 'wall.post') {
+        writes++;
+        throw Object.assign(new Error('vk_api_rejected_6'), { vkCode: 6 });
+      }
+      return [];
+    },
+  };
+  const deps = {
+    ...f.dependencies,
+    client: c,
+    report: async () => {
+      reports++;
+    },
+  };
+  for (let i = 0; i < 4; i++) {
+    await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), deps);
+  }
+  const row = f.db.prepare("SELECT status, attempts FROM vk_weekly_posts WHERE plan_id='p0'").get();
+  assert.equal(row.status, 'exhausted');
+  assert.equal(row.attempts, 3);
+  assert.equal(writes, 3);
+  assert.equal(reports, 3);
+  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z')).exhausted, 1);
+  f.db.close();
+});
+
+test('three consecutive slot failures abort the rest of the weekly job', async (t) => {
+  const f = await fixture(t);
+  for (let i = 2; i < 5; i++) {
+    const date = f.week.start;
+    f.db
+      .prepare(
+        `INSERT INTO schedule_slots(plan_id,project_id,destination_id,slot_utc,slot_key,publication_kind,expected_media,config_version,created_at,updated_at) VALUES (?,'things','things-vk',?,?,'image','image','v1',?,?)`,
+      )
+      .run(
+        'p' + i,
+        date + 'T1' + i + ':00:00.000Z',
+        date + '@1' + i + ':00[Europe/Moscow]',
+        date,
+        date,
+      );
+  }
+  let tokens = 0;
+  let reports = 0;
+  const c = {
+    accessToken: async () => {
+      tokens++;
+      throw new Error('boom_not_vk_code');
+    },
+    api: async () => {
+      throw new Error('should_not_reach_api');
+    },
+  };
+  await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
+    ...f.dependencies,
+    client: c,
+    report: async () => {
+      reports++;
+    },
+  });
+  assert.equal(tokens, 3);
+  assert.equal(reports, 3);
+  assert.equal(
+    f.db.prepare("SELECT COUNT(*) n FROM vk_weekly_posts WHERE status='failed'").get().n,
+    3,
+  );
+  assert.equal(
+    f.db.prepare("SELECT COUNT(*) n FROM vk_weekly_posts WHERE status IS NULL OR status='pending'")
+      .get().n,
+    0,
+  );
+  // Remaining slots never touched in this run.
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM vk_weekly_posts').get().n, 3);
+  f.db.close();
+});
+
 test('unknown write outcome blocks that slot on every retry', async (t) => {
   const f = await fixture(t);
   const c = client(new Error('vk_api_transport_failure_no_retry'));
