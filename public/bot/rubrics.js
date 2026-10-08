@@ -1,7 +1,7 @@
 import { openPanel, closePanel } from './panels.js';
 import { icon } from './icons.js';
 const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-const mediaLabels = { text: 'Текст', image: 'Фото', video: 'Короткое видео' };
+const mediaLabels = { text: 'Текст', image: 'GIF', video: 'Короткое видео' };
 const rubricCount = (count) =>
   `${count} ${count % 100 >= 11 && count % 100 <= 14 ? 'рубрик' : count % 10 === 1 ? 'рубрика' : count % 10 >= 2 && count % 10 <= 4 ? 'рубрики' : 'рубрик'}`;
 const messages = {
@@ -85,9 +85,9 @@ export function createRubricManager({ api, escapeText: esc, refresh, selectProje
             `<option value="${key}" ${r.media === key ? 'selected' : ''}>${label}</option>`,
         )
         .join('')}</select></label>
-      <div class="rubric-media-note" id="rubric-media-note"><strong>Медиа готовятся на неделю вперёд</strong><p>На вкладке «Неделя» запустите подготовку. Сервер использует community-ключи групп; отдельный вход VK не нужен. Короткое видео пока требует user OAuth.</p></div>
+      <div class="rubric-media-note" id="rubric-media-note"><strong>Медиа готовятся на неделю вперёд</strong><p>GIF уходит на стену как документ сообщества (community-токен). Отдельный вход VK не нужен. Короткое видео пока требует user OAuth.</p></div>
       <label>Дополнительный промпт для текста<textarea name="textPrompt" rows="5" maxlength="6000" placeholder="О чём эта рубрика, подача, структура, ограничения…">${esc(r.textPrompt)}</textarea><span class="meta">Дополняет системный промпт группы.</span></label>
-      <label>Дополнительный промпт для фото и видео · необязательно<textarea name="mediaPrompt" rows="4" maxlength="6000" placeholder="Сюжеты, композиция, настроение, движение камеры…">${esc(r.mediaPrompt)}</textarea><span class="meta">Без него используется визуальный стиль группы.</span></label>
+      <label>Дополнительный промпт для GIF и видео · необязательно<textarea name="mediaPrompt" rows="4" maxlength="6000" placeholder="Сюжеты, композиция, настроение, движение камеры…">${esc(r.mediaPrompt)}</textarea><span class="meta">Без него используется визуальный стиль группы.</span></label>
       <label class="rubric-enabled"><input type="checkbox" name="enabled" ${r.enabled ? 'checked' : ''}> Рубрика активна</label>
       <p class="rubric-change-note">Изменения применяются к ещё не вышедшим постам. Подготовленные отложенные записи отменяются; медиа понадобится подготовить заново. Опубликованные посты сохраняются.</p>
       <p class="rubric-error" role="alert" id="rubric-error"></p></div>

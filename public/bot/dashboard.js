@@ -810,7 +810,7 @@ function readSlotMeta(node) {
 
 function renderSlotSummary(meta) {
   const kind = escapeText(
-    { image: 'Фото', text: 'Текст', video: 'Видео' }[meta.publicationKind] ||
+    { image: 'GIF', text: 'Текст', video: 'Видео' }[meta.publicationKind] ||
       meta.publicationKind ||
       '—',
   );
@@ -1019,7 +1019,7 @@ function renderWeeklyPreparation() {
   return `<section class="weekly-prepare${batch.complete ? ' is-complete' : ''}" aria-labelledby="prepare-title">
     <div class="weekly-prepare-main">
       <div class="weekly-prepare-copy"><p class="weekly-eyebrow">Следующая неделя · VK</p><h2 id="prepare-title">${date(batch.week.start)} — ${date(batch.week.end)}</h2>
-      <p class="weekly-description">Фото и короткие видео рубрик — в отложенные VK.<br>Текстовые публикации выходят по расписанию рубрик.</p></div>
+      <p class="weekly-description">GIF и короткие видео рубрик — в отложенные VK.<br>Текстовые публикации выходят по расписанию рубрик.</p></div>
       <div class="weekly-prepare-action">
         <span class="weekly-auth ${connected ? 'is-connected' : ''}"><span class="weekly-auth-dot" aria-hidden="true"></span> ${connected ? (batch.vk?.mode === 'community' ? 'Ключи сообществ готовы' : 'VK подключён') : batch.vk?.mode === 'community' ? 'Нужны ключи сообществ на сервере' : 'Нужен вход в VK'}</span>
         ${!connected && !batch.complete && !busy && batch.vk?.mode !== 'community' ? `<a class="weekly-primary" href="${escapeAttr(apiBase)}/bot/api/v1/vk/legacy/login">Войти в VK ${icon('external')}</a>` : `<button class="weekly-primary" type="button" id="prepare-week" ${busy || batch.complete || !batch.missing || !connected ? 'disabled' : ''} aria-busy="${Boolean(busy)}" ${batch.complete ? 'aria-label="Неделя подготовлена ✓"' : ''}>${busy ? 'Подготавливаем посты…' : batch.complete ? `Неделя подготовлена ${icon('check')}` : 'Подготовить посты'}<span aria-hidden="true">${!busy && !batch.complete && batch.missing ? ` · ${batch.missing}` : ''}</span></button>`}

@@ -82,7 +82,7 @@ export function ensureRubrics(db, service, now = new Date()) {
       for (const { time, media, days } of variants.values()) {
         const id = randomUUID();
         const config = validateRubric({
-          name: `${media === 'text' ? 'Основная рубрика' : media === 'image' ? 'Фотоистория' : 'Видеоистория'} · ${time}`,
+          name: `${media === 'text' ? 'Основная рубрика' : media === 'image' ? 'GIF' : 'Видеоистория'} · ${time}`,
           days,
           times: [time],
           media,
