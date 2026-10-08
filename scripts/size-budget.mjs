@@ -6,6 +6,8 @@ const budgets = {
   htmlBrotli: 35 * 1024,
   jsBrotli: 30 * 1024,
   cssBrotli: 20 * 1024,
+  cabinetJsBrotli: 32 * 1024,
+  cabinetCssBrotli: 20 * 1024,
   fonts: 70 * 1024,
 };
 
@@ -78,11 +80,24 @@ if (htmlSize > budgets.htmlBrotli) {
 }
 
 const jsFiles = walk(dist)
-  .filter((file) => file.endsWith('.js.br'))
+  .filter((file) => file.endsWith('.js.br') && !file.startsWith(join(dist, 'bot') + '/'))
   .reduce((sum, file) => sum + size(file), 0);
 const cssFiles = walk(dist)
+  .filter((file) => file.endsWith('.css.br') && !file.startsWith(join(dist, 'bot') + '/'))
+  .reduce((sum, file) => sum + size(file), 0);
+const cabinetJs = walk(join(dist, 'bot'))
+  .filter((file) => file.endsWith('.js.br'))
+  .reduce((sum, file) => sum + size(file), 0);
+const cabinetCss = walk(join(dist, 'bot'))
   .filter((file) => file.endsWith('.css.br'))
   .reduce((sum, file) => sum + size(file), 0);
+if (cabinetJs > budgets.cabinetJsBrotli || cabinetCss > budgets.cabinetCssBrotli) {
+  console.error(
+    `Cabinet budget exceeded: JS ${cabinetJs}/${budgets.cabinetJsBrotli}, CSS ${cabinetCss}/${budgets.cabinetCssBrotli}`,
+  );
+  process.exit(1);
+}
+
 const fontTotal = walk(dist)
   .filter((file) => file.endsWith('.woff2'))
   .reduce((sum, file) => sum + size(file), 0);
@@ -121,5 +136,7 @@ console.log(
     inlineCssBrotli: inlineCss,
     cssBrotli: cssTotal,
     fonts: fontTotal,
+    cabinetJsBrotli: cabinetJs,
+    cabinetCssBrotli: cabinetCss,
   }),
 );

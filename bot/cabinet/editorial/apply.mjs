@@ -144,6 +144,22 @@ export async function decidePlanRevision(
     };
   }
 
+  const summary = JSON.parse(revision.snapshot_summary_json || '{}');
+  if (
+    decision !== 'reject' &&
+    summary.rubrics?.some((r) => {
+      const current = db
+        .prepare('SELECT revision,state FROM schedule_rubrics WHERE id=? AND project_id=?')
+        .get(r.id, revision.project_id);
+      return !current || current.revision !== r.revision || current.state !== r.state;
+    })
+  )
+    return {
+      error: 'rubric_version_conflict',
+      status: 409,
+      message: 'Рубрики изменились. Соберите план недели заново.',
+    };
+
   const briefs = db.prepare(`SELECT * FROM editorial_briefs WHERE revision_id = ?`).all(revisionId);
 
   const selected =

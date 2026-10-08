@@ -283,6 +283,12 @@ export function runWeeklyEditorialJob(
         memoryCount: built.snapshot.memory.length,
         slotCount: built.snapshot.slots.length,
         metrics: built.snapshot.metrics,
+        rubrics: built.snapshot.rubrics.map((r) => ({
+          id: r.id,
+          revision: r.revision,
+          state: r.state,
+          enabled: r.enabled,
+        })),
         diversityFindings: built.snapshot.diversity.findings?.length || 0,
       }),
       built.snapshot.configVersion,

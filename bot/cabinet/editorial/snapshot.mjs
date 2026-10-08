@@ -10,6 +10,7 @@ import { listMemory, memoryFingerprint, syncEditorialMemory } from './memory.mjs
 import { analyzeDiversity } from './diversity.mjs';
 import { listSeries } from './series.mjs';
 import { PROJECT_RULES } from './vocab.mjs';
+import { listRubrics } from '../rubrics.mjs';
 
 /** Monday YMD for the plan week: upcoming Monday (today if Monday; tomorrow if Sunday). */
 export function nextPlanWeekStart(now = new Date(), timeZone = OPERATOR_TIMEZONE) {
@@ -58,6 +59,7 @@ export function buildEditorialSnapshot(
   const memory = listMemory(db, { projectId, now });
   const diversity = analyzeDiversity(memory, { projectId });
   const series = listSeries(db, { projectId });
+  const rubrics = listRubrics(db, projectId);
 
   const project = db.prepare('SELECT * FROM projects WHERE project_id = ?').get(projectId);
   const schedule = project ? JSON.parse(project.schedule_json || '{}') : {};
@@ -98,6 +100,7 @@ export function buildEditorialSnapshot(
     weekEnd,
     rules: PROJECT_RULES[projectId] || null,
     schedule,
+    rubrics,
     destinations,
     slots: slots.map((s) => ({
       planId: s.plan_id,
@@ -113,6 +116,9 @@ export function buildEditorialSnapshot(
       editionId: s.edition_id,
       version: s.version,
       started: Boolean(s.edition_id),
+      rubricId:
+        db.prepare('SELECT rubric_id FROM rubric_slots WHERE plan_id=? AND hidden=0').get(s.plan_id)
+          ?.rubric_id || null,
     })),
     memory: memory.map((m) => ({
       memoryId: m.memoryId,
@@ -160,6 +166,7 @@ export function buildEditorialSnapshot(
         metricsObservedAt: metricsMeta.latestObservedAt,
         activeRevisionId: activePlan?.revisionId || null,
         seriesIds: series.map((s) => `${s.seriesId}:${s.status}`),
+        rubrics: rubrics.map((r) => [r.id, r.revision, r.state, r.enabled]),
       }),
     )
     .digest('hex');

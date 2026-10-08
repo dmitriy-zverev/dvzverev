@@ -164,11 +164,15 @@ function summarizeRecent(snapshot) {
 
 function buildContinue(snapshot, evidenceIds) {
   const rubrics = snapshot.diversity?.counts?.rubrics || {};
-  const ranked = Object.entries(rubrics).sort((a, b) => b[1] - a[1]);
+  const actual = snapshot.rubrics?.filter((r) => r.state === 'active' && r.enabled);
+  const ranked = actual
+    ? actual.map((r) => [r.id, rubrics[r.id] || 0]).sort((a, b) => b[1] - a[1])
+    : Object.entries(rubrics).sort((a, b) => b[1] - a[1]);
+  if (actual && !actual.length) return [];
   if (!ranked.length) {
     return [
       {
-        rubricId: defaultRubric(snapshot.projectId),
+        rubricId: actual?.[0]?.id || defaultRubric(snapshot.projectId),
         reason: 'данных недостаточно — сохранить базовую рубрику',
         evidenceIds: ['editorial_hypothesis:insufficient_data'],
         suggestedTopics: [],
@@ -321,7 +325,8 @@ function buildCalendar(availableSlots, snapshot, evidenceIds) {
     planId: slot.planId,
     slotUtc: slot.slotUtc,
     slotKey: slot.slotKey,
-    rubricId: defaultRubricId,
+    rubricId: slot.rubricId || (snapshot.rubrics ? null : defaultRubricId),
+    rubricName: snapshot.rubrics?.find((r) => r.id === slot.rubricId)?.name || null,
     topic: topicForSlot(snapshot.projectId, index, slot),
     thesis: thesisForSlot(snapshot.projectId, index),
     tone: toneForSlot(snapshot, index),

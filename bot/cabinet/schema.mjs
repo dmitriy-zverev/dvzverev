@@ -211,4 +211,14 @@ CREATE INDEX IF NOT EXISTS rubric_slots_rubric ON rubric_slots(rubric_id);
 CREATE TABLE IF NOT EXISTS rubric_mutation_locks (
  rubric_id TEXT PRIMARY KEY, owner TEXT NOT NULL, lease_until INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS editorial_rubric_tests (
+ id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL,
+ rubric_id TEXT, expected_revision INTEGER, applied_revision INTEGER,
+ proposal_json TEXT NOT NULL, before_json TEXT,
+ status TEXT NOT NULL DEFAULT 'proposed', result_note TEXT,
+ started_at TEXT, ended_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS editorial_rubric_tests_project ON editorial_rubric_tests(project_id,created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS editorial_rubric_test_active ON editorial_rubric_tests(project_id)
+ WHERE status IN ('applying','testing','stopping');
 `;

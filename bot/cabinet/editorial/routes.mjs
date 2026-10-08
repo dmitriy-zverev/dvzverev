@@ -1,3 +1,13 @@
+import {
+  rubricSuggestions,
+  proposeRubricTest,
+  listRubricTests,
+  decideRubricTest,
+} from './rubric-tests.mjs';
+import { loadServiceForCabinet } from '../projects.mjs';
+import { ensureRubrics } from '../rubrics.mjs';
+import { materializeScheduleSlots } from '../sync.mjs';
+import { getWeeklyVkClient } from '../../vk-oauth/legacy.mjs';
 import { listMemory, patchMemoryFeatures, syncEditorialMemory } from './memory.mjs';
 import {
   addEpisode,
@@ -35,6 +45,51 @@ export async function handleEditorialRoute({
 }) {
   if (!route.startsWith('/editorial') && !route.startsWith('/editorial-')) {
     // also accept short paths under /editorial/*
+  }
+
+  if (
+    route === '/editorial/rubric-tests' ||
+    /^\/editorial\/rubric-tests\/[\w-]+\/decide$/.test(route)
+  ) {
+    if (method !== 'GET') assertOrigin(request, env);
+    try {
+      const { document: service } = await loadServiceForCabinet(env);
+      ensureRubrics(db, service);
+      let result;
+      if (method === 'GET' && route === '/editorial/rubric-tests') {
+        const projectId = url.searchParams.get('project');
+        if (!service.projects?.[projectId]) {
+          json(response, 400, { error: 'project_required', message: 'Выберите сообщество' }, cors);
+          return true;
+        }
+        result = { ...rubricSuggestions(db, projectId), tests: listRubricTests(db, projectId) };
+      } else if (method === 'POST') {
+        const body = parseJson(await readBody(request));
+        result =
+          route === '/editorial/rubric-tests'
+            ? proposeRubricTest(db, service, body)
+            : await decideRubricTest(db, service, route.split('/')[3], {
+                ...body,
+                client: getWeeklyVkClient(env),
+              });
+        if (route.endsWith('/decide')) materializeScheduleSlots(db, service, env);
+      } else {
+        json(response, 405, { error: 'method_not_allowed' }, cors);
+        return true;
+      }
+      json(response, 200, result, cors);
+    } catch (error) {
+      if (error.status && !error.code) throw error;
+      const code =
+        error.code || (/^(rubric_|vk_)/.test(error.message) ? error.message : 'rubric_test_failed');
+      json(
+        response,
+        error.status || (code.includes('invalid') || code.includes('too_long') ? 400 : 409),
+        { error: code, message: error.code ? error.message : undefined },
+        cors,
+      );
+    }
+    return true;
   }
 
   if (route === '/editorial' && method === 'GET') {

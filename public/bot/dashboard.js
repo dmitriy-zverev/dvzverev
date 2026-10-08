@@ -840,6 +840,8 @@ function renderSlotSummary(meta) {
 }
 
 let editorialFeedback = '';
+let editorialWorkbench;
+let editorialRubricBundle;
 
 function editorialDate(value) {
   if (!value) return '—';
@@ -910,9 +912,12 @@ function renderEditorialSection(bundle) {
     body =
       '<div class="editorial-empty"><h3>Сначала выберите сообщество</h3><p class="meta">Посмотрите историю публикаций и соберите план на следующую неделю. У каждого сообщества своя редакционная память.</p></div>';
   } else {
+    editorialRubricBundle = bundle.rubricTests;
     const proposal = revision?.proposal;
     const pilot = overview?.pilotStats || {};
     body = `
+      ${editorialWorkbench.render(bundle.rubricTests)}
+      <h3>План публикаций</h3>
       <div class="panel-head">
         <p class="meta">Память 30 дней: ${escapeText(overview?.memoryCount ?? memory.length)} · серии: ${escapeText(overview?.seriesCount ?? series.length)}</p>
         <button type="button" id="editorial-run-job">Собрать план недели</button>
@@ -925,9 +930,8 @@ function renderEditorialSection(bundle) {
       ${proposal ? '<h3>Редакционные решения</h3>' : '<div class="editorial-empty"><h3>Начните с плана недели</h3><p class="meta">Соберите предложение по истории сообщества. До утверждения расписание останется прежним.</p></div>'}
       <div ${proposal ? '' : 'hidden'}>
       <div class="editorial-decisions">
-      <article class="card"><strong>Продолжить</strong>${(proposal?.continue || []).map((item) => `<p class="meta">${escapeText(item.rubricId || '—')}: ${escapeText(item.reason || '')}</p>`).join('') || '<p class="meta">—</p>'}</article>
+      <article class="card"><strong>Продолжить</strong>${(proposal?.continue || []).map((item) => `<p class="meta">${escapeText(bundle.rubricTests?.rubrics?.find((r) => r.id === item.rubricId)?.name || item.rubricId || '—')}: ${escapeText(item.reason || '')}</p>`).join('') || '<p class="meta">—</p>'}</article>
       <article class="card"><strong>Временно убрать</strong>${(proposal?.pause || []).map((item) => `<p class="meta">${escapeText(item.reason || '')}${item.reviewAt ? ` · пересмотр ${escapeText(item.reviewAt)}` : ''}</p>`).join('') || '<p class="meta">—</p>'}</article>
-      <article class="card"><strong>Новые форматы</strong><p class="meta">Два варианта · один активный эксперимент</p>${(proposal?.newFormats || []).map((item) => `<p class="meta">${escapeText(item.title)} · ${item.activate ? 'кандидат к активации' : 'резерв'} · ${escapeText(item.hypothesis || '')}</p>`).join('') || '<p class="meta">Нет предложений</p>'}</article>
       <article class="card"><strong>Серии</strong>${(proposal?.series || []).map((item) => `<p class="meta">${escapeText(item.title || item.seriesId || '—')}: ${escapeText(item.goal || '')}</p>`).join('') || '<p class="meta">—</p>'}</article>
       <article class="card"><strong>Следующий материал</strong><p class="meta">${escapeText(proposal?.nextMaterial?.link || '—')}</p></article>
       </div>
@@ -938,7 +942,7 @@ function renderEditorialSection(bundle) {
           .map(
             (item) =>
               `<article class="card"><div class="card-head"><strong>${escapeText(item.topic || '')}</strong><time class="meta" datetime="${escapeAttr(item.slotUtc || '')}">${escapeText(editorialDate(item.slotUtc))} МСК</time></div>
-              <p>${escapeText(item.thesis || '')}</p>
+              <p class="meta">${escapeText(item.rubricName || bundle.rubricTests?.rubrics?.find((r) => r.id === item.rubricId)?.name || '')}</p><p>${escapeText(item.thesis || '')}</p>
               <details><summary>Основания предложения</summary><p class="meta">${(item.evidenceIds || []).map((id) => escapeText(id)).join(', ') || 'Редакционная гипотеза; статистики недостаточно'}</p></details></article>`,
           )
           .join('') || '<p class="meta">Нет доступных слотов</p>'
@@ -974,7 +978,7 @@ function renderEditorialSection(bundle) {
   return `
     <section class="analytics editorial" aria-label="Редакция">
       <div class="panel-head">
-        <div><h2>Редакция</h2><p class="meta">История, разнообразие и план на неделю</p></div>
+        <div><h2>Редакция</h2><p class="meta">Рубрики, гипотезы и план публикаций</p></div>
         <button type="button" class="panel-refresh" id="refresh">Обновить</button>
       </div>
       <p id="editorial-feedback" class="editorial-feedback" role="status" aria-live="polite">${escapeText(editorialFeedback)}</p>
@@ -1552,6 +1556,7 @@ async function editorialAction(button, request, successText) {
 }
 
 function bindEditorialHandlers() {
+  editorialWorkbench?.bind(app, editorialRubricBundle);
   document.getElementById('project-filter')?.addEventListener('change', (event) => {
     setParam('project', event.target.value);
     loadOverview(true);
@@ -1771,11 +1776,18 @@ async function loadEditorialBundle(project) {
   if (!project) {
     return { overview: null, memory: [], series: [], diversity: null, revision: null };
   }
+  const { createEditorialWorkbench } = await import('./editorial.js');
+  editorialWorkbench ||= createEditorialWorkbench({
+    api,
+    escapeText,
+    refresh: () => loadOverview(true),
+  });
   const q = `?project=${encodeURIComponent(project)}`;
-  const [overview, memoryPayload, seriesPayload] = await Promise.all([
+  const [overview, memoryPayload, seriesPayload, rubricTests] = await Promise.all([
     api(`/bot/api/v1/editorial${q}`),
     api(`/bot/api/v1/editorial/memory${q}`),
     api(`/bot/api/v1/editorial/series${q}`),
+    api(`/bot/api/v1/editorial/rubric-tests${q}`),
   ]);
   let revision = overview.latestRevision || null;
   const revisionParam = params().get('revision');
@@ -1784,6 +1796,7 @@ async function loadEditorialBundle(project) {
   }
   return {
     overview,
+    rubricTests,
     memory: memoryPayload.items || [],
     diversity: memoryPayload.diversity || null,
     series: seriesPayload.series || [],

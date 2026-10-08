@@ -62,6 +62,12 @@ export function upsertMemoryFromEdition(db, row, now = new Date()) {
     .prepare('SELECT memory_id FROM editorial_memory WHERE edition_id = ?')
     .get(row.edition_id);
   const classified = classifyEdition(row);
+  const binding = db
+    .prepare(
+      'SELECT r.rubric_id FROM rubric_slots r JOIN schedule_slots s USING(plan_id) WHERE s.edition_id=? AND s.project_id=? LIMIT 1',
+    )
+    .get(row.edition_id, row.project_id);
+  if (binding) classified.rubricId = binding.rubric_id;
   const bodyText = row.body_removed_at ? null : row.body_text;
   const iso = now.toISOString();
   const expiresAt = contentExpiresAt(row.sent_at || iso, now);
@@ -73,7 +79,7 @@ export function upsertMemoryFromEdition(db, row, now = new Date()) {
       `UPDATE editorial_memory SET
         delivery_id = ?, vk_post_id = ?, sent_at = ?,
         body_text = CASE WHEN body_removed_at IS NOT NULL THEN NULL ELSE ? END,
-        media_actual = ?, rubric_id = COALESCE(rubric_id, ?),
+        media_actual = ?, rubric_id = COALESCE(?, rubric_id, ?),
         topic_tags_json = ?, tone = CASE WHEN feature_source = 'manual' THEN tone ELSE ? END,
         intensity = CASE WHEN feature_source = 'manual' THEN intensity ELSE ? END,
         structure = CASE WHEN feature_source = 'manual' THEN structure ELSE ? END,
@@ -93,6 +99,7 @@ export function upsertMemoryFromEdition(db, row, now = new Date()) {
       row.sent_at,
       bodyText,
       row.feature_media || row.media_actual || null,
+      binding?.rubric_id || null,
       classified.rubricId,
       JSON.stringify(classified.topicTags),
       classified.tone,
