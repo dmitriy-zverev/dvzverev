@@ -633,6 +633,7 @@ function renderLogin(message = '') {
 
 function toneForStatus(status) {
   if (status === 'sent' || status === 'partially_sent') return 'sent';
+  if (status === 'deferred') return 'planned';
   if (['failed', 'exhausted', 'missed'].includes(status)) return 'failed';
   if (status === 'uncertain') return 'uncertain';
   if (status === 'retry_wait') return 'delayed';
@@ -651,6 +652,7 @@ function slotChannelLabel(card) {
 /** Short labels for calendar slots only; modal/tooltip keep full statusLabel from API. */
 const SLOT_STATUS_SHORT = {
   planned: 'План',
+  deferred: 'Отлож.',
   generating: 'Готов…',
   ready: 'Готов',
   sending: 'Отпр.',
@@ -666,6 +668,7 @@ const SLOT_STATUS_SHORT = {
 
 const SLOT_STATUS_SHORT_BY_LABEL = {
   Запланирован: 'План',
+  Отложен: 'Отлож.',
   Готовится: 'Готов…',
   'Готов к отправке': 'Готов',
   Отправляется: 'Отпр.',
@@ -1001,12 +1004,9 @@ function renderWeeklyPreparation() {
   const batch = state.weekly;
   if (!batch)
     return `<section class="weekly-prepare"><p role="status">Не удалось проверить подготовку следующей недели.</p><p class="meta">Обновите страницу. Публикации не запускаются без проверки расписания.</p></section>`;
-  if (!batch.total && !batch.current?.total)
-    return `<section class="weekly-prepare"><p class="weekly-eyebrow">Недельная подготовка</p><h2>Медиа-публикаций пока нет</h2><p class="weekly-description">Добавьте рубрику с фото или коротким видео. Её публикации появятся здесь для подготовки на неделю.</p><button type="button" id="prepare-rubrics" aria-label="Настроить рубрики →">Настроить рубрики ${icon('right')}</button></section>`;
-  const needsVideo = [...batch.posts, ...(batch.current?.posts || [])].some(
-    (p) => p.media === 'video' && !['scheduled', 'sent'].includes(p.status),
-  );
-  const connected = batch.vk?.canPrepare && (!needsVideo || batch.vk?.canVideo);
+  if (!batch.total)
+    return `<section class="weekly-prepare"><p class="weekly-eyebrow">Недельная подготовка</p><h2>Слотов на следующую неделю пока нет</h2><p class="weekly-description">Добавьте рубрики с текстом или GIF. Каждое воскресенье в 20:00 МСК постер сам отложит посты; кнопка добивает только дыры.</p><button type="button" id="prepare-rubrics" aria-label="Настроить рубрики →">Настроить рубрики ${icon('right')}</button></section>`;
+  const connected = Boolean(batch.vk?.canPrepare);
   const busy = batch.running || state.preparing;
   const ready = batch.ready;
   const percent = batch.total ? Math.round((ready / batch.total) * 100) : 0;
@@ -1017,30 +1017,42 @@ function renderWeeklyPreparation() {
       timeZone: 'Europe/Moscow',
     }).format(new Date(value + 'T12:00:00Z'));
   const projects = [...new Set(batch.posts.map((post) => post.projectId))];
-  const errors = [...batch.posts, ...(batch.current?.posts || [])].filter((post) =>
+  const errors = batch.posts.filter((post) =>
     ['failed', 'exhausted', 'uncertain'].includes(post.status),
   );
+  const dayTitle = (status) =>
+    ({
+      deferred: 'Отложен во VK',
+      scheduled: 'Отложен во VK',
+      sent: 'Опубликован',
+      preparing: 'Готовится',
+      exhausted: 'Остановлено после 3 попыток',
+      failed: 'Ошибка',
+      uncertain: 'Нужна проверка',
+    })[status] || 'Ожидает подготовки';
   return `<section class="weekly-prepare${batch.complete ? ' is-complete' : ''}" aria-labelledby="prepare-title">
     <div class="weekly-prepare-main">
       <div class="weekly-prepare-copy"><p class="weekly-eyebrow">Следующая неделя · VK</p><h2 id="prepare-title">${date(batch.week.start)} — ${date(batch.week.end)}</h2>
-      <p class="weekly-description">GIF и короткие видео рубрик — в отложенные VK.<br>Текстовые публикации выходят по расписанию рубрик.</p></div>
+      <p class="weekly-description">Текст и GIF всех групп — в отложенные VK community-ключом.<br>Автозапуск: воскресенье 20:00 МСК. Кнопка — только незапланированные.</p></div>
       <div class="weekly-prepare-action">
-        <span class="weekly-auth ${connected ? 'is-connected' : ''}"><span class="weekly-auth-dot" aria-hidden="true"></span> ${connected ? (batch.vk?.mode === 'community' ? 'Ключи сообществ готовы' : 'VK подключён') : batch.vk?.mode === 'community' ? 'Нужны ключи сообществ на сервере' : 'Нужен вход в VK'}</span>
-        ${!connected && !batch.complete && !busy && batch.vk?.mode !== 'community' ? `<a class="weekly-primary" href="${escapeAttr(apiBase)}/bot/api/v1/vk/legacy/login">Войти в VK ${icon('external')}</a>` : `<button class="weekly-primary" type="button" id="prepare-week" ${busy || batch.complete || !batch.missing || !connected ? 'disabled' : ''} aria-busy="${Boolean(busy)}" ${batch.complete ? 'aria-label="Неделя подготовлена ✓"' : ''}>${busy ? 'Подготавливаем посты…' : batch.complete ? `Неделя подготовлена ${icon('check')}` : 'Подготовить посты'}<span aria-hidden="true">${!busy && !batch.complete && batch.missing ? ` · ${batch.missing}` : ''}</span></button>`}
-        <p class="weekly-action-note">${batch.complete ? 'Все GIF и записи сохранены во VK' : busy ? 'Можно закрыть страницу — подготовка продолжится' : !connected && batch.vk?.mode === 'community' ? 'Добавьте community-токены групп в env сервера' : !connected ? 'После входа вернём вас сюда' : batch.uncertain && !batch.missing ? 'Проверьте записи с неизвестным результатом' : 'Генерация и отправка только оставшихся записей'}</p>
+        <span class="weekly-auth ${connected ? 'is-connected' : ''}"><span class="weekly-auth-dot" aria-hidden="true"></span> ${connected ? 'Ключи сообществ готовы' : 'Нужны ключи сообществ на сервере'}</span>
+        <button class="weekly-primary" type="button" id="prepare-week" ${busy || batch.complete || !batch.missing || !connected ? 'disabled' : ''} aria-busy="${Boolean(busy)}" ${batch.complete ? 'aria-label="Неделя подготовлена ✓"' : ''}>${busy ? 'Подготавливаем посты…' : batch.complete ? `Неделя подготовлена ${icon('check')}` : 'Подготовить посты'}<span aria-hidden="true">${!busy && !batch.complete && batch.missing ? ` · ${batch.missing}` : ''}</span></button>
+        <p class="weekly-action-note">${batch.complete ? 'Все посты подтверждены как отложенные во VK' : busy ? 'Можно закрыть страницу — подготовка продолжится' : !connected ? 'Добавьте community-токены групп в env сервера' : batch.uncertain && !batch.missing ? 'Проверьте записи с неизвестным результатом' : 'Готовим только слоты без подтверждённого отложенного поста'}</p>
       </div>
     </div>
-    <div class="weekly-progress-line"><span>${busy ? 'Подготовка идёт' : batch.complete ? 'Всё готово к публикации' : 'Готовность недели'}</span><strong>${ready}<span> / ${batch.total}</span></strong></div>
+    <div class="weekly-progress-line"><span>${busy ? 'Подготовка идёт' : batch.complete ? 'Всё отложено' : 'Готовность недели'}</span><strong>${ready}<span> / ${batch.total}</span></strong></div>
     <progress class="weekly-progress" value="${ready}" max="${batch.total || 1}" aria-label="Отложенные посты следующей недели">${percent}%</progress>
     <div class="weekly-projects">${projects
       .map((id) => {
         const posts = batch.posts.filter((p) => p.projectId === id);
-        const done = posts.filter((p) => ['scheduled', 'sent'].includes(p.status)).length;
-        return `<div class="weekly-project"><span>${escapeText(posts[0].title)}</span><strong>${done}<span> / ${posts.length}</span></strong><div class="weekly-days" aria-label="Готовность постов ${escapeAttr(posts[0].title)}">${posts.map((p) => `<span class="weekly-day is-${escapeAttr(p.status === 'exhausted' ? 'failed' : p.status)}" title="${escapeAttr(new Date(p.date).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }))} · ${escapeAttr(p.status === 'scheduled' ? 'В отложенных VK' : p.status === 'sent' ? 'Опубликован' : p.status === 'preparing' ? 'Готовится' : p.status === 'exhausted' ? 'Остановлено после 3 попыток' : p.status === 'failed' ? 'Ошибка' : p.status === 'uncertain' ? 'Нужна проверка' : 'Ожидает подготовки')}"></span>`).join('')}</div></div>`;
+        const done = posts.filter((p) =>
+          ['deferred', 'scheduled', 'sent'].includes(p.status),
+        ).length;
+        return `<div class="weekly-project"><span>${escapeText(posts[0].title)}</span><strong>${done}<span> / ${posts.length}</span></strong><div class="weekly-days" aria-label="Готовность постов ${escapeAttr(posts[0].title)}">${posts.map((p) => `<span class="weekly-day is-${escapeAttr(p.status === 'exhausted' ? 'failed' : p.status === 'deferred' ? 'scheduled' : p.status)}" title="${escapeAttr(new Date(p.date).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }))} · ${escapeAttr(dayTitle(p.status))}"></span>`).join('')}</div></div>`;
       })
       .join('')}</div>
     <div class="weekly-feedback" aria-live="polite">${state.preparationError ? `<p role="alert">${escapeText(state.preparationError)}</p>` : ''}</div>
-    ${errors.length ? `<details class="weekly-errors"><summary>Требуют внимания · ${errors.length}</summary>${errors.map((p) => `<p><strong>${escapeText(p.title)}</strong> · ${escapeText(new Date(p.date).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }))}<br>${p.status === 'uncertain' ? 'Результат отправки неизвестен. Проверьте отложенные VK: повторная отправка заблокирована.' : p.status === 'exhausted' ? 'Остановлено после 3 попыток — VK больше не дергаем. Исправьте доступ и сбросьте слот вручную.' : 'Не удалось подготовить запись. До 3 попыток, потом стоп.'}</p>`).join('')}</details>` : ''}
+    ${errors.length ? `<details class="weekly-errors"><summary>Требуют внимания · ${errors.length}</summary>${errors.map((p) => `<p><strong>${escapeText(p.title)}</strong> · ${escapeText(new Date(p.date).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }))}<br>${p.status === 'uncertain' ? 'Результат отправки неизвестен. Проверьте отложенные VK: повторная отправка заблокирована.' : p.status === 'exhausted' ? 'Остановлено после 3 попыток — VK больше не дергаем.' : 'Не удалось подготовить запись. До 3 попыток, потом стоп.'}</p>`).join('')}</details>` : ''}
     ${
       ready
         ? `<details class="weekly-links"><summary>Записи в VK · ${ready}</summary><div>${batch.posts
@@ -1052,33 +1064,26 @@ function renderWeeklyPreparation() {
             .join('')}</div></details>`
         : ''
     }
-    ${batch.current ? `<div class="weekly-current"><div><strong>Дополнить текущую неделю</strong><p class="meta">${batch.current.ready} из ${batch.current.total} готово · ${batch.current.missing} осталось. Только ещё не вышедшие посты.</p></div><button type="button" id="prepare-current" ${batch.current.running || !batch.current.missing || !connected ? 'disabled' : ''}>${batch.current.running ? 'Готовим…' : 'Дополнить неделю'}</button></div>` : ''}
   </section>`;
 }
 
-async function prepareWeek(current = false) {
-  const batch = current ? state.weekly?.current : state.weekly;
+async function prepareWeek() {
+  const batch = state.weekly;
   if (state.preparing || batch?.running || !batch?.missing) return;
   state.preparing = true;
   state.preparationError = null;
-  const button = document.getElementById(current ? 'prepare-current' : 'prepare-week');
+  const button = document.getElementById('prepare-week');
   if (button) {
     button.disabled = true;
     button.textContent = 'Подготавливаем посты…';
   }
   try {
-    const result = await api('/bot/api/v1/weekly-preparation' + (current ? '?scope=current' : ''), {
-      method: 'POST',
-      body: '{}',
-    });
-    if (!current) state.weekly = result;
+    state.weekly = await api('/bot/api/v1/weekly-preparation', { method: 'POST', body: '{}' });
   } catch (error) {
     state.preparationError =
       error.status === 409
-        ? error.body?.error === 'vk_video_permission_required'
-          ? 'Войдите в VK повторно и разрешите доступ к видео.'
-          : 'Сначала войдите в VK с необходимыми правами.'
-        : 'Запуск не подтверждён. Обновите страницу, чтобы проверить состояние подготовки.';
+        ? error.body?.message || 'Нужны community-токены всех VK-групп на сервере.'
+        : 'Не удалось запустить подготовку. Обновите страницу.';
   } finally {
     state.preparing = false;
     await loadOverview(true);
@@ -1160,6 +1165,7 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
             <option value="">Все статусы</option>
             ${[
               ['planned', 'Запланирован'],
+              ['deferred', 'Отложен'],
               ['retry_wait', 'Задержан'],
               ['sent', 'Опубликован'],
               ['failed', 'Не опубликован'],
@@ -1278,7 +1284,6 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
     }
   });
   document.getElementById('prepare-week')?.addEventListener('click', () => prepareWeek());
-  document.getElementById('prepare-current')?.addEventListener('click', () => prepareWeek(true));
   document.getElementById('prepare-rubrics')?.addEventListener('click', () => {
     setParam('tab', 'rubrics');
     loadOverview(true);

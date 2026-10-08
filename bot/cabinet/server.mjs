@@ -297,12 +297,12 @@ async function handleRequest(request, response, env) {
       return;
     if (route === '/weekly-preparation' && ['GET', 'POST'].includes(request.method)) {
       if (request.method === 'POST') assertOrigin(request, env);
-      const current = url.searchParams.get('scope') === 'current';
       const now = new Date();
+      // Button only prepares the next week (text + GIF). Current-week / video path removed.
       const snapshot =
         request.method === 'POST'
-          ? await ensureWeeklySnapshot(db, env, now, current)
-          : weeklySnapshot(db, now, current);
+          ? await ensureWeeklySnapshot(db, env, now, false)
+          : weeklySnapshot(db, now, false);
       const client = getWeeklyVkClient(env);
       if (request.method === 'POST') {
         if (!client?.status().canPrepare) {
@@ -310,25 +310,8 @@ async function handleRequest(request, response, env) {
             response,
             409,
             {
-              error: 'vk_login_required',
-              message: 'Войдите в VK с правами на стену, фотографии и сообщества.',
-            },
-            cors,
-          );
-          return;
-        }
-        if (
-          snapshot.posts.some(
-            (p) => p.media === 'video' && !['scheduled', 'sent'].includes(p.status),
-          ) &&
-          !client.status().canVideo
-        ) {
-          json(
-            response,
-            409,
-            {
-              error: 'vk_video_permission_required',
-              message: 'Войдите в VK повторно и разрешите доступ к видео.',
+              error: 'vk_community_not_ready',
+              message: 'Нужны community-токены и ID всех VK-групп на сервере.',
             },
             cors,
           );
@@ -341,8 +324,7 @@ async function handleRequest(request, response, env) {
               week: snapshot.week.start,
               missing: snapshot.missing,
             });
-            // The background job owns its SQLite connection after this request closes.
-            void prepareWeeklyPosts(env, snapshot.week.start, owner);
+            void prepareWeeklyPosts(env, snapshot.week.start, owner, { source: 'button' });
           }
         }
       }
@@ -350,8 +332,7 @@ async function handleRequest(request, response, env) {
         response,
         request.method === 'POST' ? 202 : 200,
         {
-          ...weeklySnapshot(db, now, current),
-          current: weeklySnapshot(db, now, true),
+          ...weeklySnapshot(db, now, false),
           vk: weeklyVkStatus(env),
         },
         cors,

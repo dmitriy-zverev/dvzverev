@@ -4,9 +4,11 @@
 
 ## Недельная подготовка (production по умолчанию)
 
-Недельные посты **всегда** на community-токенах групп из `service.json`
-(`credentialEnv` / `groupIdEnv`): текст + `docs` GIF → `wall.post`. API VK — напрямую
-с Cloud.ru. Методы `photos.*` community-ключ не отдаёт (код 27).
+Недельные посты **всегда** на community-токенах **всех** VK-групп из `service.json`
+(`credentialEnv` / `groupIdEnv`): текст и `docs` GIF → `wall.post` с `publish_date`.
+Автозапуск: воскресенье 20:00 МСК; кнопка добивает только дыры. Календарь: Отложен →
+Опубликован после проверки `wall.getById`. API VK — напрямую с Cloud.ru. Методы
+`photos.*` community-ключ не отдаёт (код 27). Видео пока не готовим.
 
 `VK_WEEKLY_OAUTH_ENABLED=true` включает **отдельный** owner PKCE (путь B, app
 `VK_WEEKLY_CLIENT_ID`): вход владельца, проверка scope `wall/photos/groups`, probe

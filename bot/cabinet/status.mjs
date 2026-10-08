@@ -15,6 +15,7 @@ export function isTerminalDeliveryStatus(status) {
 
 export const DELIVERY_STATUSES = new Set([
   'planned',
+  'deferred',
   'generating',
   'ready',
   'sending',
@@ -29,6 +30,7 @@ export const DELIVERY_STATUSES = new Set([
 
 export const OPERATOR_STATUS = {
   planned: { label: 'Запланирован', icon: '○' },
+  deferred: { label: 'Отложен', icon: '◷' },
   generating: { label: 'Готовится', icon: '…' },
   ready: { label: 'Готов к отправке', icon: '◔' },
   sending: { label: 'Отправляется', icon: '↑' },
@@ -63,6 +65,8 @@ export function aggregateEditionStatus(deliveryStatuses) {
     if (statuses.includes('ready')) return 'ready';
     return 'generating';
   }
+  if (statuses.every((status) => status === 'deferred' || status === 'scheduled'))
+    return 'deferred';
   if (statuses.every((status) => status === 'planned')) return 'planned';
   if (statuses.every((status) => status === 'missed')) return 'missed';
   if (statuses.every((status) => FAILURE.has(status))) {
@@ -73,7 +77,7 @@ export function aggregateEditionStatus(deliveryStatuses) {
 }
 
 export function summaryBucket(status) {
-  if (status === 'planned') return 'planned';
+  if (status === 'planned' || status === 'deferred') return 'planned';
   if (['generating', 'ready'].includes(status)) return 'readying';
   if (status === 'sent') return 'sent';
   if (status === 'partially_sent') return 'sent';

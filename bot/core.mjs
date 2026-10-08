@@ -18,6 +18,7 @@ import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { openCabinetDb } from './cabinet/db.mjs';
 import { assertSlotCurrent, applyRubricConfig } from './cabinet/rubrics.mjs';
+import { weeklyDelivery } from './cabinet/weekly-delivery.mjs';
 import { acquireLock } from './lock.mjs';
 import {
   generateCover,
@@ -820,13 +821,7 @@ export async function publish(
       }
     }
     const weeklySlot = scheduledTask?.slotKey || (!manual && dueSlot(config, now));
-    if (
-      !manual &&
-      config.weeklyImages &&
-      weeklySlot &&
-      config.mediaTimes?.includes(weeklySlot.match(/@(\d{2}:\d{2})\[/)?.[1])
-    ) {
-      const { weeklyDelivery } = await import('./cabinet/weekly-delivery.mjs');
+    if (!manual && config.vkEnabled && weeklySlot) {
       const result = await weeklyDelivery(
         config,
         weeklySlot,
@@ -836,14 +831,23 @@ export async function publish(
           ? { ...process.env, BOT_CABINET_DB_PATH: config.cabinetDbPath }
           : process.env,
       );
-      if (
-        result.entry &&
-        !state.entries.some((e) => e.slot === weeklySlot && e.platform === 'vk')
-      ) {
-        state.entries.push(result.entry);
-        await saveState(config, state);
+      if (result.status !== 'weekly_preparation_required') {
+        if (
+          result.entry &&
+          !state.entries.some((e) => e.slot === weeklySlot && e.platform === 'vk')
+        ) {
+          state.entries.push(result.entry);
+          await saveState(config, state);
+        }
+        return { status: result.status };
       }
-      return { status: result.status };
+      // Media slots that used to require weekly prepare stay blocked without a receipt.
+      if (
+        config.weeklyImages &&
+        config.mediaTimes?.includes(weeklySlot.match(/@(\d{2}:\d{2})\[/)?.[1])
+      ) {
+        return { status: 'weekly_preparation_required' };
+      }
     }
     if (
       config.telegramEnabled !== false &&

@@ -10,7 +10,10 @@ import {
   weeklySnapshot,
   claimWeeklyJob,
   prepareWeeklyPosts,
+  isSundayWeeklyPrepareWindow,
+  maybeStartSundayWeeklyPrepare,
 } from '../../bot/cabinet/weekly.mjs';
+import { notifyWeeklyPrepareDigest, summarizeWeek } from '../../bot/cabinet/weekly-notify.mjs';
 import {
   LegacyVkClient,
   legacyCallbackPage,
@@ -62,19 +65,26 @@ async function fixture(t) {
     cover: async () => ({ status: 'ready' }),
     upload: async () => 'photo-123_42',
     pause: async () => {},
-    report: async () => {},
+    notify: async () => ({ skipped: 'test' }),
   };
   return { db, env, week, dependencies };
 }
 
-function client(fail) {
+function client(fail, { attachment = 'photo-123_42', postType = 'postponed' } = {}) {
   let writes = 0;
   const receipts = new Map();
+  const kind = attachment.startsWith('doc')
+    ? 'doc'
+    : attachment.startsWith('video')
+      ? 'video'
+      : 'photo';
+  const [, owner, id] = attachment.match(/^(?:photo|doc|video)(-?\d+)_(\d+)/) || [];
   return {
     get writes() {
       return writes;
     },
     accessToken: async () => 'test-secret',
+    uploadWeeklyImage: async () => attachment,
     api: async (method, parameters) => {
       if (method === 'wall.post') {
         writes++;
@@ -83,7 +93,8 @@ function client(fail) {
           id: writes,
           owner_id: -123,
           date: parameters.publish_date,
-          attachments: [{ type: 'photo', photo: { owner_id: -123, id: 42 } }],
+          post_type: postType,
+          attachments: [{ type: kind, [kind]: { owner_id: Number(owner), id: Number(id) } }],
         });
         return { post_id: writes };
       }
@@ -92,52 +103,148 @@ function client(fail) {
   };
 }
 
-test('weekly short video uses user upload and video receipt without generating a photo', async (t) => {
+test('text slots defer without attachment and skip duplicates on rerun', async (t) => {
+  const f = await fixture(t);
+  f.db.prepare("UPDATE schedule_slots SET publication_kind='text',expected_media=NULL").run();
+  let covers = 0;
+  f.dependencies.cover = async () => {
+    covers++;
+    throw new Error('cover_should_not_run_for_text');
+  };
+  const c = client();
+  await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
+    ...f.dependencies,
+    client: c,
+  });
+  assert.equal(covers, 0);
+  assert.equal(c.writes, 2);
+  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z')).ready, 2);
+  assert.equal(
+    f.db.prepare("SELECT status FROM vk_weekly_posts WHERE plan_id='p0'").get().status,
+    'deferred',
+  );
+  await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
+    ...f.dependencies,
+    client: c,
+  });
+  assert.equal(c.writes, 2);
+  f.db.close();
+});
+
+test('gif without postponed confirmation stays uncertain (no auto-repost)', async (t) => {
+  const f = await fixture(t);
+  f.db.prepare("DELETE FROM schedule_slots WHERE plan_id='p1'").run();
+  const c = client(null, { attachment: 'doc-123_9', postType: 'post' });
+  await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
+    ...f.dependencies,
+    client: c,
+  });
+  assert.equal(c.writes, 1);
+  assert.equal(
+    f.db.prepare("SELECT status, error FROM vk_weekly_posts WHERE plan_id='p0'").get().status,
+    'uncertain',
+  );
+  f.db.close();
+});
+
+test('sunday window and auto-prepare guard fire once per next week', async (t) => {
+  assert.equal(isSundayWeeklyPrepareWindow(new Date('2026-10-11T17:00:00Z')), true); // Sun 20:00 MSK
+  assert.equal(isSundayWeeklyPrepareWindow(new Date('2026-10-11T16:00:00Z')), false);
+  assert.equal(isSundayWeeklyPrepareWindow(new Date('2026-10-10T17:00:00Z')), false);
+  const f = await fixture(t);
+  let started = 0;
+  const first = await maybeStartSundayWeeklyPrepare(
+    f.env,
+    new Date('2026-10-11T17:05:00Z'),
+    {
+      ensure: false,
+      client: { status: () => ({ canPrepare: true }) },
+      prepare: async () => {
+        started++;
+      },
+    },
+  );
+  assert.equal(first.started, true);
+  assert.equal(started, 1);
+  const second = await maybeStartSundayWeeklyPrepare(
+    f.env,
+    new Date('2026-10-11T17:10:00Z'),
+    {
+      ensure: false,
+      client: { status: () => ({ canPrepare: true }) },
+      prepare: async () => {
+        started++;
+      },
+    },
+  );
+  assert.equal(second.skipped, 'already_started');
+  assert.equal(started, 1);
+  f.db.close();
+});
+
+test('weekly digest summarizes deferred holes once', async (t) => {
+  const f = await fixture(t);
+  const c = client();
+  await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
+    ...f.dependencies,
+    client: c,
+  });
+  f.db
+    .prepare(
+      "UPDATE vk_weekly_posts SET status='failed', error='vk_api_rejected_6' WHERE plan_id='p1'",
+    )
+    .run();
+  let messages = [];
+  const first = await notifyWeeklyPrepareDigest(f.db, {
+    weekStart: f.week.start,
+    source: 'schedule',
+    env: {
+      ...f.env,
+      TELEGRAM_BOT_TOKEN: '1:token',
+      BOT_ALERT_CHAT_ID: '1',
+    },
+    notify: async (_config, html) => {
+      messages.push(html);
+    },
+  });
+  assert.equal(first.sent, true);
+  assert.match(messages[0], /отложено: <b>1<\/b>/);
+  assert.match(messages[0], /не готово: <b>1<\/b>/);
+  const second = await notifyWeeklyPrepareDigest(f.db, {
+    weekStart: f.week.start,
+    source: 'schedule',
+    env: {
+      ...f.env,
+      TELEGRAM_BOT_TOKEN: '1:token',
+      BOT_ALERT_CHAT_ID: '1',
+    },
+    notify: async (_config, html) => {
+      messages.push(html);
+    },
+  });
+  assert.equal(second.skipped, 'deduped');
+  assert.equal(messages.length, 1);
+  assert.equal(summarizeWeek(f.db, f.week.start).deferred, 1);
+  f.db.close();
+});
+
+test('weekly prepare skips video slots until user OAuth for video returns', async (t) => {
   const f = await fixture(t);
   f.db.prepare("UPDATE schedule_slots SET publication_kind='video',expected_media='video'").run();
-  let generated = 0,
-    uploaded = 0,
-    writes = 0;
-  f.dependencies.cover = async () => {
-    throw new Error('Photo generation must not run');
-  };
-  f.dependencies.video = async (config) => {
-    generated++;
-    assert.equal(config.videoOutput, true);
-    return { status: 'ready', path: '/tmp/mock.mp4' };
-  };
-  const receipts = new Map();
+  let writes = 0;
   const c = {
-    status: () => ({ canVideo: true }),
     accessToken: async () => 'test-secret',
-    uploadVideo: async (type, id, path) => {
-      uploaded++;
-      assert.equal(type, 'group');
-      assert.equal(id, '123');
-      assert.equal(path, '/tmp/mock.mp4');
-      return { attachment: 'video-123_77' };
-    },
-    api: async (method, p) => {
-      if (method === 'wall.post') {
-        writes++;
-        assert.equal(p.attachments, 'video-123_77');
-        receipts.set(writes, {
-          id: writes,
-          owner_id: -123,
-          date: p.publish_date,
-          attachments: [{ type: 'video', video: { owner_id: -123, id: 77 } }],
-        });
-        return { post_id: writes };
-      }
-      return [receipts.get(Number(p.posts.split('_')[1]))];
+    api: async () => {
+      writes++;
+      throw new Error('video_should_not_run');
     },
   };
-  const owner = claimWeeklyJob(f.db, f.week.start);
-  await prepareWeeklyPosts(f.env, f.week.start, owner, { ...f.dependencies, client: c });
-  assert.equal(generated, 2);
-  assert.equal(uploaded, 2);
-  assert.equal(writes, 2);
-  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z')).ready, 2);
+  await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
+    ...f.dependencies,
+    client: c,
+  });
+  assert.equal(writes, 0);
+  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z')).total, 0);
 });
 
 test('next week is Monday through Sunday in Moscow even around UTC midnight', () => {
@@ -197,10 +304,10 @@ test('slot stops after three attempts and is not selected again', async (t) => {
   const f = await fixture(t);
   f.db.prepare("DELETE FROM schedule_slots WHERE plan_id='p1'").run();
   let writes = 0;
-  let reports = 0;
   const c = {
     accessToken: async () => 'test-secret',
-    api: async (method) => {
+    uploadWeeklyImage: async () => 'doc-123_42',
+    api: async (method, parameters) => {
       if (method === 'wall.post') {
         writes++;
         throw Object.assign(new Error('vk_api_rejected_6'), { vkCode: 6 });
@@ -208,21 +315,16 @@ test('slot stops after three attempts and is not selected again', async (t) => {
       return [];
     },
   };
-  const deps = {
-    ...f.dependencies,
-    client: c,
-    report: async () => {
-      reports++;
-    },
-  };
   for (let i = 0; i < 4; i++) {
-    await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), deps);
+    await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
+      ...f.dependencies,
+      client: c,
+    });
   }
   const row = f.db.prepare("SELECT status, attempts FROM vk_weekly_posts WHERE plan_id='p0'").get();
   assert.equal(row.status, 'exhausted');
   assert.equal(row.attempts, 3);
   assert.equal(writes, 3);
-  assert.equal(reports, 3);
   assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z')).exhausted, 1);
   f.db.close();
 });
@@ -244,7 +346,6 @@ test('three consecutive slot failures abort the rest of the weekly job', async (
       );
   }
   let tokens = 0;
-  let reports = 0;
   const c = {
     accessToken: async () => {
       tokens++;
@@ -257,22 +358,12 @@ test('three consecutive slot failures abort the rest of the weekly job', async (
   await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
     ...f.dependencies,
     client: c,
-    report: async () => {
-      reports++;
-    },
   });
   assert.equal(tokens, 3);
-  assert.equal(reports, 3);
   assert.equal(
     f.db.prepare("SELECT COUNT(*) n FROM vk_weekly_posts WHERE status='failed'").get().n,
     3,
   );
-  assert.equal(
-    f.db.prepare("SELECT COUNT(*) n FROM vk_weekly_posts WHERE status IS NULL OR status='pending'")
-      .get().n,
-    0,
-  );
-  // Remaining slots never touched in this run.
   assert.equal(f.db.prepare('SELECT COUNT(*) n FROM vk_weekly_posts').get().n, 3);
   f.db.close();
 });
@@ -343,7 +434,7 @@ test('regular worker checks postponed receipt and marks sent only after real pub
   assert.equal(delayed.status, 'vk_scheduled');
   assert.equal(
     f.db.prepare("SELECT status FROM vk_weekly_posts WHERE plan_id='p0'").get().status,
-    'scheduled',
+    'deferred',
   );
   type = 'post';
   const sent = await weeklyDelivery(config, slot.slot_key, now, fetcher, f.env);
@@ -446,13 +537,15 @@ test('weekly preparation defaults to community tokens when user oauth is disable
     VK_LEGACY_OAUTH_ENABLED: 'false',
     VK_WEEKLY_OAUTH_ENABLED: 'false',
     BOT_CONFIG_PATH: join(process.cwd(), 'bot/service.json'),
+    VK_ACCESS_TOKEN: 'vk1.a.community-code',
+    VK_CODE_TO_THINK_GROUP_ID: '242034586',
     VK_DARK_ACADEMIA_ACCESS_TOKEN: 'vk1.a.community-dark',
     VK_DARK_ACADEMIA_GROUP_ID: '194579254',
     VK_THINGS_ACCESS_TOKEN: 'vk1.a.community-things',
     VK_THINGS_GROUP_ID: '242058626',
   };
   const targets = listWeeklyCommunityTargets(env);
-  assert.equal(targets.length, 2);
+  assert.equal(targets.length, 3);
   const client = getWeeklyVkClient(env);
   assert.equal(client.mode, 'community');
   assert.equal(client.status().canPrepare, true);
@@ -469,6 +562,8 @@ test('owner oauth can be enabled while weekly posts stay on community', () => {
     VK_OAUTH_ENCRYPTION_KEY: 'a'.repeat(64),
     VK_OAUTH_STORE_PATH: join(tmpdir(), `vk-owner-${Date.now()}.sqlite`),
     BOT_CONFIG_PATH: join(process.cwd(), 'bot/service.json'),
+    VK_ACCESS_TOKEN: 'vk1.a.community-code',
+    VK_CODE_TO_THINK_GROUP_ID: '242034586',
     VK_DARK_ACADEMIA_ACCESS_TOKEN: 'vk1.a.community-dark',
     VK_DARK_ACADEMIA_GROUP_ID: '194579254',
     VK_THINGS_ACCESS_TOKEN: 'vk1.a.community-things',

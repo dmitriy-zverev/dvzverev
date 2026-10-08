@@ -3,13 +3,13 @@ import { resolve } from 'node:path';
 import { readOptionalEnvValue } from '../config/env.mjs';
 import { uploadVkCover } from '../images.mjs';
 
+/** All VK destinations with group + community token env — not only vk-weekly media. */
 export function listWeeklyCommunityTargets(env) {
   const configPath = resolve(env.BOT_CONFIG_PATH || 'bot/service.json');
   const document = JSON.parse(readFileSync(configPath, 'utf8'));
   const targets = [];
   for (const [destinationId, destination] of Object.entries(document.destinations || {})) {
     if (destination.platform !== 'vk') continue;
-    if (destination.media?.scheduling !== 'vk-weekly') continue;
     const credentialEnv = destination.credentialEnv;
     const groupIdEnv = destination.groupIdEnv;
     if (!credentialEnv || !groupIdEnv) continue;
@@ -88,7 +88,9 @@ export class CommunityWeeklyPublisher {
     const body = await response.json();
     if (!response.ok || body.error) {
       const vkCode = Number(body.error?.error_code) || null;
-      throw new Error(`vk_api_rejected_${vkCode || response.status}`);
+      const error = new Error(`vk_api_rejected_${vkCode || response.status}`);
+      if (vkCode) error.vkCode = vkCode;
+      throw error;
     }
     return body.response;
   }
@@ -103,7 +105,6 @@ export class CommunityWeeklyPublisher {
 
   async uploadWeeklyImage(config, entry) {
     // Community token cannot call photos.*; wall image = GIF document (type 3).
-    // If weekly/ozon cached a PNG, uploadVkCover converts it via cachedCover legacy path.
     return this.uploadDocument(
       {
         ...config,

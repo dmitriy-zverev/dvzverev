@@ -1,4 +1,7 @@
 import { openCabinetDb, withTransaction, bumpDataVersion } from './db.mjs';
+import { formatVkPost } from '../content.mjs';
+
+const DEFERRED = new Set(['deferred', 'scheduled']);
 
 // Delayed VK posts belong to VK, so the regular worker must never send them again.
 export async function weeklyDelivery(config, slot, now, fetcher = fetch, env = process.env) {
@@ -11,7 +14,7 @@ export async function weeklyDelivery(config, slot, now, fetcher = fetch, env = p
       WHERE s.project_id=? AND s.destination_id=? AND s.slot_key=?`,
       )
       .get(config.projectId, config.destinationIds[0], slot);
-    if (!row?.post_id || !['scheduled', 'sent'].includes(row.status))
+    if (!row?.post_id || !['deferred', 'scheduled', 'sent'].includes(row.status))
       return { status: row?.status === 'uncertain' ? 'uncertain' : 'weekly_preparation_required' };
     let sent = row.status === 'sent';
     if (!sent) {
@@ -33,7 +36,10 @@ export async function weeklyDelivery(config, slot, now, fetcher = fetch, env = p
         post.owner_id === -Number(row.group_id) &&
         post.post_type === 'post' &&
         post.date * 1000 <= now.getTime();
-      if (!sent) return { status: 'vk_scheduled' };
+      if (!sent) {
+        if (DEFERRED.has(row.status)) return { status: 'vk_scheduled' };
+        return { status: 'vk_scheduled' };
+      }
       withTransaction(db, () => {
         db.prepare("UPDATE vk_weekly_posts SET status='sent',updated_at=? WHERE plan_id=?").run(
           now.toISOString(),
@@ -53,7 +59,7 @@ export async function weeklyDelivery(config, slot, now, fetcher = fetch, env = p
       });
     }
     const content = row.post_json ? JSON.parse(row.post_json) : null;
-    const text = content ? (await import('../content.mjs')).formatVkPost(content) : '';
+    const text = content ? formatVkPost(content) : '';
     return {
       status: 'sent',
       entry: {
@@ -62,7 +68,11 @@ export async function weeklyDelivery(config, slot, now, fetcher = fetch, env = p
         status: 'sent',
         postId: content?.id || row.edition_id,
         vkText: text,
-        image: { status: 'ready', text, vk: { status: 'ready', attachment: row.attachment } },
+        image: {
+          status: 'ready',
+          text,
+          vk: { status: 'ready', attachment: row.attachment },
+        },
         ...(content?.generation ? { generation: content.generation } : {}),
         vkGroupId: String(row.group_id),
         vkPostId: row.post_id,
