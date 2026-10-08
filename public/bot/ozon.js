@@ -1,3 +1,4 @@
+import { openPanel, closePanel } from './panels.js';
 import { icon } from './icons.js';
 export function createOzonComposer({ api, apiBase, escapeText, projectTitle }) {
   let dialog = null;
@@ -21,6 +22,7 @@ export function createOzonComposer({ api, apiBase, escapeText, projectTitle }) {
     clearTimeout(timer);
     if (objectUrl) URL.revokeObjectURL(objectUrl);
     objectUrl = null;
+    closePanel(dialog);
     dialog?.remove();
     dialog = null;
     post = null;
@@ -172,7 +174,7 @@ export function createOzonComposer({ api, apiBase, escapeText, projectTitle }) {
     dialog.setAttribute('aria-labelledby', 'ozon-title');
     dialog.innerHTML = `<header class="ozon-head"><h2 id="ozon-title">Выпустить рекламный пост</h2><button type="button" id="ozon-close" aria-label="Закрыть рекламу">${icon('close')}</button></header><p id="ozon-notice" role="status">Загружаем настройки…</p><div id="ozon-content"></div>`;
     document.body.append(dialog);
-    dialog.showModal();
+    openPanel(dialog, close);
     dialog.querySelector('#ozon-close').onclick = close;
     dialog.addEventListener('cancel', (event) => {
       event.preventDefault();

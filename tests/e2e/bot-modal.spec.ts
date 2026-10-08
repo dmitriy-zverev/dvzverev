@@ -208,24 +208,43 @@ test('failed unpublished slot can be retried now', async ({ page }) => {
   expect(retried).toBe(true);
 });
 
-test('long task content scrolls inside the dialog and retains its position on refresh', async ({
+test('long task content grows in document flow and retains page position on refresh', async ({
   page,
 }) => {
   const mock = await cabinet(page);
   await page.locator('.slot').nth(1).click();
   await expect(page.locator('.modal-post-text')).toBeVisible();
-  await page.locator('#modal-body').hover();
+  await expect(page.locator('#modal-body')).toHaveCSS('overflow-y', 'visible');
+  await page.locator('.modal-panel-head').hover();
   await page.mouse.wheel(0, 500);
-  await expect
-    .poll(() => page.locator('#modal-body').evaluate((element) => element.scrollTop))
-    .toBeGreaterThan(0);
-  const before = await page.locator('#modal-body').evaluate((element) => element.scrollTop);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  const before = await page.evaluate(() => window.scrollY);
   await page.clock.runFor(31000);
   await expect.poll(mock.refreshes).toBeGreaterThanOrEqual(2);
   await expect(page.locator('#modal')).toBeVisible();
-  await expect
-    .poll(() => page.locator('#modal-body').evaluate((element) => element.scrollTop))
-    .toBe(before);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(before);
   await page.keyboard.press('Escape');
   await expect(page.locator('body')).not.toHaveClass(/modal-open/);
+});
+
+test('save conflicts remain inline and long draft fields expand without scrolling', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await cabinet(page);
+  await page.route('**/plans/plan-0', (route) =>
+    route.fulfill({ status: 409, json: { error: 'version_conflict' } }),
+  );
+  await page.locator('.slot').first().click();
+  const field = page.locator('#plan-brief');
+  await field.fill('Длинный черновик\n'.repeat(40));
+  expect(await field.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+  await page.locator('#plan-form button[type=submit]').click();
+  await expect(page.locator('#plan-feedback')).not.toBeEmpty();
+  await expect(field).toHaveValue('Длинный черновик\n'.repeat(40));
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({
+    path: testInfo.outputPath('post-save-conflict-1920.png'),
+    fullPage: true,
+  });
 });

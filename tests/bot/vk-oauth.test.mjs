@@ -284,8 +284,13 @@ test('ambiguous wall.post failure cannot be retried with the same GUID', async (
 
 test('HTTP OAuth routes require cabinet session; POST requires Origin; callback never returns secrets', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'vk-oauth-http-'));
+  await writeFile(
+    join(dir, 'service.json'),
+    JSON.stringify({ version: 1, destinations: {}, projects: {} }),
+  );
   const env = {
     ...process.env,
+    BOT_CONFIG_PATH: join(dir, 'service.json'),
     BOT_CABINET_DB_PATH: join(dir, 'cabinet.sqlite'),
     BOT_CABINET_PASSWORD: 'test-password',
     BOT_CABINET_HOST: '127.0.0.1',
@@ -425,7 +430,6 @@ test('HTTP OAuth routes require cabinet session; POST requires Origin; callback 
   assert.equal(weekly.status().canPrepare, true);
   assert.equal(weekly.status().canVideo, true);
   assert.equal(weekly.status().refreshAvailable, true);
-  const weeklyToken = weekly.store.get('token');
   await weekly.accessToken(true);
   assert.equal(weekly.store.get('token').permissions, 270356);
   weeklyPermissions = 4;

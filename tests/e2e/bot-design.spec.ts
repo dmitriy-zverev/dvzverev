@@ -26,6 +26,7 @@ const days = Array.from({ length: 7 }, (_, i) => ({
   date: `2026-10-${String(5 + i).padStart(2, '0')}`,
   cards: projects.map((p, j) => ({
     planId: `p${i}-${j}`,
+    editionId: i === 0 && j === 1 ? 'design-edition' : undefined,
     projectId: p.id,
     projectTitle: p.title,
     time: j ? '19:30' : '18:00',
@@ -42,7 +43,10 @@ const days = Array.from({ length: 7 }, (_, i) => ({
   })),
 }));
 
-async function designData(page: Page, { stale = false, complete = false, connected = true } = {}) {
+async function designData(
+  page: Page,
+  { stale = false, complete = false, connected = true, catalog = projects } = {},
+) {
   await page.route('**/bot/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
     let body: unknown = { items: [], series: [] };
@@ -58,7 +62,7 @@ async function designData(page: Page, { stale = false, complete = false, connect
     if (path.endsWith('/overview'))
       body = {
         week: { start: '2026-10-05', end: '2026-10-11' },
-        projects,
+        projects: catalog,
         rubrics,
         days,
         cards: days.flatMap((d) => d.cards),
@@ -69,6 +73,14 @@ async function designData(page: Page, { stale = false, complete = false, connect
           stale,
           heartbeat: { ok: !stale, ageSeconds: 10, updatedAt: '2026-10-08T10:00:00Z' },
           reports: { pending: 2, failed: 0, mode: 'scheduled' },
+          pauses: [
+            {
+              projectId: 'things',
+              reason: 'Проверка публикации',
+              details: 'Длинная безопасная диагностическая строка '.repeat(12),
+            },
+          ],
+          cooldowns: [{ projectId: 'code', until: '2026-10-08T12:00:00Z' }],
         },
       };
     if (path.endsWith('/incidents'))
@@ -139,7 +151,14 @@ async function designData(page: Page, { stale = false, complete = false, connect
       body = {
         memoryCount: 24,
         seriesCount: 0,
-        revisions: [],
+        revisions: [
+          {
+            weekStart: '2026-10-05',
+            revisionNumber: 2,
+            status: 'approved',
+            createdAt: '2026-10-07T10:00:00Z',
+          },
+        ],
         pilotStats: {},
         latestRevision: {
           revisionId: 'revision-1',
@@ -168,6 +187,51 @@ async function designData(page: Page, { stale = false, complete = false, connect
             ],
           },
         },
+      };
+    if (path.endsWith('/recommendations'))
+      body = {
+        recommendations: [
+          {
+            recommendationId: 'rec-1',
+            projectId: 'things',
+            status: 'proposed',
+            observation: 'Читатели чаще сохраняют истории предметов с конкретной бытовой деталью.',
+            evidence: [{ editionId: 'e1' }],
+          },
+        ],
+      };
+    if (path.endsWith('/prompt-versions'))
+      body = {
+        versions: [
+          {
+            versionLabel: 'Истории предметов · 02',
+            projectId: 'things',
+            status: 'active',
+            role: 'editor',
+            contentHash: '0123456789abcdef'.repeat(16),
+          },
+        ],
+      };
+    if (path.includes('/editions/'))
+      body = {
+        edition: {
+          statusLabel: 'Опубликован',
+          brief: 'Рассказать историю лампы',
+          models: { text: 'Редактор', image: 'Обложка' },
+          costUsd: 0.02,
+          promptVersion: 'v2',
+          bodyText: 'У каждой вещи есть история. Начинаем с маленькой детали.\n\n'.repeat(28),
+        },
+        deliveries: [
+          { platform: 'vk', statusLabel: 'Опубликован', vkUrl: 'https://vk.ru/wall-123_1' },
+        ],
+        events: [
+          {
+            createdAt: '2026-10-08T10:00:00Z',
+            stage: 'publication',
+            message: 'Публикация подтверждена',
+          },
+        ],
       };
     if (path.endsWith('/ozon/settings'))
       body = {
@@ -199,12 +263,28 @@ async function expectIconGeometry(page: Page) {
     }),
   );
   expect(problems).toEqual([]);
-  const chevrons = await page.locator('select:not([multiple])').evaluateAll((selects) =>
-    selects
-      .filter((select) => select.getBoundingClientRect().width > 0)
-      .map((select) => ({
-        arrow: getComputedStyle(select).backgroundImage !== 'none',
-        padding: parseFloat(getComputedStyle(select).paddingRight) >= 40,
+  const nestedScrolls = await page.locator('.cabinet, .cabinet-dialog-page').evaluateAll((roots) =>
+    [...new Set(roots.flatMap((root) => [...root.querySelectorAll('*')]))]
+      .filter((element) => {
+        if (!element.getClientRects().length) return false;
+        const style = getComputedStyle(element);
+        return (
+          (/auto|scroll/.test(style.overflowY) &&
+            element.scrollHeight > element.clientHeight + 1) ||
+          (/auto|scroll/.test(style.overflowX) && element.scrollWidth > element.clientWidth + 1)
+        );
+      })
+      .map((element) => element.className || element.tagName),
+  );
+  expect(nestedScrolls).toEqual([]);
+
+  await expect(page.locator('select:visible')).toHaveCount(0);
+  const chevrons = await page.locator('.custom-select-trigger').evaluateAll((triggers) =>
+    triggers
+      .filter((trigger) => trigger.getBoundingClientRect().width > 0)
+      .map((trigger) => ({
+        arrow: Boolean(trigger.querySelector('.cabinet-icon')),
+        padding: parseFloat(getComputedStyle(trigger).paddingRight) >= 40,
       })),
   );
   expect(chevrons.every((select) => select.arrow && select.padding)).toBe(true);
@@ -265,33 +345,54 @@ test('all cabinet screens and dialogs are centered and readable at 1920px', asyn
   await page.goto('/bot/?tab=week');
   await page.locator('.slot').first().click();
   await expect(page.locator('.modal-dialog')).toBeVisible();
-  await page.mouse.move(40, 40);
-  await expect(page.locator('.modal-backdrop')).toHaveCSS(
-    'background-color',
-    'rgba(32, 32, 30, 0.55)',
-  );
-  await expect(page.locator('.modal-backdrop')).toHaveCSS('box-shadow', 'none');
+  await expect(page.locator('.modal-backdrop')).toBeHidden();
   await expectIconGeometry(page);
-  await page.screenshot({ path: testInfo.outputPath('post-dialog-1920.png') });
+  await page.screenshot({ path: testInfo.outputPath('post-dialog-1920.png'), fullPage: true });
   const modal = await page.locator('.modal-dialog').boundingBox();
   expect(Math.abs(modal!.x + modal!.width / 2 - 960)).toBeLessThan(1);
+  await page.locator('#modal-close').click();
+  await page.locator('.slot').nth(1).click();
+  await expect(page.locator('.modal-post-text')).toBeVisible();
+  await expectIconGeometry(page);
+  await page.screenshot({
+    path: testInfo.outputPath('publication-details-1920.png'),
+    fullPage: true,
+  });
   await page.locator('#modal-close').click();
   await page.goto('/bot/?tab=rubrics');
   await page.getByRole('button', { name: 'Настроить →' }).first().click();
   await expect(page.locator('.rubric-dialog')).toBeVisible();
   await expectIconGeometry(page);
-  await page.screenshot({ path: testInfo.outputPath('rubric-dialog-1920.png') });
-  await page.locator('.rubric-dialog').evaluate((dialog) => {
-    dialog.scrollTop = dialog.scrollHeight;
-  });
+  await page.screenshot({ path: testInfo.outputPath('rubric-dialog-1920.png'), fullPage: true });
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await expect(page.locator('#rubric-close')).toBeInViewport();
   await expectIconGeometry(page);
   await page.screenshot({ path: testInfo.outputPath('rubric-dialog-bottom-1920.png') });
+  await page.locator('#rubric-delete').click();
+  await expect(page.locator('#rubric-delete-confirm')).toBeVisible();
+  await expectIconGeometry(page);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: testInfo.outputPath('rubric-delete-1920.png'), fullPage: true });
   await page.keyboard.press('Escape');
   await page.locator('#ozon-open').click();
   await expect(page.getByLabel('Название товара')).toBeVisible();
   await expectIconGeometry(page);
   await page.screenshot({ path: testInfo.outputPath('ozon-1920.png'), fullPage: true });
+  await page.locator('.ozon-settings summary').click();
+  await page.locator('input[name=references]').setInputFiles({
+    name: 'Референс товара.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jN1kAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  });
+  await expect(page.locator('.ozon-references figure')).toBeVisible();
+  await expectIconGeometry(page);
+  await page.screenshot({
+    path: testInfo.outputPath('ozon-rules-references-1920.png'),
+    fullPage: true,
+  });
   expect((await new AxeBuilder({ page }).include('.ozon-dialog').analyze()).violations).toEqual([]);
   expect(errors).toEqual([]);
 });
@@ -451,9 +552,7 @@ test('Ozon preview loads its image under the production CSP and preserves explic
     .toBeGreaterThan(0);
   await expect(page.locator('#ozon-publish input')).not.toBeChecked();
   expect((await new AxeBuilder({ page }).include('.ozon-dialog').analyze()).violations).toEqual([]);
-  await page.locator('.ozon-dialog').evaluate((el) => {
-    el.scrollTop = 0;
-  });
+  await page.evaluate(() => window.scrollTo(0, 0));
   await expectIconGeometry(page);
   await page.screenshot({ path: testInfo.outputPath('ozon-preview-1920.png') });
   await page.locator('#ozon-publish button').scrollIntoViewIfNeeded();
@@ -474,4 +573,138 @@ test('Ozon preview loads its image under the production CSP and preserves explic
   expect(checkboxOffset).toBeLessThan(0.6);
   await expectIconGeometry(page);
   await page.screenshot({ path: testInfo.outputPath('ozon-review-1920.png') });
+});
+
+test('owner VK rights and feedback share the cabinet design without nested scrolling', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await designData(page);
+  for (const state of ['ready', 'limited', 'off', 'error']) {
+    const ready = state === 'ready';
+    const connected = state === 'ready' || state === 'limited';
+    await page.route('**/vk/legacy/status', (route) =>
+      route.fulfill({
+        json: {
+          mode: 'community',
+          connected: true,
+          canPrepare: true,
+          ownerOAuth: {
+            available: true,
+            connected,
+            canPhoto: ready,
+            userId: 12345678,
+            clientId: '12345',
+            grantedScope: ready ? 'wall photos groups video offline' : 'video offline',
+            refreshAvailable: true,
+            rights: { wall: ready, photos: ready, groups: ready, video: true, offline: true },
+            missingRights: ready ? [] : ['wall', 'photos', 'groups'],
+          },
+        },
+      }),
+    );
+    await page.goto(
+      `/bot/?tab=service&vk=${state === 'error' ? 'error&reason=vk_oauth_wall_photos_groups_required' : 'connected'}`,
+    );
+    await expect(page.getByRole('article', { name: 'Owner OAuth VK' })).toBeVisible();
+    await expectIconGeometry(page);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    expect((await new AxeBuilder({ page }).include('.cabinet').analyze()).violations).toEqual([]);
+    await page.screenshot({
+      path: testInfo.outputPath(`vk-owner-${state}-1920.png`),
+      fullPage: true,
+    });
+  }
+});
+
+test('custom selectors support keyboard, cancellation, required values and long menus', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await designData(page);
+  await page.goto('/bot/?tab=week');
+  const project = page.getByRole('combobox', { name: 'Проект', exact: true });
+  await project.click();
+  await expect(page.getByRole('listbox', { name: 'Проект', exact: true })).toBeVisible();
+  await expectIconGeometry(page);
+  expect((await new AxeBuilder({ page }).include('.cabinet').analyze()).violations).toEqual([]);
+  await page.screenshot({ path: testInfo.outputPath('custom-filters-1920.png'), fullPage: true });
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/project=things/);
+  await project.click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Escape');
+  await expect(project).toHaveAttribute('aria-expanded', 'false');
+  await expect(page).toHaveURL(/project=things/);
+  await page.goto('/bot/?tab=rubrics');
+  await page.getByRole('button', { name: 'Настроить →' }).first().click();
+  await expect(page.getByRole('combobox', { name: 'Группа', exact: true })).toBeDisabled();
+  const media = page.getByRole('combobox', { name: 'Формат', exact: true });
+  await media.click();
+  await page.keyboard.press('Home');
+  await media.dispatchEvent('keydown', { key: 'К' });
+  await expect(media).toHaveAttribute(
+    'aria-activedescendant',
+    (await page
+      .getByRole('option', { name: 'Короткое видео', exact: true })
+      .getAttribute('id')) as string,
+  );
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.rubric-dialog')).toBeVisible();
+  await media.click();
+  await page.getByRole('option', { name: 'Короткое видео', exact: true }).click();
+  await expect(page.locator('select[name=media]')).toHaveValue('video');
+  await media.click();
+  await expectIconGeometry(page);
+  expect((await new AxeBuilder({ page }).include('.rubric-dialog').analyze()).violations).toEqual(
+    [],
+  );
+  await page.screenshot({
+    path: testInfo.outputPath('custom-rubric-menu-1920.png'),
+    fullPage: true,
+  });
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await page.locator('#ozon-open').click();
+  await page.getByRole('combobox', { name: 'Категория', exact: true }).click();
+  await expectIconGeometry(page);
+  await page.screenshot({ path: testInfo.outputPath('custom-ozon-menu-1920.png'), fullPage: true });
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await page.goto('/bot/?tab=analytics-imports');
+  const required = page
+    .locator('#import-form')
+    .getByRole('combobox', { name: 'Проект', exact: true });
+  await expect(required).toHaveAttribute('aria-required', 'true');
+  expect(
+    await page
+      .locator('#import-form select')
+      .evaluate((el: HTMLSelectElement) => el.reportValidity()),
+  ).toBe(false);
+  await expect(required).toBeFocused();
+  await expect(required).toHaveAttribute('aria-expanded', 'true');
+  await page.getByRole('option', { name: 'Вещи — кстати', exact: true }).click();
+  expect(
+    await page
+      .locator('#import-form select')
+      .evaluate((el: HTMLSelectElement) => el.checkValidity()),
+  ).toBe(true);
+  await designData(page, {
+    catalog: Array.from({ length: 30 }, (_, i) => ({
+      id: `long-${i}`,
+      title: `Группа ${i + 1} — очень длинное название сообщества для проверки переноса текста`,
+    })),
+  });
+  await page.goto('/bot/?tab=week');
+  await page.setViewportSize({ width: 375, height: 812 });
+  await project.click();
+  await page.keyboard.press('End');
+  await expect(page.getByRole('option').last()).toBeInViewport();
+  await expectIconGeometry(page);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/project=long-29/);
 });

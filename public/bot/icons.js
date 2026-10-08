@@ -1,5 +1,6 @@
 // A single stroke, viewport and footprint for every cabinet control.
 const paths = {
+  down: '<path d="m6 9 6 6 6-6"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
   left: '<path d="M20 12H4m6-6-6 6 6 6"/>',
   right: '<path d="M4 12h16m-6-6 6 6-6 6"/>',

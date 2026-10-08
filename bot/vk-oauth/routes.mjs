@@ -6,7 +6,6 @@ import { sendNotification } from '../notifications.mjs';
 import { publicationBackoffSeconds, sendTelegram } from '../core.mjs';
 import {
   getOwnerVkClient,
-  getWeeklyVkClient,
   legacyCallbackPage,
   legacyManualLoginPage,
   parseLegacyRedirectUrl,
@@ -58,9 +57,8 @@ export async function handleVkOAuthRoute({
 }) {
   if (!route.startsWith('/vk/')) return false;
   let weeklyCallback = false;
-  let weekly = null;
   try {
-    weekly = env.VK_WEEKLY_OAUTH_ENABLED === 'true' ? getOwnerVkClient(env) : null;
+    const weekly = env.VK_WEEKLY_OAUTH_ENABLED === 'true' ? getOwnerVkClient(env) : null;
     const callbackState = url.searchParams.get('state');
     weeklyCallback =
       route === '/vk/callback' &&

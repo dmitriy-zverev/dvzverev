@@ -14,6 +14,7 @@ for (const name of files) {
   const source = await readFile(path, 'utf8');
   const result = await transform(source, {
     minify: true,
+    charset: 'utf8',
     format: 'esm',
     target: 'es2022',
     legalComments: 'eof',

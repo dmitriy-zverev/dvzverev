@@ -113,9 +113,11 @@ test('rubric calendar badge and filter survive refresh', async ({ page }) => {
   await setup(page);
   await page.goto('/bot/');
   await expect(page.locator('.slot-rubric')).toHaveText('Вещи с историей');
-  await page.getByLabel('Рубрика', { exact: true }).selectOption('none');
+  await page.getByRole('combobox', { name: 'Рубрика', exact: true }).click();
+  await page.getByRole('option', { name: 'Без рубрики', exact: true }).click();
   await expect(page.locator('.slot-rubric')).toHaveCount(0);
-  await page.getByLabel('Рубрика', { exact: true }).selectOption('r1');
+  await page.getByRole('combobox', { name: 'Рубрика', exact: true }).click();
+  await page.getByRole('option', { name: 'Вещи с историей', exact: true }).click();
   await expect(page.locator('.slot-rubric')).toHaveText('Вещи с историей');
 });
 
@@ -175,11 +177,10 @@ test('rubric form is keyboard accessible and fits mobile viewport', async ({ pag
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/bot/?tab=rubrics');
   await page.getByRole('button', { name: '+ Новая рубрика', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Формат', exact: true }).selectOption('video');
+  await page.getByRole('combobox', { name: 'Формат', exact: true }).click();
+  await page.getByRole('option', { name: 'Короткое видео', exact: true }).click();
   await expect(page.locator('#rubric-media-note')).toBeVisible();
-  await page.locator('.rubric-dialog').evaluate((node) => {
-    node.scrollTop = 0;
-  });
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: testInfo.outputPath('rubrics-mobile.png') });
   expect((await new AxeBuilder({ page }).include('.rubric-dialog').analyze()).violations).toEqual(
     [],

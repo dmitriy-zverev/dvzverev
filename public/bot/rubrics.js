@@ -1,3 +1,4 @@
+import { openPanel, closePanel } from './panels.js';
 import { icon } from './icons.js';
 const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 const mediaLabels = { text: 'Текст', image: 'Фото', video: 'Короткое видео' };
@@ -53,7 +54,7 @@ export function createRubricManager({ api, escapeText: esc, refresh, selectProje
   }
   function close() {
     if (saving) return;
-    dialog?.close();
+    closePanel(dialog);
     dialog?.remove();
     dialog = null;
   }
@@ -94,7 +95,7 @@ export function createRubricManager({ api, escapeText: esc, refresh, selectProje
       <div class="rubric-delete-confirm" id="rubric-delete-confirm" hidden><strong>Удалить рубрику «${esc(r.name)}»?</strong><p>Все её посты исчезнут из календаря. Будущие отложенные записи VK будут отменены. Уже опубликованные посты останутся на стене VK.</p><button type="button" id="rubric-delete-back">Вернуться</button><button type="button" class="rubric-delete" id="rubric-delete-submit">Удалить рубрику и посты</button></div>
     </form>`;
     document.body.append(dialog);
-    dialog.showModal();
+    openPanel(dialog, close);
     dialog.addEventListener('cancel', (e) => {
       e.preventDefault();
       close();

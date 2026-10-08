@@ -291,7 +291,7 @@ function renderVkRightsList(owner) {
   return `<ul class="vk-rights" aria-label="Права owner VK">${rows
     .map(([key, label]) => {
       const ok = rights[key] === true;
-      return `<li class="${ok ? 'is-ok' : 'is-missing'}"><span class="vk-right-mark" aria-hidden="true">${ok ? '✓' : '✗'}</span>${escapeText(label)}</li>`;
+      return `<li class="${ok ? 'is-ok' : 'is-missing'}"><span class="vk-right-mark" aria-hidden="true">${icon(ok ? 'check' : 'close')}</span>${escapeText(label)}</li>`;
     })
     .join('')}</ul>`;
 }
@@ -645,7 +645,7 @@ function slotChannelLabel(card) {
   const title = card.destinationTitle || '';
   const space = title.indexOf(' ');
   if (space > 0) return title.slice(0, space);
-  return title || '—';
+  return title || (card.channel === 'vk' ? 'VK' : card.channel || '');
 }
 
 /** Short labels for calendar slots only; modal/tooltip keep full statusLabel from API. */
