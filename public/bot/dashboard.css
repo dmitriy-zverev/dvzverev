@@ -5030,6 +5030,10 @@ body.cabinet-panel-open > #app {
   font-size: 20px;
 }
 .editorial-test .toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
   margin-top: 20px;
 }
 .editorial-prompt {
