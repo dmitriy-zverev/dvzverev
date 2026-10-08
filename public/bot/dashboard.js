@@ -275,18 +275,38 @@ function ownerCanPhoto(owner = state.vk?.ownerOAuth) {
   return Boolean(owner?.canPhoto || owner?.canPrepare);
 }
 
+function ownerMissingRights(owner = state.vk?.ownerOAuth) {
+  return Array.isArray(owner?.missingRights) ? owner.missingRights : [];
+}
+
+function renderVkRightsList(owner) {
+  const rights = owner?.rights || {};
+  const rows = [
+    ['wall', 'Стена (wall)'],
+    ['photos', 'Фотографии (photos)'],
+    ['groups', 'Сообщества (groups)'],
+    ['video', 'Видео (video)'],
+    ['offline', 'Offline / refresh'],
+  ];
+  return `<ul class="vk-rights" aria-label="Права owner VK">${rows
+    .map(([key, label]) => {
+      const ok = rights[key] === true;
+      return `<li class="${ok ? 'is-ok' : 'is-missing'}"><span class="vk-right-mark" aria-hidden="true">${ok ? '✓' : '✗'}</span>${escapeText(label)}${ok ? '' : ' — нет'}</li>`;
+    })
+    .join('')}</ul>`;
+}
+
 function renderOwnerVkHeaderControl() {
   const owner = state.vk?.ownerOAuth;
   if (owner?.available) {
     const connected = owner.connected;
     const canPhoto = ownerCanPhoto(owner);
-    const label = connected
-      ? canPhoto
-        ? 'VK · фото ок'
-        : 'VK · без photos'
-      : 'Войти в VK';
+    const missing = ownerMissingRights(owner);
+    const label = connected ? (canPhoto ? 'VK · фото ок' : 'VK · без photos') : 'Войти в VK';
     const status = connected
-      ? `Owner VK · ID ${escapeText(owner.userId)}${canPhoto ? '' : ' · нет wall/photos/groups'}`
+      ? canPhoto
+        ? `Owner VK · ID ${owner.userId}`
+        : `Owner VK · ID ${owner.userId} · нет: ${missing.join(', ') || 'wall/photos/groups'}`
       : 'Owner VK не подключён';
     return `<span class="vk-owner-pill ${connected ? (canPhoto ? 'is-ready' : 'is-limited') : 'is-off'}" title="${escapeAttr(status)}">${escapeText(status)}</span>
     <a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/bot/api/v1/vk/legacy/login">${escapeText(label)}</a>`;
@@ -303,11 +323,12 @@ function renderVkOauthFeedback() {
   const appId = escapeText(owner?.clientId || 'VK');
   if (flag === 'connected') {
     const canPhoto = ownerCanPhoto(owner);
-    return `<div class="vk-feedback is-success" role="status">
-      <div><strong>Owner VK подключён</strong>
-      <p class="meta">ID ${escapeText(owner?.userId || '—')} · приложение ${appId} · scope: ${escapeText(owner?.grantedScope || 'не указан')}.
-      ${canPhoto ? 'Права wall, photos и groups подтверждены.' : 'Mask прав недостаточен для photo-загрузки.'}
-      Недельные посты по-прежнему community (текст + GIF).</p></div>
+    const missing = ownerMissingRights(owner);
+    return `<div class="vk-feedback ${canPhoto ? 'is-success' : 'is-warning'}" role="status">
+      <div><strong>${canPhoto ? 'Owner VK подключён' : 'Owner VK подключён без нужных прав'}</strong>
+      <p class="meta">ID ${escapeText(owner?.userId || '—')} · приложение ${appId} · scope: ${escapeText(owner?.grantedScope || 'не указан')}.</p>
+      ${renderVkRightsList(owner)}
+      <p class="meta">${canPhoto ? 'Права для photo-загрузки подтверждены.' : `Не хватает: ${escapeText(missing.join(', ') || 'wall, photos, groups')}. Посты недели идут community GIF.`}</p></div>
       <button type="button" class="cabinet-header-home" id="vk-feedback-dismiss">Закрыть</button>
     </div>`;
   }
@@ -338,13 +359,16 @@ function renderOwnerOAuthCard(owner) {
   if (!owner?.available) return '';
   const connected = owner.connected;
   const canPhoto = ownerCanPhoto(owner);
+  const missing = ownerMissingRights(owner);
   return `<article class="card vk-connection ${connected ? (canPhoto ? 'is-ready' : 'is-limited') : 'is-off'}" aria-label="Owner OAuth VK">
     <div><h3>Аккаунт владельца VK</h3><p>${connected ? `Подключён · ID ${escapeText(owner.userId)}` : 'Не подключён'}</p>
     ${
       connected
         ? `<p class="meta">${owner.refreshAvailable ? 'Refresh включён' : 'Без refresh — нужен повторный вход'} · до ${escapeText(editorialDate(owner.expiresAt))}</p>
-    <p class="meta">Scope: ${escapeText(owner.grantedScope || 'не указан')}. ${canPhoto ? 'wall + photos + groups подтверждены' : 'Прав на фото/стену недостаточно — проверьте доступы приложения в VK ID'}.</p>
-    <p class="meta">Пока только проверка. Публикации недели идут community GIF.</p>`
+    <p class="meta">Scope: ${escapeText(owner.grantedScope || 'не указан')}.</p>
+    ${renderVkRightsList(owner)}
+    <p class="meta">${canPhoto ? 'Права wall + photos + groups подтверждены.' : `Не хватает прав: ${escapeText(missing.join(', ') || 'wall, photos, groups')}. Нужны доступы приложения в кабинете VK ID.`}</p>
+    <p class="meta">Публикации недели идут community GIF, пока нет полного photo-scope.</p>`
         : `<p class="meta">Серверный вход (приложение ${escapeText(owner.clientId || 'VK')}) для будущих photo-вложений. Сейчас посты — текст + GIF.</p>`
     }</div>
     <div class="vk-connection-actions">
@@ -786,7 +810,11 @@ function readSlotMeta(node) {
 }
 
 function renderSlotSummary(meta) {
-  const kind = escapeText({ image: 'Фото', text: 'Текст', video: 'Видео' }[meta.publicationKind] || meta.publicationKind || '—');
+  const kind = escapeText(
+    { image: 'Фото', text: 'Текст', video: 'Видео' }[meta.publicationKind] ||
+      meta.publicationKind ||
+      '—',
+  );
   const channel = escapeText(meta.channel || '—');
   const project = escapeText(meta.project || '—');
   const topicRaw = (meta.topicLabel || '').trim();
@@ -1161,7 +1189,7 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
     <div id="modal" class="modal hidden" aria-hidden="true">
       <button type="button" class="modal-backdrop" id="modal-backdrop" aria-label="Закрыть"></button>
       <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-        <button type="button" class="modal-close" id="modal-close" aria-label="Закрыть">${icon('close')}</button>
+        <header class="modal-panel-head"><strong>Публикация</strong><button type="button" class="modal-close" id="modal-close" aria-label="Закрыть">${icon('close')}</button></header>
         <div id="modal-body" class="modal-body"></div>
       </div>
     </div>`
@@ -1386,7 +1414,11 @@ async function handlePlanFormSubmit(event) {
     await loadOverview(true);
   } catch (error) {
     const feedback = document.getElementById('plan-feedback');
-    if (feedback) feedback.textContent = error.body?.error === 'version_conflict' ? PUBLIC_ERROR.version_conflict : PUBLIC_ERROR.save_failed;
+    if (feedback)
+      feedback.textContent =
+        error.body?.error === 'version_conflict'
+          ? PUBLIC_ERROR.version_conflict
+          : PUBLIC_ERROR.save_failed;
   }
 }
 

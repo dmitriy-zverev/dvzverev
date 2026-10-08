@@ -1566,6 +1566,39 @@
     border-color: color-mix(in srgb, var(--danger, #8b3a3a) 45%, transparent);
   }
 
+  .vk-feedback.is-warning {
+    border-color: color-mix(in srgb, var(--warn, #9a6b2f) 50%, transparent);
+  }
+
+  .vk-rights {
+    list-style: none;
+    margin: 0.65rem 0;
+    padding: 0;
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .vk-rights li {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.9rem;
+  }
+
+  .vk-rights .is-ok {
+    color: var(--ok, #2f6b4f);
+  }
+
+  .vk-rights .is-missing {
+    color: var(--danger, #8b3a3a);
+  }
+
+  .vk-right-mark {
+    width: 1rem;
+    text-align: center;
+    font-weight: 700;
+  }
+
   .vk-feedback strong {
     display: block;
     margin-bottom: 0.25rem;
@@ -4350,4 +4383,415 @@ body:has(.cabinet:not(.cabinet--gate)) {
 .ozon-dialog::backdrop {
   background: rgb(32 32 30 / 55%);
   backdrop-filter: blur(2px);
+}
+
+/* Complete component skin: content, feedback, diagnostics and secondary actions. */
+:is(.cabinet, .cabinet-dialog-page) a:not(.weekly-primary):not(.cabinet-header-home) {
+  color: var(--accent);
+  text-underline-offset: 3px;
+}
+:is(.cabinet, .cabinet-dialog-page) :is(pre, code) {
+  color: var(--text);
+  font:
+    13px/1.7 'Courier New',
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+:is(.cabinet, .cabinet-dialog-page) pre {
+  padding: 20px;
+  border: 2px solid var(--text);
+  border-radius: 3px;
+  background: var(--bg);
+  overflow: visible;
+  max-height: none;
+}
+:is(.cabinet, .cabinet-dialog-page) :is(p, dd, strong, time, a) {
+  overflow-wrap: anywhere;
+}
+:is(.cabinet, .cabinet-dialog-page)
+  :is(.card-head, .vk-connection-actions, .posts-pagination, .modal-form-actions) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+:is(.cabinet, .cabinet-dialog-page) .card-head {
+  justify-content: space-between;
+}
+:is(.cabinet, .cabinet-dialog-page) :is(.error-banner, .rubric-error, [role='alert']) {
+  padding: 16px 20px;
+  border: 2px solid var(--danger);
+  border-radius: 3px;
+  background: var(--rose);
+  color: var(--danger);
+  font-size: 14px;
+  line-height: 1.6;
+}
+:is(.cabinet, .cabinet-dialog-page)
+  :is(
+    .editorial-feedback,
+    .weekly-feedback,
+    #ozon-notice,
+    #analytics-feedback,
+    #import-feedback,
+    #retry-feedback
+  ) {
+  padding: 16px 20px;
+  border: 2px solid var(--text);
+  border-radius: 3px;
+  background: var(--mint);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+}
+:is(.cabinet, .cabinet-dialog-page)
+  :is(
+    .error-banner,
+    .rubric-error,
+    .editorial-feedback,
+    .weekly-feedback,
+    #ozon-notice,
+    #import-feedback,
+    #retry-feedback
+  ):empty {
+  display: none;
+}
+:is(.cabinet, .cabinet-dialog-page) [role='alert'] {
+  background: var(--rose);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+:is(.cabinet, .cabinet-dialog-page)
+  :is(.version-status, .incident-count, .modal-status-badge, .modal-meta-kind) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--text);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    700 12px/1.4 Arial,
+    sans-serif;
+}
+:is(.cabinet, .cabinet-dialog-page) .incident-count {
+  background: var(--rose);
+  color: var(--danger);
+}
+:is(.cabinet, .cabinet-dialog-page) .version-status {
+  background: var(--lilac);
+}
+:is(.cabinet, .cabinet-dialog-page) .modal-status-badge[data-tone='sent'] {
+  background: var(--mint);
+  color: var(--ok);
+}
+:is(.cabinet, .cabinet-dialog-page)
+  .modal-status-badge:is([data-tone='failed'], [data-tone='uncertain']) {
+  background: var(--rose);
+  color: var(--danger);
+}
+.cabinet .history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 20px;
+  padding: 20px;
+  margin-block: 12px;
+  background: var(--panel);
+  border: 2px solid var(--text);
+  border-radius: 3px;
+}
+.cabinet .service-note {
+  padding: 16px 20px;
+  border-left: 4px solid var(--text);
+  background: var(--bg);
+  color: var(--muted);
+}
+:is(.cabinet, .cabinet-dialog-page) .vk-connection {
+  gap: 24px;
+}
+.cabinet .vk-connection-actions {
+  margin-top: 16px;
+}
+.cabinet .vk-capabilities-out {
+  flex-basis: 100%;
+  margin: 0;
+}
+.cabinet :is(.prompt-version, .report-status, .analytics-table .card) {
+  margin-top: 20px;
+}
+:is(.cabinet, .cabinet-dialog-page) :is(.weekly-errors, .weekly-links, .modal-history) {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 2px solid var(--line);
+}
+.cabinet .weekly-success {
+  color: var(--ok);
+}
+.cabinet .weekly-errors {
+  color: var(--danger);
+}
+:is(.cabinet, .cabinet-dialog-page) .modal-meta {
+  gap: 8px;
+  margin: 16px 0;
+}
+:is(.cabinet, .cabinet-dialog-page)
+  :is(.modal-title-time, .modal-title-channel, .modal-title-project) {
+  padding: 0;
+  font: inherit;
+  color: var(--text);
+}
+.cabinet-dialog-page .modal-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 28px;
+  line-height: 1.3;
+}
+.cabinet-dialog-page .modal-title-time {
+  font-family: 'Courier New', monospace;
+}
+.cabinet-dialog-page .modal-section {
+  padding-top: 24px;
+  margin-top: 24px;
+  font-size: 20px;
+}
+.cabinet-dialog-page .modal-post-text {
+  white-space: pre-wrap;
+  font:
+    16px/1.7 Arial,
+    sans-serif;
+}
+.cabinet-dialog-page .modal-detail-grid {
+  gap: 12px 24px;
+  padding: 20px;
+  background: var(--bg);
+  border: 2px solid var(--text);
+}
+.cabinet-dialog-page .modal-detail-grid dt {
+  color: var(--muted);
+  font-size: 13px;
+}
+.cabinet-dialog-page .modal-detail-grid dd {
+  margin: 0;
+  color: var(--text);
+}
+.cabinet-dialog-page .modal-form {
+  gap: 24px;
+}
+.cabinet-dialog-page .modal-form-field {
+  gap: 10px;
+}
+.cabinet-dialog-page :is(.modal-form-label, .login-field-label) {
+  color: var(--text);
+  font:
+    700 14px/1.5 Arial,
+    sans-serif;
+}
+:is(.cabinet, .cabinet-dialog-page) :is(.modal-form-submit, #import-commit) {
+  background: var(--yellow);
+  border: 2px solid var(--text);
+  box-shadow: 3px 3px 0 var(--text);
+}
+.rubric-dialog .rubric-delete {
+  background: var(--rose);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.rubric-dialog .rubric-delete-confirm {
+  margin: 24px 32px 32px;
+  padding: 24px;
+  background: var(--rose);
+  border: 2px solid var(--danger);
+  border-radius: 3px;
+  color: var(--text);
+}
+.rubric-dialog .rubric-delete-confirm button {
+  margin: 12px 8px 0 0;
+}
+.rubric-empty,
+.day-empty {
+  padding: 20px;
+  background: var(--bg);
+  color: var(--muted);
+  border: 2px dashed var(--line);
+  border-radius: 3px;
+}
+:is(.cabinet, .cabinet-dialog-page) :is(.confirm-anomalies, .ozon-check, .rubric-enabled) {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  line-height: 24px;
+}
+:is(.cabinet, .cabinet-dialog-page) input[type='checkbox'] {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  flex: 0 0 20px;
+  margin: 2px 0 0;
+  border: 2px solid var(--text);
+  border-radius: 3px;
+  background: var(--panel);
+  cursor: pointer;
+}
+:is(.cabinet, .cabinet-dialog-page) input[type='checkbox']:checked {
+  background-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3'%3E%3Cpath d='m5 12 4 4L19 6'/%3E%3C/svg%3E");
+  background-size: contain;
+}
+:is(.cabinet, .cabinet-dialog-page) input[type='color'] {
+  padding: 6px;
+  height: 50px;
+}
+:is(.cabinet, .cabinet-dialog-page) input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+:is(.cabinet, .cabinet-dialog-page) input[type='color']::-webkit-color-swatch {
+  border: 0;
+  border-radius: 2px;
+}
+.ozon-dialog .ozon-references {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 16px;
+}
+.ozon-dialog .ozon-references figure {
+  margin: 0;
+  padding: 12px;
+  border: 2px solid var(--text);
+  border-radius: 3px;
+  background: var(--bg);
+}
+.ozon-dialog .ozon-references img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  border-radius: 0;
+}
+.ozon-dialog .ozon-references figcaption {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* One document scroll surface. Editors grow naturally; no nested scrolling or scrollbars. */
+html:has(.cabinet) {
+  scrollbar-width: none;
+  scrollbar-gutter: auto;
+}
+html:has(.cabinet)::-webkit-scrollbar {
+  display: none;
+}
+body.cabinet-panel-open,
+body.modal-open {
+  overflow: visible;
+  padding-right: 0;
+}
+body.cabinet-panel-open > #app {
+  display: none;
+}
+.cabinet-dialog-page {
+  min-height: 100dvh;
+  padding: 32px;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+}
+.cabinet-dialog-page :is(.rubric-dialog, .ozon-dialog, .modal-dialog) {
+  position: relative;
+  inset: auto;
+  margin: 0;
+  max-height: none;
+  height: auto;
+  overflow: visible;
+}
+.cabinet-dialog-page .modal {
+  position: static;
+  inset: auto;
+  display: block;
+  width: min(880px, 100%);
+  padding: 0;
+}
+.cabinet-dialog-page .modal.hidden {
+  display: none;
+}
+.cabinet-dialog-page .modal-dialog {
+  width: 100%;
+  max-height: none;
+}
+.cabinet-dialog-page .modal-body {
+  overflow: visible;
+  max-height: none;
+  scrollbar-gutter: auto;
+}
+.cabinet-dialog-page .modal-backdrop {
+  display: none;
+}
+.cabinet-dialog-page .modal-panel-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px 36px;
+  border-bottom: 2px solid var(--text);
+  background: var(--lilac);
+}
+.cabinet-dialog-page .modal .modal-close {
+  position: static;
+  margin: 0;
+}
+.cabinet-dialog-page .rubric-dialog-head {
+  top: 0;
+}
+.cabinet-dialog-page .ozon-head {
+  top: 0;
+}
+:is(.cabinet, .cabinet-dialog-page) textarea {
+  overflow: hidden;
+  resize: none;
+}
+.cabinet .cabinet-tabs {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  overflow: visible;
+}
+.cabinet .cabinet-tab {
+  white-space: normal;
+  min-width: 0;
+}
+@media (max-width: 700px) {
+  .cabinet-dialog-page {
+    padding: 16px;
+  }
+  .cabinet-dialog-page :is(.rubric-dialog, .ozon-dialog) {
+    width: 100%;
+  }
+  .cabinet .cabinet-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cabinet .history-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .cabinet-dialog-page .modal-dialog::before {
+    display: none;
+  }
+  .cabinet-dialog-page .modal-panel-head {
+    padding: 20px;
+  }
+  .cabinet-dialog-page .modal-body {
+    padding: 20px;
+  }
+  .rubric-dialog .rubric-delete-confirm {
+    margin: 20px;
+    padding: 20px;
+  }
 }

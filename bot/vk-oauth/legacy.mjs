@@ -5,33 +5,65 @@ import { OAuthStore } from './store.mjs';
 import { VkOAuthClient, oauthConfig } from './client.mjs';
 import { getCommunityWeeklyPublisher } from './community-weekly.mjs';
 
+export const VK_RIGHT_BITS = {
+  photos: 4,
+  video: 16,
+  wall: 8192,
+  offline: 65536,
+  groups: 262144,
+};
+
+const REQUIRED_PHOTO_RIGHTS = ['wall', 'photos', 'groups'];
+
+export function describeVkPermissions(mask) {
+  const value = Number.isSafeInteger(Number(mask)) ? Number(mask) : 0;
+  const rights = Object.fromEntries(
+    Object.entries(VK_RIGHT_BITS).map(([name, bit]) => [name, (value & bit) === bit]),
+  );
+  const missing = REQUIRED_PHOTO_RIGHTS.filter((name) => !rights[name]);
+  return {
+    mask: value,
+    rights,
+    missing,
+    canPhoto: missing.length === 0,
+    canVideo: rights.video === true,
+  };
+}
+
+function ownerStatusFields(connected, permissions, extra = {}) {
+  const described = describeVkPermissions(permissions);
+  return {
+    ...extra,
+    mode: 'owner',
+    available: true,
+    connected,
+    canPrepare: connected && described.canPhoto,
+    canPhoto: connected && described.canPhoto,
+    canVideo: connected && described.canVideo,
+    permissions: described.mask,
+    rights: described.rights,
+    missingRights: described.missing,
+  };
+}
+
 // Server-issued tokens for the publishing app, isolated from legacy and identity-only OAuth.
 export class WeeklyVkClient extends VkOAuthClient {
   async tokenRequest(parameters) {
     const token = await super.tokenRequest(parameters);
-    let permissions;
+    let permissions = 0;
     try {
-      permissions = Number(await this.rawApi('account.getAppPermissions', {}, token.access_token));
+      const raw = Number(await this.rawApi('account.getAppPermissions', {}, token.access_token));
+      if (Number.isSafeInteger(raw)) permissions = raw;
     } catch (error) {
-      if ([15, 1051].includes(error.vkCode)) error.message = 'vk_oauth_wall_photos_groups_required';
-      throw error;
+      // VK ID apps often deny this method (15/1051); keep identity token and show missing rights.
+      if (![15, 1051].includes(error.vkCode)) throw error;
     }
-    if (!Number.isSafeInteger(permissions) || (permissions & 270340) !== 270340)
-      throw new Error('vk_oauth_wall_photos_groups_required');
     return { ...token, permissions };
   }
   status() {
     const status = super.status();
     const permissions = this.store.get('token')?.permissions || 0;
-    const canPhoto = status.connected && (permissions & 270340) === 270340;
-    return {
-      ...status,
-      mode: 'owner',
-      available: true,
-      canPrepare: canPhoto,
-      canPhoto,
-      canVideo: status.connected && (permissions & 16) === 16,
-    };
+    return ownerStatusFields(status.connected, permissions, status);
   }
 }
 
@@ -74,16 +106,23 @@ export class LegacyVkClient extends VkOAuthClient {
     const previous = this.store.get('token');
     if (previous && previous.userId !== userId)
       throw new Error('vk_oauth_account_replacement_blocked');
-    const permissions = await this.rawApi('account.getAppPermissions', {}, body.access_token);
-    if ((Number(permissions) & 270340) !== 270340)
-      throw new Error('vk_oauth_wall_photos_groups_required');
+    let permissions = 0;
+    try {
+      const raw = Number(await this.rawApi('account.getAppPermissions', {}, body.access_token));
+      if (Number.isSafeInteger(raw)) permissions = raw;
+    } catch (error) {
+      if (![15, 1051].includes(error.vkCode)) throw error;
+    }
+    const described = describeVkPermissions(permissions);
     // Implicit flow has no refresh token. Bound local validity even for expires_in=0.
     this.store.set('token', {
       accessToken: body.access_token,
       userId,
       permissions,
       expiresAt: this.now() + Math.min(expiresIn || 86400, 86400) * 1000,
-      scope: 'wall photos groups' + (Number(permissions) & 16 ? ' video' : ''),
+      scope:
+        ['wall', 'photos', 'groups', 'video'].filter((name) => described.rights[name]).join(' ') ||
+        null,
       updatedAt: this.now(),
     });
     return this.status();
@@ -91,19 +130,12 @@ export class LegacyVkClient extends VkOAuthClient {
   status() {
     const token = this.store.get('token');
     const connected = Boolean(token && token.expiresAt > this.now());
-    const canPhoto = connected && (token.permissions & 270340) === 270340;
-    return {
-      mode: 'owner',
-      available: true,
-      connected,
-      canPrepare: canPhoto,
-      canPhoto,
-      canVideo: connected && (token.permissions & 16) === 16,
+    return ownerStatusFields(connected, token?.permissions || 0, {
       userId: token?.userId || null,
       expiresAt: token ? new Date(token.expiresAt).toISOString() : null,
       refreshAvailable: false,
       grantedScope: token?.scope || null,
-    };
+    });
   }
   async accessToken(force = false) {
     const token = this.store.get('token');

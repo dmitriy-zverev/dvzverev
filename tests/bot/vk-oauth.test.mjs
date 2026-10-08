@@ -433,18 +433,18 @@ test('HTTP OAuth routes require cabinet session; POST requires Origin; callback 
   const insufficientState = new URL(insufficientLogin.headers.get('location')).searchParams.get(
     'state',
   );
-  const rejectedWeekly = await fetch(
+  const limitedWeekly = await fetch(
     `${root}/vk/callback?state=${insufficientState}&code=secret-code&device_id=device`,
     { redirect: 'manual', headers },
   );
-  assert.equal(rejectedWeekly.status, 303);
-  const errorLocation = rejectedWeekly.headers.get('location') || '';
-  assert.match(errorLocation, /\/bot\/\?tab=service&vk=error&reason=vk_oauth_wall_photos_groups_required/);
-  assert.equal(errorLocation.includes('54809516'), false);
-  assert.equal(errorLocation.includes('secret-code'), false);
-  assert.equal(errorLocation.includes('access-b'), false);
-  assert.equal(weekly.store.get('token').accessToken, weeklyToken.accessToken);
-  await assert.rejects(weekly.accessToken(true), /wall_photos_groups_required/);
+  assert.equal(limitedWeekly.status, 303);
+  assert.equal(limitedWeekly.headers.get('location'), '/bot/?tab=service&vk=connected');
+  assert.equal(weekly.status().connected, true);
+  assert.equal(weekly.status().canPhoto, false);
+  assert.deepEqual(weekly.status().missingRights, ['wall', 'groups']);
+  assert.equal(weekly.status().rights.photos, true);
+  assert.equal(weekly.store.get('token').permissions, 4);
+  assert.equal((await weekly.accessToken(true)).length > 0, true);
   assert.deepEqual(client.store.get('token'), primaryToken);
   assert.deepEqual(trialClient.store.get('token'), savedTrialToken);
   assert.equal(
