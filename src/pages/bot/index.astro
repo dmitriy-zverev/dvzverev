@@ -20,15 +20,15 @@ const jsUrl = `/bot/dashboard.js?v=${assetVersion('dashboard.js')}`;
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light" />
-    <meta name="theme-color" content="#f3f5f8" />
+    <meta name="theme-color" content="#f4f2ed" />
     <meta name="robots" content="noindex, nofollow" />
     <title>{title}</title>
     <link rel="stylesheet" href={cssUrl} />
   </head>
   <body>
-    <div id="app" class="cabinet" data-api-base={apiBase}>
+    <main id="app" class="cabinet" data-api-base={apiBase}>
       <noscript>Для кабинета нужен JavaScript.</noscript>
-    </div>
+    </main>
     <script is:inline type="module" src={jsUrl}></script>
   </body>
 </html>

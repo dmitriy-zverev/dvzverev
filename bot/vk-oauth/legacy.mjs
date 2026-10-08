@@ -1,7 +1,9 @@
+import { oauthPageStyles, oauthIcon, oauthStatusPage } from './pages.mjs';
 import { randomBytes } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { OAuthStore } from './store.mjs';
 import { VkOAuthClient, oauthConfig } from './client.mjs';
+import { getCommunityWeeklyPublisher } from './community-weekly.mjs';
 
 // Server-issued tokens for the publishing app, isolated from legacy and identity-only OAuth.
 export class WeeklyVkClient extends VkOAuthClient {
@@ -21,10 +23,13 @@ export class WeeklyVkClient extends VkOAuthClient {
   status() {
     const status = super.status();
     const permissions = this.store.get('token')?.permissions || 0;
+    const canPhoto = status.connected && (permissions & 270340) === 270340;
     return {
       ...status,
+      mode: 'owner',
       available: true,
-      canPrepare: status.connected && (permissions & 270340) === 270340,
+      canPrepare: canPhoto,
+      canPhoto,
       canVideo: status.connected && (permissions & 16) === 16,
     };
   }
@@ -86,10 +91,13 @@ export class LegacyVkClient extends VkOAuthClient {
   status() {
     const token = this.store.get('token');
     const connected = Boolean(token && token.expiresAt > this.now());
+    const canPhoto = connected && (token.permissions & 270340) === 270340;
     return {
+      mode: 'owner',
       available: true,
       connected,
-      canPrepare: connected && (token.permissions & 270340) === 270340,
+      canPrepare: canPhoto,
+      canPhoto,
       canVideo: connected && (token.permissions & 16) === 16,
       userId: token?.userId || null,
       expiresAt: token ? new Date(token.expiresAt).toISOString() : null,
@@ -105,54 +113,91 @@ export class LegacyVkClient extends VkOAuthClient {
   }
 }
 
-let broker;
-export function getWeeklyVkClient(env) {
-  if (env.VK_WEEKLY_OAUTH_ENABLED !== 'true' && env.VK_LEGACY_OAUTH_ENABLED !== 'true') return null;
-  if (!broker) {
+let ownerBroker;
+let ownerBrokerKey = '';
+
+function ownerBrokerFingerprint(env) {
+  return [
+    env.VK_WEEKLY_OAUTH_ENABLED === 'true' ? `weekly:${env.VK_WEEKLY_CLIENT_ID}` : '',
+    env.VK_LEGACY_OAUTH_ENABLED === 'true' ? `legacy:${env.VK_LEGACY_CLIENT_ID}` : '',
+    env.VK_OAUTH_STORE_PATH || '',
+  ].join('|');
+}
+
+/** Server PKCE / legacy user OAuth for scope checks. Not used for weekly GIF posts. */
+export function getOwnerVkClient(env) {
+  if (env.VK_WEEKLY_OAUTH_ENABLED !== 'true' && env.VK_LEGACY_OAUTH_ENABLED !== 'true') {
+    return null;
+  }
+  const key = ownerBrokerFingerprint(env);
+  if (!ownerBroker || ownerBrokerKey !== key) {
     const path =
       env.VK_OAUTH_STORE_PATH ||
       resolve(dirname(env.BOT_CABINET_DB_PATH || 'bot/data/cabinet.sqlite'), 'vk-oauth.sqlite');
     if (env.VK_WEEKLY_OAUTH_ENABLED === 'true') {
       const config = oauthConfig({ ...env, VK_OAUTH_CLIENT_ID: env.VK_WEEKLY_CLIENT_ID });
-      broker = new WeeklyVkClient(
+      ownerBroker = new WeeklyVkClient(
         new OAuthStore(`${path}.weekly-${config.clientId}`, env.VK_OAUTH_ENCRYPTION_KEY),
         config,
       );
-      return broker;
+    } else {
+      const clientId = env.VK_LEGACY_CLIENT_ID;
+      const redirectUri = new URL(env.VK_LEGACY_REDIRECT_URI);
+      if (
+        !/^\d+$/.test(clientId || '') ||
+        redirectUri.protocol !== 'https:' ||
+        redirectUri.hash ||
+        redirectUri.search
+      )
+        throw new Error('vk_legacy_config_invalid');
+      ownerBroker = new LegacyVkClient(
+        new OAuthStore(`${path}.legacy-${clientId}`, env.VK_OAUTH_ENCRYPTION_KEY),
+        {
+          clientId,
+          redirectUri: redirectUri.href,
+          allowedUserId: env.VK_OAUTH_ALLOWED_USER_ID || '',
+        },
+      );
     }
-    const clientId = env.VK_LEGACY_CLIENT_ID;
-    const redirectUri = new URL(env.VK_LEGACY_REDIRECT_URI);
-    if (
-      !/^\d+$/.test(clientId || '') ||
-      redirectUri.protocol !== 'https:' ||
-      redirectUri.hash ||
-      redirectUri.search
-    )
-      throw new Error('vk_legacy_config_invalid');
-    broker = new LegacyVkClient(
-      new OAuthStore(`${path}.legacy-${clientId}`, env.VK_OAUTH_ENCRYPTION_KEY),
-      {
-        clientId,
-        redirectUri: redirectUri.href,
-        allowedUserId: env.VK_OAUTH_ALLOWED_USER_ID || '',
-      },
-    );
+    ownerBrokerKey = key;
   }
-  return broker;
+  return ownerBroker;
+}
+
+/** Weekly prepare/publish always uses community tokens (text + GIF docs). */
+export function getWeeklyVkClient(env) {
+  return getCommunityWeeklyPublisher(env);
+}
+
+export function weeklyVkStatus(env) {
+  const community = getWeeklyVkClient(env).status();
+  const owner = getOwnerVkClient(env);
+  const ownerStatus = owner?.status?.() || null;
+  return {
+    ...community,
+    ownerOAuth: owner
+      ? {
+          ...ownerStatus,
+          available: true,
+          clientId: owner.config?.clientId || null,
+        }
+      : { available: false, connected: false, canPhoto: false },
+  };
 }
 
 export function legacyCallbackPage() {
-  const nonce = randomBytes(18).toString('base64');
-  return {
-    nonce,
-    html: `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Подключение VK</title><body><p>Проверяем права VK. Сейчас вернём вас в календарь…</p><script nonce="${nonce}">
+  const page = oauthStatusPage(
+    'Подключение VK',
+    'Проверяем права VK. Сейчас вернём вас в календарь…',
+  );
+  const script = `<script nonce="${page.nonce}">
     const values = Object.fromEntries(new URLSearchParams(location.hash.slice(1)));
     history.replaceState({}, '', location.pathname);
     fetch('/vk/legacy/complete', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify(values)})
       .then(r=>{location.replace(r.ok?'/bot/?vk=connected':'/bot/?vk=error')})
       .catch(()=>location.replace('/bot/?vk=error'));
-  </script></body></html>`,
-  };
+  </script>`;
+  return { nonce: page.nonce, html: page.html.replace('</body>', script + '</body>') };
 }
 
 export function parseLegacyRedirectUrl(value) {
@@ -195,20 +240,12 @@ export function legacyManualLoginPage(authorizeUrl) {
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex,nofollow"><title>Подключить VK · Редакционный кабинет</title>
     <style nonce="${nonce}">
-    *{box-sizing:border-box}body{margin:0;background:#f3f5f8;color:#20364d;font:16px/1.55 system-ui,sans-serif}
-    main{max-width:600px;margin:8vh auto;padding:32px;background:#fff;border:1px solid #dce4eb;border-radius:18px}
-    h1{margin:12px 0;font-size:28px;line-height:1.2}h2{font-size:18px;margin:24px 0 8px}p{color:#526981}
-    a{color:#2f5f95}label{display:block;margin:16px 0 8px;font-weight:600}
-    input{width:100%;min-height:48px;padding:12px;border:1px solid #bac9d9;border-radius:8px;font:inherit}
-    .action,button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:10px 20px;border:0;border-radius:8px;background:#2f5f95;color:#fff;font:600 15px system-ui;text-decoration:none;cursor:pointer}
-    button{margin-top:16px}button:disabled{opacity:.55;cursor:wait}:focus-visible{outline:3px solid #6a9cc9;outline-offset:3px}
-    #feedback{color:#a32c28;min-height:24px}small{display:block;color:#526981;margin-top:8px}
-    @media(max-width:640px){main{margin:20px 12px;padding:24px}}
+    ${oauthPageStyles}
     </style></head><body><main>
-    <a href="/bot/">← В кабинет</a><h1>Подключить VK</h1>
+    <a href="/bot/">${oauthIcon('left')} В кабинет</a><h1>Подключить VK</h1>
     <p>Подключение нужно для фото, коротких видео и подготовки отложенных постов.</p>
-    <h2>1. Войдите в VK</h2><p>Используйте VPN на латвийском VPS бота: VK привязывает ключ к IP входа. Разрешите приложению доступ. VK откроет пустую страницу — оставьте эту вкладку открытой.</p>
-    <a class="action" id="vk-authorize" href="${href}" target="_blank" rel="noopener noreferrer">Открыть VK ↗</a>
+    <h2>1. Войдите в VK</h2><p>Разрешите приложению доступ. VK откроет пустую страницу — оставьте эту вкладку открытой.</p>
+    <a class="action" id="vk-authorize" href="${href}" target="_blank" rel="noopener noreferrer">Открыть VK ${oauthIcon('external')}</a>
     <h2>2. Вернитесь сюда с адресом страницы</h2>
     <p>Скопируйте полный адрес пустой страницы из адресной строки браузера и вставьте ниже.</p>
     <form id="vk-connect"><label for="vk-return">Адрес страницы после входа</label>
@@ -225,7 +262,7 @@ export function legacyManualLoginPage(authorizeUrl) {
         if (response.status === 401) { location.replace('/bot/'); return; }
         const result = await response.json();
         if (!response.ok) {
-          const messages = {vk_oauth_invalid_redirect:'Нужен полный адрес страницы oauth.vk.ru/blank.html после входа.', vk_oauth_invalid_state:'Попытка входа истекла или относится к другой вкладке. Обновите эту страницу и снова откройте VK.', vk_oauth_wrong_user:'Войдите в VK под аккаунтом владельца кабинета.', vk_oauth_wall_photos_groups_required:'VK не выдал права на стену, фотографии и сообщества. Пройдите вход заново.', vk_oauth_invalid_token:'В адресе нет корректного ключа VK. Скопируйте полный адрес после разрешения доступа.', vk_oauth_consent_required:'Сначала разрешите приложению доступ в VK.', vk_api_rejected_5:'VK отклонил ключ при проверке на сервере (код 5). Точная причина не указана. Обновите эту страницу и получите новый адрес после входа; прежняя попытка уже завершена.', vk_api_rejected_5_ip_mismatch:'VK отклонил ключ из-за другого IP. Включите VPN на латвийском VPS бота, обновите эту страницу и получите новый адрес после входа.', vk_api_rejected_5_expired:'Срок действия ключа VK истёк. Обновите эту страницу и снова откройте VK.', vk_api_rejected_5_revoked:'Доступ приложения отозван в VK. Обновите эту страницу и снова разрешите доступ.', vk_api_rejected_5_invalid_token:'VK считает ключ недействительным. Обновите эту страницу, снова откройте VK и скопируйте полный адрес сразу после разрешения доступа.'};
+          const messages = {vk_oauth_invalid_redirect:'Нужен полный адрес страницы oauth.vk.ru/blank.html после входа.', vk_oauth_invalid_state:'Попытка входа истекла или относится к другой вкладке. Обновите эту страницу и снова откройте VK.', vk_oauth_wrong_user:'Войдите в VK под аккаунтом владельца кабинета.', vk_oauth_wall_photos_groups_required:'VK не выдал права на стену, фотографии и сообщества. Пройдите вход заново.', vk_oauth_invalid_token:'В адресе нет корректного ключа VK. Скопируйте полный адрес после разрешения доступа.', vk_oauth_consent_required:'Сначала разрешите приложению доступ в VK.', vk_api_rejected_5:'VK отклонил ключ при проверке на сервере (код 5). Точная причина не указана. Обновите эту страницу и получите новый адрес после входа; прежняя попытка уже завершена.', vk_api_rejected_5_ip_mismatch:'VK отклонил ключ: он выдан для другого IP, а сервер кабинета в Cloud.ru. Браузерный ключ так сохранить нельзя — нужен серверный вход VK ID.', vk_api_rejected_5_expired:'Срок действия ключа VK истёк. Обновите эту страницу и снова откройте VK.', vk_api_rejected_5_revoked:'Доступ приложения отозван в VK. Обновите эту страницу и снова разрешите доступ.', vk_api_rejected_5_invalid_token:'VK считает ключ недействительным. Обновите эту страницу, снова откройте VK и скопируйте полный адрес сразу после разрешения доступа.'};
           feedback.textContent = messages[result.error] || 'Не удалось проверить подключение. Причина записана в журнале кабинета. Обновите эту страницу перед новой попыткой.'; return;
         }
         location.replace('/bot/?vk=connected');

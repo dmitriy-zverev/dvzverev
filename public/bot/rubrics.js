@@ -1,3 +1,4 @@
+import { icon } from './icons.js';
 const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 const mediaLabels = { text: 'Текст', image: 'Фото', video: 'Короткое видео' };
 const rubricCount = (count) =>
@@ -8,14 +9,15 @@ const messages = {
   rubric_version_conflict: 'Рубрика уже изменилась. Закройте окно и откройте её заново.',
   rubric_preparation_busy:
     'Сейчас готовятся публикации или есть запись с неизвестным результатом. Дождитесь подготовки и проверьте отложенные VK.',
-  vk_login_required: 'Чтобы отменить подготовленные записи, сначала войдите в VK.',
+  vk_login_required:
+    'Чтобы отменить подготовленные записи, нужны рабочие ключи VK на сервере (community-токены групп).',
   rubric_post_already_public:
     'Одна из записей уже появилась на стене VK. Обновите календарь перед повторной попыткой.',
   rubric_invalid: 'Укажите название, хотя бы один день и время в формате 18:00.',
   rubric_prompt_too_long: 'Каждый дополнительный промпт должен быть не длиннее 6000 символов.',
 };
 
-export function createRubricManager({ api, escapeText: esc, refresh, apiBase, selectProject }) {
+export function createRubricManager({ api, escapeText: esc, refresh, selectProject }) {
   let dialog = null;
   let saving = false;
   const safeColor = (value) => (/^#[a-f0-9]{6}$/i.test(value || '') ? value : '#806bba');
@@ -23,12 +25,12 @@ export function createRubricManager({ api, escapeText: esc, refresh, apiBase, se
     const groups = (data.projects || []).filter((p) => !projectId || p.id === projectId);
     return `<section class="rubrics-workspace" aria-labelledby="rubrics-title">
       <div class="rubrics-intro"><div><p class="weekly-eyebrow">Редакционный ритм</p><h1 id="rubrics-title">Рубрики</h1><p>Свой голос и расписание для каждой группы.<br>Системный стиль группы сохраняется во всех публикациях.</p></div>
-      <div class="rubric-page-actions"><select id="rubrics-group-filter" aria-label="Группа рубрик"><option value="">Все группы</option>${data.projects.map((p) => `<option value="${esc(p.id)}" ${p.id === projectId ? 'selected' : ''}>${esc(p.title)}</option>`).join('')}</select><button type="button" id="refresh">Обновить</button><button type="button" class="weekly-primary" id="rubric-create">+ Новая рубрика</button></div></div>
+      <div class="rubric-page-actions"><select id="rubrics-group-filter" aria-label="Группа рубрик"><option value="">Все группы</option>${data.projects.map((p) => `<option value="${esc(p.id)}" ${p.id === projectId ? 'selected' : ''}>${esc(p.title)}</option>`).join('')}</select><button type="button" id="refresh">Обновить</button><button type="button" class="weekly-primary" id="rubric-create" aria-label="+ Новая рубрика">${icon('plus')} Новая рубрика</button></div></div>
       <div class="rubrics-guidance"><span>01 · Расписание</span><span>02 · Текст и визуальный стиль</span><span>03 · Подготовка медиа раз в неделю</span></div>
       ${groups
         .map((p) => {
           const rubrics = (data.rubrics || []).filter((r) => r.projectId === p.id);
-          return `<section class="rubric-group"><div class="rubric-group-heading"><h2>${esc(p.title)}</h2><span>${rubricCount(rubrics.length)} · время Москвы</span><button type="button" data-rubric-create="${esc(p.id)}">+ Добавить</button></div>
+          return `<section class="rubric-group"><div class="rubric-group-heading"><h2>${esc(p.title)}</h2><span>${rubricCount(rubrics.length)} · время Москвы</span><button type="button" data-rubric-create="${esc(p.id)}" aria-label="+ Добавить">${icon('plus')} Добавить</button></div>
           <div class="rubric-list">${
             rubrics.length
               ? rubrics
@@ -39,7 +41,7 @@ export function createRubricManager({ api, escapeText: esc, refresh, apiBase, se
             <div class="rubric-card-heading"><span class="rubric-dot" aria-hidden="true"></span><h3>${esc(r.name)}</h3><span class="rubric-media">${mediaLabels[r.media]}</span></div>
             <p class="rubric-rhythm">${r.days.map((d) => days[d - 1]).join(' · ')}<strong>${r.times.map(esc).join(' / ')}</strong></p>
             <p class="rubric-description">${esc(r.textPrompt || 'Стиль и правила из системного промпта группы')}</p>
-            <div class="rubric-card-footer"><span>${r.pending ? 'Отмена записей не завершена' : r.enabled ? (r.media === 'text' ? 'Выходит по расписанию' : 'Недельная подготовка в VK') : 'На паузе'}</span><button type="button" data-rubric-edit="${esc(r.id)}">${r.pending ? 'Продолжить' : 'Настроить'} →</button></div>
+            <div class="rubric-card-footer"><span>${r.pending ? 'Отмена записей не завершена' : r.enabled ? (r.media === 'text' ? 'Выходит по расписанию' : 'Недельная подготовка в VK') : 'На паузе'}</span><button type="button" data-rubric-edit="${esc(r.id)}" aria-label="${r.pending ? 'Продолжить' : 'Настроить'} →">${r.pending ? 'Продолжить' : 'Настроить'} ${icon('right')}</button></div>
           </article>`,
                   )
                   .join('')
@@ -71,7 +73,7 @@ export function createRubricManager({ api, escapeText: esc, refresh, apiBase, se
     dialog = document.createElement('dialog');
     dialog.className = 'rubric-dialog';
     dialog.setAttribute('aria-labelledby', 'rubric-dialog-title');
-    dialog.innerHTML = `<form id="rubric-form"><div class="rubric-dialog-head"><div><p class="weekly-eyebrow">${rubric ? 'Настройки рубрики' : 'Новая рубрика'}</p><h2 id="rubric-dialog-title">${rubric ? esc(r.name) : 'Задайте ритм публикаций'}</h2></div><button type="button" id="rubric-close" aria-label="Закрыть">×</button></div>
+    dialog.innerHTML = `<form id="rubric-form"><div class="rubric-dialog-head"><div><p class="weekly-eyebrow">${rubric ? 'Настройки рубрики' : 'Новая рубрика'}</p><h2 id="rubric-dialog-title">${rubric ? esc(r.name) : 'Задайте ритм публикаций'}</h2></div><button type="button" id="rubric-close" aria-label="Закрыть">${icon('close')}</button></div>
       <div class="rubric-fields"><label>Группа<select name="projectId" ${rubric ? 'disabled' : ''}>${data.projects.map((p) => `<option value="${esc(p.id)}" ${p.id === r.projectId ? 'selected' : ''}>${esc(p.title)}</option>`).join('')}</select></label>
       <div class="rubric-name-row"><label>Название<input name="name" required maxlength="80" value="${esc(r.name)}" placeholder="Например, вещи с историей"></label><label>Цвет<input type="color" name="color" value="${safeColor(r.color)}"></label></div>
       <fieldset class="rubric-days"><legend>Дни публикации</legend>${days.map((d, i) => `<label><input type="checkbox" name="day" value="${i + 1}" ${r.days.includes(i + 1) ? 'checked' : ''}><span>${d}</span></label>`).join('')}</fieldset>
@@ -82,7 +84,7 @@ export function createRubricManager({ api, escapeText: esc, refresh, apiBase, se
             `<option value="${key}" ${r.media === key ? 'selected' : ''}>${label}</option>`,
         )
         .join('')}</select></label>
-      <div class="rubric-media-note" id="rubric-media-note"><strong>Медиа готовятся на неделю вперёд</strong><p>На вкладке «Неделя» войдите в VK и запустите подготовку. Фото и короткие видео сохраняются в отложенные записи. Пропуски текущей недели можно дополнить отдельно.</p><a href="${esc(apiBase)}/vk/legacy/login">Подключить VK ↗</a></div>
+      <div class="rubric-media-note" id="rubric-media-note"><strong>Медиа готовятся на неделю вперёд</strong><p>На вкладке «Неделя» запустите подготовку. Сервер использует community-ключи групп; отдельный вход VK не нужен. Короткое видео пока требует user OAuth.</p></div>
       <label>Дополнительный промпт для текста<textarea name="textPrompt" rows="5" maxlength="6000" placeholder="О чём эта рубрика, подача, структура, ограничения…">${esc(r.textPrompt)}</textarea><span class="meta">Дополняет системный промпт группы.</span></label>
       <label>Дополнительный промпт для фото и видео · необязательно<textarea name="mediaPrompt" rows="4" maxlength="6000" placeholder="Сюжеты, композиция, настроение, движение камеры…">${esc(r.mediaPrompt)}</textarea><span class="meta">Без него используется визуальный стиль группы.</span></label>
       <label class="rubric-enabled"><input type="checkbox" name="enabled" ${r.enabled ? 'checked' : ''}> Рубрика активна</label>

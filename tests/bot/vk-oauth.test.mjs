@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { OAuthStore } from '../../bot/vk-oauth/store.mjs';
 import { VkOAuthClient } from '../../bot/vk-oauth/client.mjs';
-import { getWeeklyVkClient } from '../../bot/vk-oauth/legacy.mjs';
+import { getOwnerVkClient, getWeeklyVkClient } from '../../bot/vk-oauth/legacy.mjs';
 import {
   getOAuthBroker,
   getTrialOAuthBroker,
@@ -306,7 +306,8 @@ test('HTTP OAuth routes require cabinet session; POST requires Origin; callback 
   db.close();
   const client = getOAuthBroker(env);
   const trialClient = getTrialOAuthBroker(env);
-  const weekly = getWeeklyVkClient(env);
+  assert.equal(getWeeklyVkClient(env).mode, 'community');
+  const weekly = getOwnerVkClient(env);
   let weeklyPermissions = 270356;
   weekly.fetcher = async (url, options) => {
     if (url.includes('/oauth2/')) {

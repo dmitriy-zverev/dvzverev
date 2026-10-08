@@ -153,18 +153,19 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
       ).run(slot.plan_id, week, stamp);
       bumpDataVersion(db);
       try {
-        const token = await client.accessToken();
         const rubric = assertSlotCurrent(db, slot);
         const video = slot.expected_media === 'video';
         if (video && !client.status?.().canVideo) throw new Error('vk_video_permission_required');
         const config = {
           ...applyRubricConfig(await app.resolveProjectConfig(slot.project_id), rubric),
-          vkPhotosToken: token,
           staticPhoto: !video,
           videoOutput: video,
           coverMode: video ? 'video' : 'image',
           editorialPlan: { topic: slot.topic || '', brief: slot.brief || '' },
         };
+        if (client.bindGroup) client.bindGroup(config.vkGroupId);
+        const token = await client.accessToken();
+        config.vkPhotosToken = token;
         config.openrouterPrompt += `\nРедакторский план имеет приоритет в рамках достоверности и обязательного формата: ${JSON.stringify(config.editorialPlan)}`;
         let stored = db.prepare('SELECT * FROM vk_weekly_posts WHERE plan_id=?').get(slot.plan_id);
         const id =
@@ -222,14 +223,18 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
                 image.path || coverPath(config, id),
                 rubric?.name || 'Видеоистория',
               )
-            : await upload(config, { postId: id, vkGroupId: config.vkGroupId, image });
+            : client.uploadWeeklyImage
+              ? await client.uploadWeeklyImage(config, {
+                  postId: id,
+                  vkGroupId: config.vkGroupId,
+                  image,
+                })
+              : await upload(config, { postId: id, vkGroupId: config.vkGroupId, image });
           attachment = typeof uploaded === 'string' ? uploaded : uploaded.attachment;
-          if (
-            !(video ? /^video-?\d+_\d+(?:_[\w-]+)?$/ : /^photo-?\d+_\d+(?:_[\w-]+)?$/).test(
-              attachment || '',
-            )
-          )
-            throw new Error('vk_photo_save_invalid');
+          const attachmentValid = video
+            ? /^video-?\d+_\d+(?:_[\w-]+)?$/.test(attachment || '')
+            : /^(?:photo|doc)-?\d+_\d+(?:_[\w-]+)?$/.test(attachment || '');
+          if (!attachmentValid) throw new Error('vk_photo_save_invalid');
           db.prepare('UPDATE vk_weekly_posts SET attachment=? WHERE plan_id=?').run(
             attachment,
             slot.plan_id,
@@ -266,12 +271,12 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
           saved?.id !== result.post_id ||
           saved.owner_id !== -Number(config.vkGroupId) ||
           saved.date !== Math.floor(Date.parse(slot.slot_utc) / 1000) ||
-          !saved.attachments?.some(
-            (a) =>
-              a.type === (video ? 'video' : 'photo') &&
-              `${video ? 'video' : 'photo'}${a[a.type]?.owner_id}_${a[a.type]?.id}` ===
-                attachment.split('_').slice(0, 2).join('_'),
-          )
+          !saved.attachments?.some((a) => {
+            const kind = video ? 'video' : /^doc/.test(attachment || '') ? 'doc' : 'photo';
+            if (a.type !== kind) return false;
+            const item = a[kind];
+            return `${kind}${item?.owner_id}_${item?.id}` === attachment.split('_').slice(0, 2).join('_');
+          })
         )
           throw new Error('vk_weekly_post_verification_failed');
         withTransaction(db, () => {

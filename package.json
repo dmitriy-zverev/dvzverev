@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build": "astro build && node scripts/minify-cabinet.mjs",
     "preview": "astro preview",
     "astro": "astro",
     "typecheck": "astro check",

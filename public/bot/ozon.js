@@ -1,3 +1,4 @@
+import { icon } from './icons.js';
 export function createOzonComposer({ api, apiBase, escapeText, projectTitle }) {
   let dialog = null;
   let timer = null;
@@ -56,7 +57,7 @@ export function createOzonComposer({ api, apiBase, escapeText, projectTitle }) {
       ${['ready', 'regenerating', 'publishing', 'sent', 'uncertain'].includes(post.status) ? '<img id="ozon-photo" class="ozon-photo" alt="Сгенерированное рекламное фото товара" />' : ''}
       ${post.status === 'ready' && post.imageStyle ? '<button type="button" id="ozon-regenerate">Перегенерировать изображение</button><p class="meta">Новый вариант в стиле группы по исходным референсам. Текст и маркировка сохраняются.</p>' : ''}
       ${post.status === 'ready' && post.input.markingUrl ? `<form id="ozon-publish"><label class="ozon-check"><input type="checkbox" name="reviewed" required /> Проверил текст и сходство товара на фото, права на референсы, категорию и дисклеймеры, соответствие площадки правилам, товарную ссылку и маркировку Ozon для этого задания.</label><button type="submit">Опубликовать в VK</button></form>` : ''}
-      ${post.url ? `<a href="${esc(post.url)}" target="_blank" rel="noopener noreferrer">Открыть публикацию в VK ↗</a>` : ''}
+      ${post.url ? `<a href="${esc(post.url)}" target="_blank" rel="noopener noreferrer">Открыть публикацию в VK ${icon('external')}</a>` : ''}
       ${!['generating', 'regenerating', 'publishing'].includes(post.status) ? '<button type="button" id="ozon-new">Новый рекламный пост</button>' : '<p class="meta" role="status">Можно закрыть окно. Результат сохранится в кабинете.</p>'}`;
     if (
       objectUrl &&
@@ -169,7 +170,7 @@ export function createOzonComposer({ api, apiBase, escapeText, projectTitle }) {
     dialog = document.createElement('dialog');
     dialog.className = 'ozon-dialog';
     dialog.setAttribute('aria-labelledby', 'ozon-title');
-    dialog.innerHTML = `<header class="ozon-head"><h2 id="ozon-title">Выпустить рекламный пост</h2><button type="button" id="ozon-close" aria-label="Закрыть рекламу">×</button></header><p id="ozon-notice" role="status">Загружаем настройки…</p><div id="ozon-content"></div>`;
+    dialog.innerHTML = `<header class="ozon-head"><h2 id="ozon-title">Выпустить рекламный пост</h2><button type="button" id="ozon-close" aria-label="Закрыть рекламу">${icon('close')}</button></header><p id="ozon-notice" role="status">Загружаем настройки…</p><div id="ozon-content"></div>`;
     document.body.append(dialog);
     dialog.showModal();
     dialog.querySelector('#ozon-close').onclick = close;
@@ -186,7 +187,7 @@ export function createOzonComposer({ api, apiBase, escapeText, projectTitle }) {
       dialog.querySelector('#ozon-content').innerHTML = `
         <details class="ozon-settings"><summary>Наши правила</summary><form id="ozon-settings">
           <label>Наши дополнительные правила<textarea name="extraRules" maxlength="8000">${esc(data.settings.extraRules)}</textarea></label>
-          <p class="meta">Правила сохраняются для следующих постов. Маркировочную ссылку нужно указывать заново для каждого поста. Правила Ozon: редакция от ${esc(data.rulesDate)} из присланного документа. <a href="https://blogger-help.ozon.ru/moderaciya-i-pravila" target="_blank" rel="noopener noreferrer">Проверить актуальные требования ↗</a></p>
+          <p class="meta">Правила сохраняются для следующих постов. Маркировочную ссылку нужно указывать заново для каждого поста. Правила Ozon: редакция от ${esc(data.rulesDate)} из присланного документа. <a href="https://blogger-help.ozon.ru/moderaciya-i-pravila" target="_blank" rel="noopener noreferrer">Проверить актуальные требования ${icon('external')}</a></p>
           <button type="submit">Сохранить настройки</button></form></details>
         <form id="ozon-create" class="ozon-form">
           <label>Сообщество<select name="projectId" required>${data.projects.map((p) => `<option value="${esc(p.id)}" ${p.id === 'things' ? 'selected' : ''}>${esc(projectTitle(p.id))}</option>`).join('')}</select></label>

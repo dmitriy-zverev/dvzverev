@@ -30,7 +30,7 @@ import { createLargeBodyReader, handleAnalyticsRoute } from './analytics/routes.
 import { handleEditorialRoute } from './editorial/routes.mjs';
 import { handleVkOAuthRoute, getOAuthBroker, reportOAuthError } from '../vk-oauth/routes.mjs';
 import { createRefreshTick, startRefreshWorker } from '../vk-oauth/refresh.mjs';
-import { getWeeklyVkClient } from '../vk-oauth/legacy.mjs';
+import { getOwnerVkClient, getWeeklyVkClient, weeklyVkStatus } from '../vk-oauth/legacy.mjs';
 import { retryEditionNow } from './retry.mjs';
 import {
   ensureWeeklySnapshot,
@@ -352,7 +352,7 @@ async function handleRequest(request, response, env) {
         {
           ...weeklySnapshot(db, now, current),
           current: weeklySnapshot(db, now, true),
-          vk: client?.status() || { available: false, canPrepare: false, connected: false },
+          vk: weeklyVkStatus(env),
         },
         cors,
       );
@@ -616,8 +616,12 @@ export function startCabinetServer(env = process.env) {
     server.once('close', stop);
   }
   if (env.VK_WEEKLY_OAUTH_ENABLED === 'true') {
-    const tick = createRefreshTick(getWeeklyVkClient(env), (error) => reportOAuthError(env, error));
-    server.once('close', startRefreshWorker(tick));
+    const owner = getOwnerVkClient(env);
+    if (owner) {
+      const tick = createRefreshTick(owner, (error) => reportOAuthError(env, error));
+      const stop = startRefreshWorker(tick);
+      server.once('close', stop);
+    }
   }
   return server;
 }

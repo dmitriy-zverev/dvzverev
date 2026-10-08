@@ -48,6 +48,11 @@ class ReleaseEnvironmentTest(unittest.TestCase):
             self.assertNotIn('user-test', result)
             self.assertNotIn('unexpected-token', result)
             self.assertEqual(result.count('VK_LEGACY_OAUTH_ENABLED='), 1)
+            no_proxy = next(line for line in result.splitlines() if line.startswith('NO_PROXY='))
+            self.assertIn('api.vk.com', no_proxy)
+            self.assertIn('.vk.com', no_proxy)
+            self.assertIn('.vk.ru', no_proxy)
+            self.assertIn('.vkuserphoto.ru', no_proxy)
 
 
 if __name__ == '__main__':

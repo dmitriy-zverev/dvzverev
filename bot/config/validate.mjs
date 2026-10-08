@@ -82,6 +82,7 @@ function validateDestination(errors, destination, path) {
   }
   if (destination.platform === 'vk') {
     validateEnvRef(errors, destination.groupIdEnv, `${path}.groupIdEnv`);
+    if (destination.albumIdEnv) validateEnvRef(errors, destination.albumIdEnv, `${path}.albumIdEnv`);
   }
   if (destination.media !== undefined) {
     if (!requireObject(errors, destination.media, `${path}.media`)) return;

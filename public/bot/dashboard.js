@@ -1,3 +1,4 @@
+import { icon } from './icons.js';
 import { createOzonComposer } from './ozon.js';
 import { createRubricManager } from './rubrics.js';
 
@@ -33,7 +34,6 @@ const rubricManager = createRubricManager({
     if (result?.removed && params().get('rubric') === result.id) setParam('rubric', '');
     return loadOverview(true);
   },
-  apiBase: apiBase + '/bot/api/v1',
   selectProject: (id) => {
     setParam('project', id);
     setParam('rubric', '');
@@ -181,9 +181,7 @@ function renderStaleIndicator(stale) {
     <button type="button" class="stale-indicator" id="stale-indicator"
       aria-label="${escapeText(STALE_DATA_LABEL)}"
       title="${escapeText(STALE_DATA_LABEL)}">
-      <svg class="stale-indicator-icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
-        <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
-      </svg>
+      ${icon('warning')}
     </button>`;
 }
 
@@ -223,13 +221,14 @@ function renderSiteHeader(openCount = 0, data = null) {
     <header class="cabinet-header" aria-label="Кабинет">
       <div class="cabinet-header-shell">
         <div class="cabinet-header-brand">
+          <span class="cabinet-brand-mark" aria-hidden="true">Р.</span>
           <h1 class="cabinet-header-title">Редакционный кабинет</h1>
         </div>
         <div class="cabinet-header-actions">
           <button type="button" class="cabinet-header-home" id="ozon-open">Выпустить рекламный пост</button>
           ${data ? renderStaleIndicator(Boolean(data.service?.stale)) : ''}
           ${data ? renderHeartbeatPill(data) : ''}
-          <a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/bot/api/v1/vk/legacy/login">${state.vk?.connected ? 'Переподключить VK' : 'Войти в VK'}</a>
+          ${state.vk?.ownerOAuth?.available ? `<a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/bot/api/v1/vk/legacy/login">${state.vk.ownerOAuth.connected ? 'Переподключить VK' : 'Войти в VK'}</a>` : state.vk?.mode === 'community' ? '' : `<a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/bot/api/v1/vk/legacy/login">${state.vk?.connected ? 'Переподключить VK' : 'Войти в VK'}</a>`}
           <a class="cabinet-header-home" href="/">На сайт</a>
           <button type="button" class="cabinet-header-logout" id="logout">Выйти</button>
         </div>
@@ -271,8 +270,36 @@ function renderServiceSection(data) {
     </section>`;
 }
 
+function renderOwnerOAuthCard(owner) {
+  if (!owner?.available) return '';
+  const connected = owner.connected;
+  const canPhoto = owner.canPhoto || owner.canPrepare;
+  return `<article class="card vk-connection" aria-label="Owner OAuth VK">
+    <div><h3>Аккаунт владельца VK</h3><p>${connected ? `Подключён · ID ${escapeText(owner.userId)}` : 'Не подключён'}</p>
+    ${
+      connected
+        ? `<p class="meta">${owner.refreshAvailable ? 'Refresh включён' : 'Без refresh — нужен повторный вход'} · до ${escapeText(editorialDate(owner.expiresAt))}</p>
+    <p class="meta">Scope: ${escapeText(owner.grantedScope || 'не указан')}. ${canPhoto ? 'wall + photos + groups подтверждены' : 'Прав на фото/стену недостаточно — проверьте доступы приложения в VK ID'}.</p>
+    <p class="meta">Пока только проверка. Публикации недели идут community GIF.</p>`
+        : `<p class="meta">Серверный вход (приложение ${escapeText(owner.clientId || 'VK')}) для будущих photo-вложений. Сейчас посты — текст + GIF.</p>`
+    }</div>
+    <div class="vk-connection-actions">
+      <a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/bot/api/v1/vk/legacy/login">${connected ? 'Переподключить' : 'Войти в VK'}</a>
+      ${connected ? `<button type="button" class="cabinet-header-home" id="vk-owner-capabilities">Проверить photos API</button>` : ''}
+    </div>
+    <pre class="vk-capabilities-out" id="vk-owner-capabilities-out" hidden></pre>
+  </article>`;
+}
+
 function renderVkConnection() {
   const vk = state.vk;
+  if (vk?.mode === 'community') {
+    const ready = vk.canPrepare;
+    return `<article class="card vk-connection" aria-label="Подключение VK">
+    <div><h3>VK для недельных публикаций</h3><p>${ready ? 'Ключи сообществ настроены на сервере' : 'Не хватает ключей сообществ в конфигурации сервера'}</p>
+    <p class="meta">${ready ? 'Недельная подготовка: community-токены, текст + GIF-документ на стену.' : 'Проверьте community-токены и ID групп в production env.'}</p></div>
+  </article>${renderOwnerOAuthCard(vk.ownerOAuth)}`;
+  }
   const connected = vk?.connected;
   return `<article class="card vk-connection" aria-label="Подключение VK">
     <div><h3>Аккаунт VK</h3><p>${connected ? `Подключён · ID ${escapeText(vk.userId)}` : vk?.unavailable ? 'Не удалось проверить подключение' : 'Аккаунт не подключён'}</p>
@@ -296,7 +323,7 @@ function renderIncidentsSection(incidents, projects = []) {
                   `<article class="card incident-card"><div class="card-head"><strong>${escapeText(projects.find((p) => p.id === item.projectId)?.title || item.projectId || 'Сервис')}</strong><span class="incident-count">Повторов: ${escapeText(item.count ?? 1)}</span></div><p>${escapeText(item.message)}</p><p class="meta">Последний случай: ${escapeText(editorialDate(item.lastSeenAt))} МСК</p><details><summary>Технические сведения</summary><p class="meta">Этап: ${escapeText(item.stage || '—')}</p></details></article>`,
               )
               .join('')
-          : '<div class="workspace-empty"><span class="empty-symbol" aria-hidden="true">✓</span><h3>Открытых инцидентов нет</h3><p class="meta">Новые ошибки появятся здесь после записи в журнал сервиса.</p></div>'
+          : `<div class="workspace-empty"><span class="empty-symbol" aria-hidden="true">${icon('check')}</span><h3>Открытых инцидентов нет</h3><p class="meta">Новые ошибки появятся здесь после записи в журнал сервиса.</p></div>`
       }
     </section>`;
 }
@@ -478,7 +505,7 @@ function renderLogin(message = '') {
   app.className = 'cabinet cabinet--gate';
   app.innerHTML = `
     <section class="login" aria-labelledby="login-title">
-      <p class="login-eyebrow"><span aria-hidden="true">◈</span> Редакция</p>
+      <p class="login-eyebrow"><span aria-hidden="true">Р.</span> Редакция</p>
       <h1 id="login-title">Редакционный кабинет</h1>
       <p class="login-lead">Доступ только для владельца.</p>
       ${message ? `<p class="error-banner login-error" role="alert">${escapeText(message)}</p>` : ''}
@@ -489,7 +516,7 @@ function renderLogin(message = '') {
         </label>
         <button type="submit" class="login-submit">Войти</button>
       </form>
-      <p class="login-footer"><a class="login-site-link" href="/">← На сайт</a></p>
+      <p class="login-footer"><a class="login-site-link" href="/">${icon('left')} На сайт</a></p>
     </section>`;
   document.getElementById('login-form').addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -833,7 +860,7 @@ function safeVkLink(value) {
       !['vk.com', 'vk.ru', 'www.vk.com', 'www.vk.ru'].includes(url.hostname)
     )
       return '';
-    return `<a class="post-source" href="${escapeAttr(url.href)}" target="_blank" rel="noopener noreferrer">Открыть публикацию ↗</a>`;
+    return `<a class="post-source" href="${escapeAttr(url.href)}" target="_blank" rel="noopener noreferrer">Открыть публикацию ${icon('external')}</a>`;
   } catch {
     return '';
   }
@@ -943,7 +970,7 @@ function renderWeeklyPreparation() {
   if (!batch)
     return `<section class="weekly-prepare"><p role="status">Не удалось проверить подготовку следующей недели.</p><p class="meta">Обновите страницу. Публикации не запускаются без проверки расписания.</p></section>`;
   if (!batch.total && !batch.current?.total)
-    return `<section class="weekly-prepare"><p class="weekly-eyebrow">Недельная подготовка</p><h2>Медиа-публикаций пока нет</h2><p class="weekly-description">Добавьте рубрику с фото или коротким видео. Её публикации появятся здесь для подготовки на неделю.</p><button type="button" id="prepare-rubrics">Настроить рубрики →</button></section>`;
+    return `<section class="weekly-prepare"><p class="weekly-eyebrow">Недельная подготовка</p><h2>Медиа-публикаций пока нет</h2><p class="weekly-description">Добавьте рубрику с фото или коротким видео. Её публикации появятся здесь для подготовки на неделю.</p><button type="button" id="prepare-rubrics" aria-label="Настроить рубрики →">Настроить рубрики ${icon('right')}</button></section>`;
   const needsVideo = [...batch.posts, ...(batch.current?.posts || [])].some(
     (p) => p.media === 'video' && !['scheduled', 'sent'].includes(p.status),
   );
@@ -966,9 +993,9 @@ function renderWeeklyPreparation() {
       <div class="weekly-prepare-copy"><p class="weekly-eyebrow">Следующая неделя · VK</p><h2 id="prepare-title">${date(batch.week.start)} — ${date(batch.week.end)}</h2>
       <p class="weekly-description">Фото и короткие видео рубрик — в отложенные VK.<br>Текстовые публикации выходят по расписанию рубрик.</p></div>
       <div class="weekly-prepare-action">
-        <span class="weekly-auth ${connected ? 'is-connected' : ''}"><span aria-hidden="true">${connected ? '●' : '○'}</span> ${connected ? 'VK подключён' : 'Нужен вход в VK'}</span>
-        ${!connected && !batch.complete && !busy ? `<a class="weekly-primary" href="${escapeAttr(apiBase)}/bot/api/v1/vk/legacy/login">Войти в VK <span aria-hidden="true">↗</span></a>` : `<button class="weekly-primary" type="button" id="prepare-week" ${busy || batch.complete || !batch.missing || !connected ? 'disabled' : ''} aria-busy="${Boolean(busy)}">${busy ? 'Подготавливаем посты…' : batch.complete ? 'Неделя подготовлена ✓' : 'Подготовить посты'}<span aria-hidden="true">${!busy && !batch.complete && batch.missing ? ` · ${batch.missing}` : ''}</span></button>`}
-        <p class="weekly-action-note">${batch.complete ? 'Все фотографии и записи сохранены во VK' : busy ? 'Можно закрыть страницу — подготовка продолжится' : !connected ? 'После входа вернём вас сюда' : batch.uncertain && !batch.missing ? 'Проверьте записи с неизвестным результатом' : 'Генерация и отправка только оставшихся записей'}</p>
+        <span class="weekly-auth ${connected ? 'is-connected' : ''}"><span class="weekly-auth-dot" aria-hidden="true"></span> ${connected ? (batch.vk?.mode === 'community' ? 'Ключи сообществ готовы' : 'VK подключён') : batch.vk?.mode === 'community' ? 'Нужны ключи сообществ на сервере' : 'Нужен вход в VK'}</span>
+        ${!connected && !batch.complete && !busy && batch.vk?.mode !== 'community' ? `<a class="weekly-primary" href="${escapeAttr(apiBase)}/bot/api/v1/vk/legacy/login">Войти в VK ${icon('external')}</a>` : `<button class="weekly-primary" type="button" id="prepare-week" ${busy || batch.complete || !batch.missing || !connected ? 'disabled' : ''} aria-busy="${Boolean(busy)}" ${batch.complete ? 'aria-label="Неделя подготовлена ✓"' : ''}>${busy ? 'Подготавливаем посты…' : batch.complete ? `Неделя подготовлена ${icon('check')}` : 'Подготовить посты'}<span aria-hidden="true">${!busy && !batch.complete && batch.missing ? ` · ${batch.missing}` : ''}</span></button>`}
+        <p class="weekly-action-note">${batch.complete ? 'Все фотографии и записи сохранены во VK' : busy ? 'Можно закрыть страницу — подготовка продолжится' : !connected && batch.vk?.mode === 'community' ? 'Добавьте community-токены групп в env сервера' : !connected ? 'После входа вернём вас сюда' : batch.uncertain && !batch.missing ? 'Проверьте записи с неизвестным результатом' : 'Генерация и отправка только оставшихся записей'}</p>
       </div>
     </div>
     <div class="weekly-progress-line"><span>${busy ? 'Подготовка идёт' : batch.complete ? 'Всё готово к публикации' : 'Готовность недели'}</span><strong>${ready}<span> / ${batch.total}</span></strong></div>
@@ -988,7 +1015,7 @@ function renderWeeklyPreparation() {
             .filter((p) => p.url)
             .map(
               (p) =>
-                `<a href="${escapeAttr(p.url)}" target="_blank" rel="noopener noreferrer">${escapeText(p.title)} · ${escapeText(new Date(p.date).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }))} ↗</a>`,
+                `<a href="${escapeAttr(p.url)}" target="_blank" rel="noopener noreferrer">${escapeText(p.title)} · ${escapeText(new Date(p.date).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }))} ${icon('external')}</a>`,
             )
             .join('')}</div></details>`
         : ''
@@ -1080,11 +1107,11 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
     <section class="toolbar toolbar--week-nav" aria-label="Навигация недели">
       <div class="toolbar-title">
         <div class="toolbar-group toolbar-nav" role="group" aria-label="Переключение недели">
-          <button type="button" id="prev-week" aria-label="Предыдущая неделя">←</button>
+          <button type="button" id="prev-week" aria-label="Предыдущая неделя">${icon('left')}</button>
           <button type="button" id="today-week">Сегодня</button>
-          <button type="button" id="next-week" aria-label="Следующая неделя">→</button>
+          <button type="button" id="next-week" aria-label="Следующая неделя">${icon('right')}</button>
         </div>
-        <h1 title="${escapeText(weekRangeIsoTitle(week.start, week.end))}">${escapeText(formatWeekRange(week.start, week.end))}</h1>
+        <h2 title="${escapeText(weekRangeIsoTitle(week.start, week.end))}">${escapeText(formatWeekRange(week.start, week.end))}</h2>
       </div>
       <div class="toolbar-controls">
         <div class="toolbar-group toolbar-filters">
@@ -1133,7 +1160,7 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
     <div id="modal" class="modal hidden" aria-hidden="true">
       <button type="button" class="modal-backdrop" id="modal-backdrop" aria-label="Закрыть"></button>
       <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-        <button type="button" class="modal-close" id="modal-close" aria-label="Закрыть">×</button>
+        <button type="button" class="modal-close" id="modal-close" aria-label="Закрыть">${icon('close')}</button>
         <div id="modal-body" class="modal-body"></div>
       </div>
     </div>`
@@ -1194,6 +1221,24 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
 
   document.getElementById('logout').onclick = () => logout();
   document.getElementById('ozon-open').onclick = () => ozonComposer.open();
+  document.getElementById('vk-owner-capabilities')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    const out = document.getElementById('vk-owner-capabilities-out');
+    if (!out) return;
+    button.disabled = true;
+    out.hidden = false;
+    out.textContent = 'Проверяем permissions / groups / photos.getWallUploadServer…';
+    try {
+      const groupId = state.vk?.groups?.find((g) => g.configured)?.groupId || '';
+      const q = groupId ? `?group_id=${encodeURIComponent(groupId)}` : '';
+      const result = await api(`/bot/api/v1/vk/legacy/capabilities${q}`);
+      out.textContent = JSON.stringify(result.results || result, null, 2);
+    } catch (error) {
+      out.textContent = error.body?.error || error.message || 'probe_failed';
+    } finally {
+      button.disabled = false;
+    }
+  });
   document.getElementById('prepare-week')?.addEventListener('click', () => prepareWeek());
   document.getElementById('prepare-current')?.addEventListener('click', () => prepareWeek(true));
   document.getElementById('prepare-rubrics')?.addEventListener('click', () => {

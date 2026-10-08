@@ -16,7 +16,11 @@ import {
   legacyCallbackPage,
   legacyManualLoginPage,
   parseLegacyRedirectUrl,
+  getOwnerVkClient,
+  getWeeklyVkClient,
+  weeklyVkStatus,
 } from '../../bot/vk-oauth/legacy.mjs';
+import { listWeeklyCommunityTargets } from '../../bot/vk-oauth/community-weekly.mjs';
 import { OAuthStore } from '../../bot/vk-oauth/store.mjs';
 import { weeklyDelivery } from '../../bot/cabinet/weekly-delivery.mjs';
 
@@ -351,6 +355,50 @@ test('login verifies real user and permissions, consumes state once and never re
   const comLogin = new URL(legacy.begin('session'));
   assert.equal(comLogin.origin, 'https://oauth.vk.com');
   assert.equal(comLogin.searchParams.get('redirect_uri'), 'https://oauth.vk.com/blank.html');
+});
+
+test('weekly preparation defaults to community tokens when user oauth is disabled', () => {
+  const env = {
+    VK_LEGACY_OAUTH_ENABLED: 'false',
+    VK_WEEKLY_OAUTH_ENABLED: 'false',
+    BOT_CONFIG_PATH: join(process.cwd(), 'bot/service.json'),
+    VK_DARK_ACADEMIA_ACCESS_TOKEN: 'vk1.a.community-dark',
+    VK_DARK_ACADEMIA_GROUP_ID: '194579254',
+    VK_THINGS_ACCESS_TOKEN: 'vk1.a.community-things',
+    VK_THINGS_GROUP_ID: '242058626',
+  };
+  const targets = listWeeklyCommunityTargets(env);
+  assert.equal(targets.length, 2);
+  const client = getWeeklyVkClient(env);
+  assert.equal(client.mode, 'community');
+  assert.equal(client.status().canPrepare, true);
+  client.bindGroup('194579254');
+  assert.equal(client.accessToken(), 'vk1.a.community-dark');
+});
+
+test('owner oauth can be enabled while weekly posts stay on community', () => {
+  const env = {
+    VK_LEGACY_OAUTH_ENABLED: 'false',
+    VK_WEEKLY_OAUTH_ENABLED: 'true',
+    VK_WEEKLY_CLIENT_ID: '54809454',
+    VK_OAUTH_REDIRECT_URI: 'https://www.dvzverev.ru/vk/callback/',
+    VK_OAUTH_ENCRYPTION_KEY: 'a'.repeat(64),
+    VK_OAUTH_STORE_PATH: join(tmpdir(), `vk-owner-${Date.now()}.sqlite`),
+    BOT_CONFIG_PATH: join(process.cwd(), 'bot/service.json'),
+    VK_DARK_ACADEMIA_ACCESS_TOKEN: 'vk1.a.community-dark',
+    VK_DARK_ACADEMIA_GROUP_ID: '194579254',
+    VK_THINGS_ACCESS_TOKEN: 'vk1.a.community-things',
+    VK_THINGS_GROUP_ID: '242058626',
+  };
+  assert.equal(getWeeklyVkClient(env).mode, 'community');
+  const owner = getOwnerVkClient(env);
+  assert.equal(owner.mode || owner.status().mode, 'owner');
+  const status = weeklyVkStatus(env);
+  assert.equal(status.mode, 'community');
+  assert.equal(status.canPrepare, true);
+  assert.equal(status.ownerOAuth.available, true);
+  assert.equal(status.ownerOAuth.connected, false);
+  owner.store.close();
 });
 
 test('rejected manual token is never stored and its attempt cannot be replayed', async (t) => {

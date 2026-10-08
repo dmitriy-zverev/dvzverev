@@ -484,7 +484,16 @@ export async function publishOzonPost(db, env, id, body, dependencies = {}) {
   if (String(config.vkGroupId) !== String(post.groupId))
     fail('Сообщество проекта изменилось. Создайте новый черновик.', 409);
   const client = dependencies.client || getWeeklyVkClient(env);
-  if (!client) fail('Войдите в VK с правами на фотографии и стену.', 409);
+  const vkStatus = client?.status?.();
+  if (!vkStatus?.canPrepare) {
+    fail(
+      vkStatus?.mode === 'community'
+        ? 'Нет community-ключей VK для группы на сервере.'
+        : 'Войдите в VK с правами на фотографии и стену.',
+      409,
+    );
+  }
+  if (client.bindGroup) client.bindGroup(post.groupId);
   const vkPhotosToken = await client.accessToken();
   const photoConfig = { ...mediaConfig(env, post, config), vkPhotosToken };
   post = withTransaction(db, () => {
@@ -498,11 +507,11 @@ export async function publishOzonPost(db, env, id, body, dependencies = {}) {
   let dispatching = false;
   try {
     if (!post.attachment) {
-      post.attachment = await (dependencies.upload || uploadVkPhoto)(photoConfig, {
-        postId: post.imageId || post.id,
-        vkGroupId: post.groupId,
-      });
-      if (!/^photo-?\d+_\d+(?:_[\w-]+)?$/.test(post.attachment || ''))
+      const entry = { postId: post.imageId || post.id, vkGroupId: post.groupId };
+      post.attachment = client.uploadWeeklyImage
+        ? await client.uploadWeeklyImage(photoConfig, entry)
+        : await (dependencies.upload || uploadVkPhoto)(photoConfig, entry);
+      if (!/^(?:photo|doc)-?\d+_\d+(?:_[\w-]+)?$/.test(post.attachment || ''))
         throw new Error('invalid_photo');
       savePost(db, post);
     }

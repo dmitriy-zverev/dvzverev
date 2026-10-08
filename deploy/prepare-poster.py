@@ -32,8 +32,9 @@ for line in (bot / '.env').read_text().splitlines():
     if key == 'BOT_IMAGE':
       continue
     lines.append(line)
+# Latvia Squid is only for OpenRouter and Telegram. VK stays direct from Cloud.ru.
 lines += ['BOT_IMAGE=' + args.image, 'HTTP_PROXY=' + args.proxy, 'HTTPS_PROXY=' + args.proxy,
-          'NO_PROXY=localhost,127.0.0.1,api.vk.com,api.vk.ru,.vk.com,.vk.ru,.vkuserphoto.ru,.vkuserphoto.net',
+          'NO_PROXY=localhost,127.0.0.1,redis,api.vk.com,api.vk.ru,.vk.com,.vk.ru,.userapi.com,.vkuserphoto.ru,.vkuserphoto.net,.vkuser.net,.vk-cdn.net,.vkvideo.ru',
           'NODE_USE_ENV_PROXY=1']
 redis_password = os.environ.get('BOT_REDIS_PASSWORD', '').strip()
 if not any(line.startswith('BOT_REDIS_PASSWORD=') for line in lines):

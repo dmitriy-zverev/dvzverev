@@ -1,3 +1,4 @@
+import { oauthStatusPage } from './pages.mjs';
 import { resolve, dirname } from 'node:path';
 import { OAuthStore } from './store.mjs';
 import { VkOAuthClient, oauthConfig } from './client.mjs';
@@ -5,10 +6,12 @@ import { logError } from '../logging.mjs';
 import { sendNotification } from '../notifications.mjs';
 import { publicationBackoffSeconds, sendTelegram } from '../core.mjs';
 import {
+  getOwnerVkClient,
   getWeeklyVkClient,
   legacyCallbackPage,
   legacyManualLoginPage,
   parseLegacyRedirectUrl,
+  weeklyVkStatus,
 } from './legacy.mjs';
 
 let broker;
@@ -58,7 +61,7 @@ export async function handleVkOAuthRoute({
   let weeklyCallback = false;
   let weekly = null;
   try {
-    weekly = env.VK_WEEKLY_OAUTH_ENABLED === 'true' ? getWeeklyVkClient(env) : null;
+    weekly = env.VK_WEEKLY_OAUTH_ENABLED === 'true' ? getOwnerVkClient(env) : null;
     const callbackState = url.searchParams.get('state');
     weeklyCallback =
       route === '/vk/callback' &&
@@ -72,24 +75,75 @@ export async function handleVkOAuthRoute({
         !url.searchParams.has('code') &&
         env.VK_LEGACY_OAUTH_ENABLED === 'true')
     ) {
-      const legacy = getWeeklyVkClient(env);
+      const owner = getOwnerVkClient(env);
       if (route === '/vk/legacy/status') {
+        json(response, 200, weeklyVkStatus(env), cors);
+        return true;
+      }
+      if (request.method === 'GET' && route === '/vk/legacy/capabilities') {
+        if (!owner) {
+          json(response, 404, { error: 'vk_owner_oauth_not_configured' }, cors);
+          return true;
+        }
+        const methods = [
+          ['permissions', 'account.getAppPermissions', {}],
+          ['identity', 'users.get', {}],
+          ['groups', 'groups.get', { filter: 'admin,editor', extended: 1, count: 1000 }],
+        ];
+        const groupId = url.searchParams.get('group_id');
+        if (groupId && !/^\d+$/.test(groupId)) throw new Error('vk_invalid_target');
+        methods.push([
+          'photoUpload',
+          'photos.getWallUploadServer',
+          groupId ? { group_id: groupId } : {},
+        ]);
+        const results = [];
+        for (const [capability, method, parameters] of methods) {
+          try {
+            const result = await owner.api(method, parameters);
+            results.push({
+              capability,
+              method,
+              ok: true,
+              ...(capability === 'permissions'
+                ? { permissions: result }
+                : capability === 'groups'
+                  ? {
+                      groups:
+                        result.items?.map((g) => ({
+                          id: g.id,
+                          name: g.name,
+                          isAdmin: g.is_admin,
+                        })) || [],
+                    }
+                  : {}),
+            });
+          } catch (error) {
+            results.push({ capability, method, ok: false, error: error.message });
+          }
+        }
         json(
           response,
           200,
-          legacy?.status() || { available: false, connected: false, canPrepare: false },
+          {
+            results,
+            note: 'Owner OAuth probe only. Weekly posts still use community GIF docs until photo upload is switched on.',
+          },
           cors,
         );
         return true;
       }
-      if (!legacy) throw new Error('vk_legacy_not_configured');
+      if (!owner) {
+        json(response, 404, { error: 'vk_owner_oauth_not_configured' }, cors);
+        return true;
+      }
       if (request.method === 'GET' && route === '/vk/legacy/login') {
         if (
           ['https://oauth.vk.ru/blank.html', 'https://oauth.vk.com/blank.html'].includes(
-            legacy.config.redirectUri,
+            owner.config.redirectUri,
           )
         ) {
-          const page = legacyManualLoginPage(legacy.begin(session.sessionId));
+          const page = legacyManualLoginPage(owner.begin(session.sessionId));
           response.writeHead(200, {
             'Content-Type': 'text/html; charset=utf-8',
             'Cache-Control': 'no-store',
@@ -100,7 +154,7 @@ export async function handleVkOAuthRoute({
           return true;
         }
         response.writeHead(303, {
-          Location: legacy.begin(session.sessionId),
+          Location: owner.begin(session.sessionId),
           'Cache-Control': 'no-store',
           'Referrer-Policy': 'no-referrer',
         });
@@ -113,7 +167,7 @@ export async function handleVkOAuthRoute({
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-store',
           'Referrer-Policy': 'no-referrer',
-          'Content-Security-Policy': `default-src 'none'; script-src 'nonce-${page.nonce}'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'`,
+          'Content-Security-Policy': `default-src 'none'; style-src 'nonce-${page.nonce}'; script-src 'nonce-${page.nonce}'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'`,
         });
         response.end(page.html);
         return true;
@@ -125,7 +179,7 @@ export async function handleVkOAuthRoute({
         json(
           response,
           200,
-          await legacy.complete(
+          await owner.complete(
             body.redirectUrl ? parseLegacyRedirectUrl(body.redirectUrl) : body,
             session.sessionId,
           ),
@@ -297,15 +351,14 @@ export async function handleVkOAuthRoute({
       const message =
         messages[error.message] ||
         'VK не завершил серверное подключение. Причина записана в журнале кабинета.';
+      const page = oauthStatusPage('VK не подключён для публикаций', message);
       response.writeHead(400, {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',
         'Referrer-Policy': 'no-referrer',
-        'Content-Security-Policy': "default-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+        'Content-Security-Policy': `default-src 'none'; style-src 'nonce-${page.nonce}'; base-uri 'none'; frame-ancestors 'none'`,
       });
-      response.end(
-        `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Подключение VK</title><h1>VK не подключён для публикаций</h1><p>${message}</p><p><a href="/bot/">Вернуться в кабинет</a></p></html>`,
-      );
+      response.end(page.html);
       return true;
     }
     json(

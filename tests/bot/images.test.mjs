@@ -21,6 +21,7 @@ import {
   ImageFailure,
   cachedCover,
   normalizeImage,
+  uploadVkAlbumPhoto,
   uploadVkPhoto,
 } from '../../bot/images.mjs';
 
@@ -67,6 +68,89 @@ test('static covers are real PNGs and upload as a wall photo with a user credent
     uploadVkPhoto(config, { postId: 'static', vkGroupId: '42' }),
     /vk_user_photo_token_required/,
   );
+});
+
+test('album upload uses getUploadServer, file1 transfer, and photos.save', async (t) => {
+  const config = await setup(t);
+  config.staticPhoto = true;
+  config.vkPhotosToken = 'community-token';
+  const path = coverPath(config, 'album');
+  await mkdir(join(path, '..'), { recursive: true });
+  const pngHeader = Buffer.alloc(24);
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(pngHeader);
+  pngHeader.write('IHDR', 12);
+  pngHeader.writeUInt32BE(1280, 16);
+  pngHeader.writeUInt32BE(720, 20);
+  await writeFile(path, pngHeader);
+  const calls = [];
+  const attachment = await uploadVkAlbumPhoto(
+    config,
+    { postId: 'album', vkGroupId: '42' },
+    async (url, init) => {
+      calls.push(url.split('/').pop());
+      const method = url.split('/').pop();
+      if (method === 'photos.getAlbums') {
+        assert.equal(init.body.get('access_token'), 'community-token');
+        return { ok: true, json: async () => ({ response: { items: [{ id: 7, title: 'Test' }] } }) };
+      }
+      if (method === 'photos.getUploadServer') {
+        return {
+          ok: true,
+          json: async () => ({ response: { upload_url: 'https://pu.vk.ru/upload', album_id: 7 } }),
+        };
+      }
+      if (method === 'photos.save') {
+        return {
+          ok: true,
+          json: async () => ({ response: [{ owner_id: -42, id: 99 }] }),
+        };
+      }
+      throw new Error(`unexpected ${method}`);
+    },
+    async (request) => {
+      assert.equal(request.kind, 'album_photo');
+      assert.equal(request.path, path);
+      return { server: 1, photos_list: '[{"photo":"x"}]', hash: 'h', aid: 7 };
+    },
+  );
+  assert.equal(attachment, 'photo-42_99');
+  assert.deepEqual(calls, ['photos.getAlbums', 'photos.getUploadServer', 'photos.save']);
+});
+
+test('album upload skips getAlbums when vkAlbumId is configured', async (t) => {
+  const config = await setup(t);
+  config.staticPhoto = true;
+  config.vkPhotosToken = 'community-token';
+  config.vkAlbumId = '313621887';
+  const path = coverPath(config, 'fixed-album');
+  await mkdir(join(path, '..'), { recursive: true });
+  const header = Buffer.alloc(24);
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(header);
+  header.write('IHDR', 12);
+  header.writeUInt32BE(1280, 16);
+  header.writeUInt32BE(720, 20);
+  await writeFile(path, header);
+  const calls = [];
+  await uploadVkAlbumPhoto(
+    config,
+    { postId: 'fixed-album', vkGroupId: '242034586' },
+    async (url) => {
+      calls.push(url.split('/').pop());
+      const method = url.split('/').pop();
+      if (method === 'photos.getUploadServer') {
+        return {
+          ok: true,
+          json: async () => ({ response: { upload_url: 'https://pu.vk.ru/upload' } }),
+        };
+      }
+      if (method === 'photos.save') {
+        return { ok: true, json: async () => ({ response: [{ owner_id: -242034586, id: 1 }] }) };
+      }
+      throw new Error(`unexpected ${method}`);
+    },
+    async () => ({ server: 1, photos_list: '[]', hash: 'h', aid: 313621887 }),
+  );
+  assert.deepEqual(calls, ['photos.getUploadServer', 'photos.save']);
 });
 
 test('PNG normalization produces a single still image without legacy GIF conversion', async (t) => {

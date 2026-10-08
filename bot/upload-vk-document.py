@@ -15,7 +15,15 @@ try:
     request = json.load(sys.stdin)
     if request.get('operation') == 'api':
         method = request['method']
-        if method not in ('docs.getWallUploadServer', 'docs.save', 'photos.getWallUploadServer', 'photos.saveWallPhoto'):
+        if method not in (
+            'docs.getWallUploadServer',
+            'docs.save',
+            'photos.getWallUploadServer',
+            'photos.saveWallPhoto',
+            'photos.getAlbums',
+            'photos.getUploadServer',
+            'photos.save',
+        ):
             raise ValueError('Invalid API method')
         api_request = urllib.request.Request('https://api.vk.ru/method/' + method,
             data=urllib.parse.urlencode(request['params']).encode())
@@ -29,14 +37,19 @@ try:
         sys.exit(0)
     url = urllib.parse.urlsplit(request['url'])
     host = url.hostname or ''
-    allowed = ('vk.ru', 'vk.com', 'vkuserphoto.ru', 'vkuserphoto.net')
+    allowed = ('vk.ru', 'vk.com', 'vkuserphoto.ru', 'vkuserphoto.net', 'userapi.com')
     if (url.scheme != 'https' or url.username or url.password or url.port
             or not any(host == item or host.endswith('.' + item) for item in allowed)):
         raise ValueError('Invalid destination')
     data = Path(request['path']).read_bytes()
     boundary = 'vkdoc' + secrets.token_hex(12)
-    photo = request.get('kind') == 'photo'
-    field, filename, mime = ('photo', 'cover.png', 'image/png') if photo else ('file', 'cover.gif', 'image/gif')
+    kind = request.get('kind')
+    if kind == 'album_photo':
+        field, filename, mime = 'file1', 'cover.png', 'image/png'
+    elif kind == 'photo':
+        field, filename, mime = 'photo', 'cover.png', 'image/png'
+    else:
+        field, filename, mime = 'file', 'cover.gif', 'image/gif'
     body = (f'--{boundary}\r\nContent-Disposition: form-data; name="{field}"; '
             f'filename="{filename}"\r\nContent-Type: {mime}\r\n\r\n').encode()
     body += data + f'\r\n--{boundary}--\r\n'.encode()
@@ -47,7 +60,12 @@ try:
     opener = urllib.request.build_opener(NoRedirect)
     with opener.open(upload, timeout=30) as response:
         result = json.loads(response.read(1_000_000))
-    if photo:
+    if kind == 'album_photo':
+        if not result.get('photos_list') or not isinstance(result.get('server'), int) or not isinstance(result.get('hash'), str):
+            raise ValueError('No uploaded album photo')
+        print(json.dumps({key: result[key] for key in ('photos_list', 'server', 'hash', 'aid') if key in result}))
+        sys.exit(0)
+    if kind == 'photo':
         if not result.get('photo') or not isinstance(result.get('server'), int) or not isinstance(result.get('hash'), str):
             raise ValueError('No uploaded photo')
         print(json.dumps({key: result[key] for key in ('photo', 'server', 'hash')}))

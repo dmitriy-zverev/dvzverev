@@ -90,6 +90,9 @@ export async function runtimeConfigForProject(service, projectId, env, { configR
   const chatId = telegram ? readEnvValue(env, telegram.destination.chatIdEnv) : '';
   const vkToken = vk ? readEnvValue(env, vk.destination.credentialEnv) : '';
   const vkGroupId = vk ? readEnvValue(env, vk.destination.groupIdEnv) : '';
+  const vkAlbumId = vk?.destination.albumIdEnv
+    ? readOptionalEnvValue(env, vk.destination.albumIdEnv) || ''
+    : '';
   const telegramMedia = telegram?.destination.media?.enabled === true;
   const vkMedia = vk?.destination.media?.enabled === true;
 
@@ -105,6 +108,7 @@ export async function runtimeConfigForProject(service, projectId, env, { configR
     alertChatId,
     vkToken,
     vkGroupId,
+    vkAlbumId,
     vkPhotosToken: vk?.destination.media?.photosCredentialEnv
       ? env[vk.destination.media.photosCredentialEnv] || ''
       : '',

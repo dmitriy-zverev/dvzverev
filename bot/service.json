@@ -50,6 +50,7 @@
       "platform": "vk",
       "groupIdEnv": "VK_CODE_TO_THINK_GROUP_ID",
       "credentialEnv": "VK_ACCESS_TOKEN",
+      "albumIdEnv": "VK_CODE_TO_THINK_ALBUM_ID",
       "media": {
         "enabled": false
       }

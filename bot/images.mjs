@@ -185,6 +185,44 @@ export async function generateCover(
     await Promise.all([rm(raw, { force: true }), rm(normalized, { force: true })]);
   }
 }
+function trustedVkUploadUrl(urlString) {
+  const url = new URL(urlString);
+  if (url.protocol !== 'https:' || url.username || url.password || url.port) return false;
+  const host = url.hostname;
+  const allowed = ['vk.com', 'vk.ru', 'vkuserphoto.ru', 'vkuserphoto.net', 'userapi.com'];
+  return allowed.some((item) => host === item || host.endsWith('.' + item));
+}
+
+async function vkPhotoApi(token, name, params, fetchImpl = fetch) {
+  try {
+    const response =
+      fetchImpl === fetch
+        ? {
+            ok: true,
+            json: () =>
+              pythonVkRequest({
+                operation: 'api',
+                method: name,
+                params: { access_token: token, v: '5.199', ...params },
+              }),
+          }
+        : await fetchImpl(`https://api.vk.com/method/${name}`, {
+            method: 'POST',
+            redirect: 'error',
+            signal: AbortSignal.timeout(30000),
+            body: new URLSearchParams({ access_token: token, v: '5.199', ...params }),
+          });
+    const body = await response.json();
+    if (!response.ok || body.error)
+      throw new ImageFailure('vk_photo_api_rejected', body.error?.error_code || response.status);
+    if (!body.response) throw new ImageFailure('invalid_vk_photo_response');
+    return body.response;
+  } catch (error) {
+    if (error instanceof ImageFailure) throw error;
+    throw new ImageFailure('vk_photo_network_failure');
+  }
+}
+
 async function pythonVkRequest(request) {
   const pending = exec(
     process.env.BOT_PYTHON || 'python3',
@@ -236,14 +274,7 @@ export async function uploadVkCover(config, entry, fetchImpl = fetch, transfer =
   } catch {
     throw new ImageFailure('invalid_vk_upload_url');
   }
-  if (
-    url.protocol !== 'https:' ||
-    url.username ||
-    url.password ||
-    url.port ||
-    !/(^|\.)(vk\.com|vk\.ru|vkuserphoto\.ru|vkuserphoto\.net)$/.test(url.hostname)
-  )
-    throw new ImageFailure('invalid_vk_upload_url');
+  if (!trustedVkUploadUrl(url.href)) throw new ImageFailure('invalid_vk_upload_url');
   if (!(await cachedCover(config, entry.postId))) throw new ImageFailure('missing_cached_image');
   let uploaded;
   try {
@@ -264,76 +295,7 @@ export async function uploadVkCover(config, entry, fetchImpl = fetch, transfer =
   return `doc${doc.owner_id}_${doc.id}${doc.access_key ? `_${doc.access_key}` : ''}`;
 }
 
-export async function uploadVkPhoto(config, entry, fetchImpl = fetch, transfer = pythonVkRequest) {
-  if (!config.vkPhotosToken) throw new ImageFailure('vk_user_photo_token_required', 27);
-  async function method(name, params) {
-    try {
-      const response =
-        fetchImpl === fetch
-          ? {
-              ok: true,
-              json: () =>
-                pythonVkRequest({
-                  operation: 'api',
-                  method: name,
-                  params: { access_token: config.vkPhotosToken, v: '5.199', ...params },
-                }),
-            }
-          : await fetchImpl(`https://api.vk.com/method/${name}`, {
-              method: 'POST',
-              redirect: 'error',
-              signal: AbortSignal.timeout(30000),
-              body: new URLSearchParams({
-                access_token: config.vkPhotosToken,
-                v: '5.199',
-                ...params,
-              }),
-            });
-      const body = await response.json();
-      if (!response.ok || body.error)
-        throw new ImageFailure('vk_photo_api_rejected', body.error?.error_code || response.status);
-      if (!body.response) throw new ImageFailure('invalid_vk_photo_response');
-      return body.response;
-    } catch (error) {
-      if (error instanceof ImageFailure) throw error;
-      throw new ImageFailure('vk_photo_network_failure');
-    }
-  }
-  const server = await method('photos.getWallUploadServer', { group_id: entry.vkGroupId });
-  let uploadUrl;
-  try {
-    uploadUrl = new URL(server.upload_url);
-  } catch {
-    throw new ImageFailure('invalid_vk_upload_url');
-  }
-  if (
-    uploadUrl.protocol !== 'https:' ||
-    uploadUrl.username ||
-    uploadUrl.password ||
-    uploadUrl.port ||
-    !/(^|\.)(vk\.com|vk\.ru|vkuserphoto\.ru|vkuserphoto\.net)$/.test(uploadUrl.hostname)
-  )
-    throw new ImageFailure('invalid_vk_upload_url');
-  if (!(await cachedCover(config, entry.postId))) throw new ImageFailure('missing_cached_image');
-  let uploaded;
-  try {
-    uploaded = await transfer({
-      url: uploadUrl.href,
-      path: coverPath(config, entry.postId),
-      kind: 'photo',
-    });
-    if (!uploaded.photo || !Number.isInteger(uploaded.server) || typeof uploaded.hash !== 'string')
-      throw new Error();
-  } catch {
-    throw new ImageFailure('vk_photo_upload_failed');
-  }
-  const photos = await method('photos.saveWallPhoto', {
-    group_id: entry.vkGroupId,
-    photo: uploaded.photo,
-    server: String(uploaded.server),
-    hash: uploaded.hash,
-  });
-  const photo = photos?.[0];
+function formatVkPhotoAttachment(photo) {
   if (
     !Number.isInteger(photo?.id) ||
     !Number.isInteger(photo?.owner_id) ||
@@ -342,4 +304,99 @@ export async function uploadVkPhoto(config, entry, fetchImpl = fetch, transfer =
   )
     throw new ImageFailure('invalid_vk_saved_photo');
   return `photo${photo.owner_id}_${photo.id}${photo.access_key ? `_${photo.access_key}` : ''}`;
+}
+
+async function resolveGroupAlbumId(token, groupId, fetchImpl, preferredAlbumId) {
+  const fixed = String(preferredAlbumId || '').trim();
+  if (/^[1-9]\d*$/.test(fixed)) return Number(fixed);
+  const albums = await vkPhotoApi(token, 'photos.getAlbums', { group_id: groupId, need_covers: 0 }, fetchImpl);
+  const items = Array.isArray(albums?.items) ? albums.items : Array.isArray(albums) ? albums : [];
+  const album = items.find((item) => Number.isInteger(item?.id) && item.id > 0);
+  if (!album) throw new ImageFailure('vk_group_album_missing');
+  return album.id;
+}
+
+export async function uploadVkAlbumPhoto(config, entry, fetchImpl = fetch, transfer = pythonVkRequest) {
+  const token = config.vkPhotosToken || config.vkToken;
+  if (!token) throw new ImageFailure('vk_user_photo_token_required', 27);
+  const albumId = await resolveGroupAlbumId(
+    token,
+    entry.vkGroupId,
+    fetchImpl,
+    entry.vkAlbumId ?? config.vkAlbumId,
+  );
+  const server = await vkPhotoApi(
+    token,
+    'photos.getUploadServer',
+    { album_id: albumId, group_id: entry.vkGroupId },
+    fetchImpl,
+  );
+  if (!trustedVkUploadUrl(server.upload_url)) throw new ImageFailure('invalid_vk_upload_url');
+  if (!(await cachedCover(config, entry.postId))) throw new ImageFailure('missing_cached_image');
+  let uploaded;
+  try {
+    uploaded = await transfer({
+      url: server.upload_url,
+      path: coverPath(config, entry.postId),
+      kind: 'album_photo',
+    });
+    if (
+      !uploaded.photos_list ||
+      !Number.isInteger(uploaded.server) ||
+      typeof uploaded.hash !== 'string'
+    )
+      throw new Error();
+  } catch {
+    throw new ImageFailure('vk_photo_upload_failed');
+  }
+  const photos = await vkPhotoApi(
+    token,
+    'photos.save',
+    {
+      album_id: uploaded.aid ?? albumId,
+      group_id: entry.vkGroupId,
+      server: String(uploaded.server),
+      photos_list: uploaded.photos_list,
+      hash: uploaded.hash,
+    },
+    fetchImpl,
+  );
+  const photo = Array.isArray(photos) ? photos[0] : photos;
+  return formatVkPhotoAttachment(photo);
+}
+
+export async function uploadVkPhoto(config, entry, fetchImpl = fetch, transfer = pythonVkRequest) {
+  if (!config.vkPhotosToken) throw new ImageFailure('vk_user_photo_token_required', 27);
+  const server = await vkPhotoApi(
+    config.vkPhotosToken,
+    'photos.getWallUploadServer',
+    { group_id: entry.vkGroupId },
+    fetchImpl,
+  );
+  if (!trustedVkUploadUrl(server.upload_url)) throw new ImageFailure('invalid_vk_upload_url');
+  if (!(await cachedCover(config, entry.postId))) throw new ImageFailure('missing_cached_image');
+  let uploaded;
+  try {
+    uploaded = await transfer({
+      url: server.upload_url,
+      path: coverPath(config, entry.postId),
+      kind: 'photo',
+    });
+    if (!uploaded.photo || !Number.isInteger(uploaded.server) || typeof uploaded.hash !== 'string')
+      throw new Error();
+  } catch {
+    throw new ImageFailure('vk_photo_upload_failed');
+  }
+  const photos = await vkPhotoApi(
+    config.vkPhotosToken,
+    'photos.saveWallPhoto',
+    {
+      group_id: entry.vkGroupId,
+      photo: uploaded.photo,
+      server: String(uploaded.server),
+      hash: uploaded.hash,
+    },
+    fetchImpl,
+  );
+  return formatVkPhotoAttachment(photos?.[0]);
 }

@@ -56,7 +56,7 @@ test('manual VK connection fits mobile, is accessible and explains rejected iden
 
 for (const [error, message] of [
   ['vk_api_rejected_5', 'VK отклонил ключ'],
-  ['vk_api_rejected_5_ip_mismatch', 'Включите VPN на латвийском VPS бота'],
+  ['vk_api_rejected_5_ip_mismatch', 'выдан для другого IP'],
   ['vk_api_rejected_5_expired', 'Срок действия ключа VK истёк'],
 ]) {
   test(`manual VK connection explains ${error}`, async ({ page }) => {
@@ -79,3 +79,19 @@ for (const [error, message] of [
     await expect(page.getByLabel('Адрес страницы после входа')).toHaveValue('');
   });
 }
+
+test('VK connection uses the cabinet design and is centered at 1920px', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  const view = legacyManualLoginPage(authorize);
+  await page.route('**/bot/api/v1/vk/legacy/login', (route) =>
+    route.fulfill({ contentType: 'text/html', body: view.html }),
+  );
+  await page.goto('/bot/api/v1/vk/legacy/login');
+  const box = await page.locator('main').boundingBox();
+  expect(Math.abs(box!.x + box!.width / 2 - 960)).toBeLessThan(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.screenshot({ path: testInfo.outputPath('vk-connect-1920.png') });
+});

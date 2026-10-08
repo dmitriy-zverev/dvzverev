@@ -302,6 +302,7 @@ async function performChangeRubric(
   for (const slot of targets) {
     assertLease();
     if (!slot.post_id || slot.weekly_status === 'cancelled') continue;
+    if (client.bindGroup) client.bindGroup(slot.group_id);
     const found = await client.api('wall.getById', { posts: `-${slot.group_id}_${slot.post_id}` });
     const saved = Array.isArray(found) ? found[0] : found.items?.[0];
     assertLease();
