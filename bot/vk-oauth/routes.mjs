@@ -337,9 +337,9 @@ export async function handleVkOAuthRoute({
     await reportOAuthError(env, error);
     if (weeklyCallback) {
       const messages = {
-        vk_oauth_wall_photos_groups_required: `VK не выдал приложению права wall, photos и groups. Вход выполнен, но публикации недоступны. Проверьте доступы приложения ${weekly.config.clientId} в кабинете VK ID: повторный вход без изменения доступов их не добавит.`,
+        vk_oauth_wall_photos_groups_required: `Приложение ${weekly.config.clientId} не получило права wall, photos и groups (VK ID обычно выдаёт только профиль). Повторный вход без смены доступов в кабинете разработчика VK ничего не добавит. Недельные посты по-прежнему идут community-ключами (текст + GIF). Owner OAuth нужен только для настоящих photo-вложений.`,
         vk_oauth_refresh_token_missing:
-          'VK не выдал ключ обновления. Постоянное серверное подключение не сохранено.',
+          'VK не выдал ключ обновления. Постоянное серверное подключение не сохранено. Недельные посты community не затронуты.',
         vk_oauth_exchange_rejected_invalid_scope:
           'VK запретил запрошенные права. Проверьте доступы приложения в кабинете разработчика VK.',
         vk_oauth_exchange_rejected_invalid_client:
@@ -351,7 +351,12 @@ export async function handleVkOAuthRoute({
       const message =
         messages[error.message] ||
         'VK не завершил серверное подключение. Причина записана в журнале кабинета.';
-      const page = oauthStatusPage('VK не подключён для публикаций', message);
+      const page = oauthStatusPage(
+        error.message === 'vk_oauth_wall_photos_groups_required'
+          ? 'Owner OAuth без прав на фото'
+          : 'VK owner OAuth не сохранён',
+        message,
+      );
       response.writeHead(400, {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',
