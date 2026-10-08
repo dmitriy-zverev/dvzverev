@@ -36,7 +36,8 @@ export class LegacyVkClient extends VkOAuthClient {
     this.store.clearStates();
     this.store.set(`state:${state}`, { sessionId, expiresAt: this.now() + 600000 });
     return (
-      'https://oauth.vk.ru/authorize?' +
+      new URL(this.config.redirectUri).origin +
+      '/authorize?' +
       new URLSearchParams({
         client_id: this.config.clientId,
         redirect_uri: this.config.redirectUri,
@@ -206,7 +207,7 @@ export function legacyManualLoginPage(authorizeUrl) {
     </style></head><body><main>
     <a href="/bot/">← В кабинет</a><h1>Подключить VK</h1>
     <p>Подключение нужно для фото, коротких видео и подготовки отложенных постов.</p>
-    <h2>1. Войдите в VK</h2><p>Разрешите приложению доступ. VK откроет пустую страницу — оставьте эту вкладку открытой.</p>
+    <h2>1. Войдите в VK</h2><p>Используйте VPN на латвийском VPS бота: VK привязывает ключ к IP входа. Разрешите приложению доступ. VK откроет пустую страницу — оставьте эту вкладку открытой.</p>
     <a class="action" id="vk-authorize" href="${href}" target="_blank" rel="noopener noreferrer">Открыть VK ↗</a>
     <h2>2. Вернитесь сюда с адресом страницы</h2>
     <p>Скопируйте полный адрес пустой страницы из адресной строки браузера и вставьте ниже.</p>
@@ -224,7 +225,7 @@ export function legacyManualLoginPage(authorizeUrl) {
         if (response.status === 401) { location.replace('/bot/'); return; }
         const result = await response.json();
         if (!response.ok) {
-          const messages = {vk_oauth_invalid_redirect:'Нужен полный адрес страницы oauth.vk.ru/blank.html после входа.', vk_oauth_invalid_state:'Попытка входа истекла или относится к другой вкладке. Обновите эту страницу и снова откройте VK.', vk_oauth_wrong_user:'Войдите в VK под аккаунтом владельца кабинета.', vk_oauth_wall_photos_groups_required:'VK не выдал права на стену, фотографии и сообщества. Пройдите вход заново.', vk_oauth_invalid_token:'В адресе нет корректного ключа VK. Скопируйте полный адрес после разрешения доступа.', vk_oauth_consent_required:'Сначала разрешите приложению доступ в VK.', vk_api_rejected_5:'VK отклонил ключ при проверке на сервере (код 5). Точная причина не указана. Обновите эту страницу и получите новый адрес после входа; прежняя попытка уже завершена.', vk_api_rejected_5_ip_mismatch:'VK выдал ключ для другого IP-адреса и запретил использовать его на сервере кабинета. Для публикаций нужен ключ, полученный сервером. Вернитесь в кабинет и используйте серверный вход; права wall, photos и groups проверяются отдельно.', vk_api_rejected_5_expired:'Срок действия ключа VK истёк. Обновите эту страницу и снова откройте VK.', vk_api_rejected_5_revoked:'Доступ приложения отозван в VK. Обновите эту страницу и снова разрешите доступ.', vk_api_rejected_5_invalid_token:'VK считает ключ недействительным. Обновите эту страницу, снова откройте VK и скопируйте полный адрес сразу после разрешения доступа.'};
+          const messages = {vk_oauth_invalid_redirect:'Нужен полный адрес страницы oauth.vk.ru/blank.html после входа.', vk_oauth_invalid_state:'Попытка входа истекла или относится к другой вкладке. Обновите эту страницу и снова откройте VK.', vk_oauth_wrong_user:'Войдите в VK под аккаунтом владельца кабинета.', vk_oauth_wall_photos_groups_required:'VK не выдал права на стену, фотографии и сообщества. Пройдите вход заново.', vk_oauth_invalid_token:'В адресе нет корректного ключа VK. Скопируйте полный адрес после разрешения доступа.', vk_oauth_consent_required:'Сначала разрешите приложению доступ в VK.', vk_api_rejected_5:'VK отклонил ключ при проверке на сервере (код 5). Точная причина не указана. Обновите эту страницу и получите новый адрес после входа; прежняя попытка уже завершена.', vk_api_rejected_5_ip_mismatch:'VK отклонил ключ из-за другого IP. Включите VPN на латвийском VPS бота, обновите эту страницу и получите новый адрес после входа.', vk_api_rejected_5_expired:'Срок действия ключа VK истёк. Обновите эту страницу и снова откройте VK.', vk_api_rejected_5_revoked:'Доступ приложения отозван в VK. Обновите эту страницу и снова разрешите доступ.', vk_api_rejected_5_invalid_token:'VK считает ключ недействительным. Обновите эту страницу, снова откройте VK и скопируйте полный адрес сразу после разрешения доступа.'};
           feedback.textContent = messages[result.error] || 'Не удалось проверить подключение. Причина записана в журнале кабинета. Обновите эту страницу перед новой попыткой.'; return;
         }
         location.replace('/bot/?vk=connected');

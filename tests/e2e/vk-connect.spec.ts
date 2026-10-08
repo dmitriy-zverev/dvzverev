@@ -56,7 +56,7 @@ test('manual VK connection fits mobile, is accessible and explains rejected iden
 
 for (const [error, message] of [
   ['vk_api_rejected_5', 'VK отклонил ключ'],
-  ['vk_api_rejected_5_ip_mismatch', 'Повторный вход таким способом не решит проблему'],
+  ['vk_api_rejected_5_ip_mismatch', 'Включите VPN на латвийском VPS бота'],
   ['vk_api_rejected_5_expired', 'Срок действия ключа VK истёк'],
 ]) {
   test(`manual VK connection explains ${error}`, async ({ page }) => {

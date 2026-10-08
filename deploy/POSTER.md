@@ -54,8 +54,8 @@ OAuth-параметры кабинета и исходный `VK_OAUTH_ENCRYPTI
 Локальный шаблон: `bot/.env.example`; production использует
 hash пароля кабинета и прокси, локальная разработка — VPN без прокси.
 
-VK вызывается напрямую. OpenRouter и Telegram работают через выделенный Squid
-на латвийском VPS: порт 3129, только CONNECT/443, только эти два домена,
+VK API, OpenRouter и Telegram работают через выделенный Squid
+на латвийском VPS: порт 3129, только CONNECT/443, только api.vk.com, openrouter.ai и api.telegram.org,
 только IP cloudru. Существующий прокси 3128 не изменён.
 Настройки: `deploy/openrouter-proxy/autoposter.conf`,
 `deploy/openrouter-proxy/squid-autoposter.service`.
@@ -63,7 +63,9 @@ VK вызывается напрямую. OpenRouter и Telegram работаю�
 В production `HTTP_PROXY` и `HTTPS_PROXY` должны указывать на адрес латвийского
 VPS, достижимый из Docker-сети. `127.0.0.1:3129` внутри poster — сам контейнер,
 а не VPS или локальный VPN. Перед запуском проверить из контейнера доступ к
-OpenRouter и Telegram, не выводя API-ключи и Redis credentials.
+OpenRouter, Telegram и VK API, не выводя API-ключи и Redis credentials.
+Не включать `api.vk.com` в `NO_PROXY`: пользовательский ключ приложения 54809516
+привязан к IP входа. Владелец входит через VPN того же латвийского VPS.
 
 Redis хранит недельные задачи с AOF на отдельном Docker volume и политикой
 `noeviction`: очередь нельзя вытеснять как кэш. JSON-состояние доставки остаётся

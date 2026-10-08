@@ -84,7 +84,11 @@ export async function handleVkOAuthRoute({
       }
       if (!legacy) throw new Error('vk_legacy_not_configured');
       if (request.method === 'GET' && route === '/vk/legacy/login') {
-        if (legacy.config.redirectUri === 'https://oauth.vk.ru/blank.html') {
+        if (
+          ['https://oauth.vk.ru/blank.html', 'https://oauth.vk.com/blank.html'].includes(
+            legacy.config.redirectUri,
+          )
+        ) {
           const page = legacyManualLoginPage(legacy.begin(session.sessionId));
           response.writeHead(200, {
             'Content-Type': 'text/html; charset=utf-8',

@@ -347,6 +347,10 @@ test('login verifies real user and permissions, consumes state once and never re
     legacy.complete({ ...body, state: wrong.searchParams.get('state') }, 'other-session'),
     /invalid_state/,
   );
+  legacy.config.redirectUri = 'https://oauth.vk.com/blank.html';
+  const comLogin = new URL(legacy.begin('session'));
+  assert.equal(comLogin.origin, 'https://oauth.vk.com');
+  assert.equal(comLogin.searchParams.get('redirect_uri'), 'https://oauth.vk.com/blank.html');
 });
 
 test('rejected manual token is never stored and its attempt cannot be replayed', async (t) => {
