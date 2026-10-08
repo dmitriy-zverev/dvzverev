@@ -421,7 +421,7 @@ test('HTTP OAuth routes require cabinet session; POST requires Origin; callback 
     { redirect: 'manual', headers },
   );
   assert.equal(weeklyCallback.status, 303);
-  assert.equal(weeklyCallback.headers.get('location'), '/bot/?vk=connected');
+  assert.equal(weeklyCallback.headers.get('location'), '/bot/?tab=service&vk=connected');
   assert.equal(weekly.status().canPrepare, true);
   assert.equal(weekly.status().canVideo, true);
   assert.equal(weekly.status().refreshAvailable, true);
@@ -435,15 +435,14 @@ test('HTTP OAuth routes require cabinet session; POST requires Origin; callback 
   );
   const rejectedWeekly = await fetch(
     `${root}/vk/callback?state=${insufficientState}&code=secret-code&device_id=device`,
-    { headers },
+    { redirect: 'manual', headers },
   );
-  assert.equal(rejectedWeekly.status, 400);
-  const errorPage = await rejectedWeekly.text();
-  assert.match(errorPage, /VK не выдал приложению права/);
-  assert.match(errorPage, /приложения 789 в кабинете VK ID/);
-  assert.equal(errorPage.includes('54809516'), false);
-  assert.equal(errorPage.includes('secret-code'), false);
-  assert.equal(errorPage.includes('access-b'), false);
+  assert.equal(rejectedWeekly.status, 303);
+  const errorLocation = rejectedWeekly.headers.get('location') || '';
+  assert.match(errorLocation, /\/bot\/\?tab=service&vk=error&reason=vk_oauth_wall_photos_groups_required/);
+  assert.equal(errorLocation.includes('54809516'), false);
+  assert.equal(errorLocation.includes('secret-code'), false);
+  assert.equal(errorLocation.includes('access-b'), false);
   assert.equal(weekly.store.get('token').accessToken, weeklyToken.accessToken);
   await assert.rejects(weekly.accessToken(true), /wall_photos_groups_required/);
   assert.deepEqual(client.store.get('token'), primaryToken);

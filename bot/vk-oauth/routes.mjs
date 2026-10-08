@@ -1,4 +1,3 @@
-import { oauthStatusPage } from './pages.mjs';
 import { resolve, dirname } from 'node:path';
 import { OAuthStore } from './store.mjs';
 import { VkOAuthClient, oauthConfig } from './client.mjs';
@@ -222,7 +221,7 @@ export async function handleVkOAuthRoute({
       const result = await client.callback(url.searchParams, session.sessionId);
       if (weeklyCallback) {
         response.writeHead(303, {
-          Location: '/bot/?vk=connected',
+          Location: '/bot/?tab=service&vk=connected',
           'Cache-Control': 'no-store',
           'Referrer-Policy': 'no-referrer',
         });
@@ -336,34 +335,15 @@ export async function handleVkOAuthRoute({
   } catch (error) {
     await reportOAuthError(env, error);
     if (weeklyCallback) {
-      const messages = {
-        vk_oauth_wall_photos_groups_required: `Приложение ${weekly.config.clientId} не получило права wall, photos и groups (VK ID обычно выдаёт только профиль). Повторный вход без смены доступов в кабинете разработчика VK ничего не добавит. Недельные посты по-прежнему идут community-ключами (текст + GIF). Owner OAuth нужен только для настоящих photo-вложений.`,
-        vk_oauth_refresh_token_missing:
-          'VK не выдал ключ обновления. Постоянное серверное подключение не сохранено. Недельные посты community не затронуты.',
-        vk_oauth_exchange_rejected_invalid_scope:
-          'VK запретил запрошенные права. Проверьте доступы приложения в кабинете разработчика VK.',
-        vk_oauth_exchange_rejected_invalid_client:
-          'VK не разрешил серверную авторизацию этого приложения. Проверьте подключение VK ID и Redirect URI в настройках приложения.',
-        vk_oauth_consent_denied: 'Доступ в VK не разрешён. Подключение не сохранено.',
-        vk_oauth_invalid_state:
-          'Попытка входа истекла или относится к другой сессии. Вернитесь в кабинет и начните новый вход.',
-      };
-      const message =
-        messages[error.message] ||
-        'VK не завершил серверное подключение. Причина записана в журнале кабинета.';
-      const page = oauthStatusPage(
-        error.message === 'vk_oauth_wall_photos_groups_required'
-          ? 'Owner OAuth без прав на фото'
-          : 'VK owner OAuth не сохранён',
-        message,
-      );
-      response.writeHead(400, {
-        'Content-Type': 'text/html; charset=utf-8',
+      const reason = /^vk_[a-z0-9_]+$/.test(error.message)
+        ? error.message
+        : 'vk_oauth_internal_failure';
+      response.writeHead(303, {
+        Location: `/bot/?tab=service&vk=error&reason=${encodeURIComponent(reason)}`,
         'Cache-Control': 'no-store',
         'Referrer-Policy': 'no-referrer',
-        'Content-Security-Policy': `default-src 'none'; style-src 'nonce-${page.nonce}'; base-uri 'none'; frame-ancestors 'none'`,
       });
-      response.end(page.html);
+      response.end();
       return true;
     }
     json(

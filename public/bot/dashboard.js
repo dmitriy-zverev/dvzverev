@@ -1,3 +1,4 @@
+import { openPanel, closePanel, resizeFields } from './panels.js';
 import { icon } from './icons.js';
 import { createOzonComposer } from './ozon.js';
 import { createRubricManager } from './rubrics.js';
@@ -228,7 +229,7 @@ function renderSiteHeader(openCount = 0, data = null) {
           <button type="button" class="cabinet-header-home" id="ozon-open">Выпустить рекламный пост</button>
           ${data ? renderStaleIndicator(Boolean(data.service?.stale)) : ''}
           ${data ? renderHeartbeatPill(data) : ''}
-          ${state.vk?.ownerOAuth?.available ? `<a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/bot/api/v1/vk/legacy/login">${state.vk.ownerOAuth.connected ? 'Переподключить VK' : 'Войти в VK'}</a>` : state.vk?.mode === 'community' ? '' : `<a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/bot/api/v1/vk/legacy/login">${state.vk?.connected ? 'Переподключить VK' : 'Войти в VK'}</a>`}
+          ${renderOwnerVkHeaderControl()}
           <a class="cabinet-header-home" href="/">На сайт</a>
           <button type="button" class="cabinet-header-logout" id="logout">Выйти</button>
         </div>
@@ -270,11 +271,74 @@ function renderServiceSection(data) {
     </section>`;
 }
 
+function ownerCanPhoto(owner = state.vk?.ownerOAuth) {
+  return Boolean(owner?.canPhoto || owner?.canPrepare);
+}
+
+function renderOwnerVkHeaderControl() {
+  const owner = state.vk?.ownerOAuth;
+  if (owner?.available) {
+    const connected = owner.connected;
+    const canPhoto = ownerCanPhoto(owner);
+    const label = connected
+      ? canPhoto
+        ? 'VK · фото ок'
+        : 'VK · без photos'
+      : 'Войти в VK';
+    const status = connected
+      ? `Owner VK · ID ${escapeText(owner.userId)}${canPhoto ? '' : ' · нет wall/photos/groups'}`
+      : 'Owner VK не подключён';
+    return `<span class="vk-owner-pill ${connected ? (canPhoto ? 'is-ready' : 'is-limited') : 'is-off'}" title="${escapeAttr(status)}">${escapeText(status)}</span>
+    <a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/bot/api/v1/vk/legacy/login">${escapeText(label)}</a>`;
+  }
+  if (state.vk?.mode === 'community') return '';
+  return `<a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/bot/api/v1/vk/legacy/login">${state.vk?.connected ? 'Переподключить VK' : 'Войти в VK'}</a>`;
+}
+
+function renderVkOauthFeedback() {
+  const flag = params().get('vk');
+  if (!flag) return '';
+  const reason = params().get('reason') || '';
+  const owner = state.vk?.ownerOAuth;
+  const appId = escapeText(owner?.clientId || 'VK');
+  if (flag === 'connected') {
+    const canPhoto = ownerCanPhoto(owner);
+    return `<div class="vk-feedback is-success" role="status">
+      <div><strong>Owner VK подключён</strong>
+      <p class="meta">ID ${escapeText(owner?.userId || '—')} · приложение ${appId} · scope: ${escapeText(owner?.grantedScope || 'не указан')}.
+      ${canPhoto ? 'Права wall, photos и groups подтверждены.' : 'Mask прав недостаточен для photo-загрузки.'}
+      Недельные посты по-прежнему community (текст + GIF).</p></div>
+      <button type="button" class="cabinet-header-home" id="vk-feedback-dismiss">Закрыть</button>
+    </div>`;
+  }
+  if (flag === 'error') {
+    const messages = {
+      vk_oauth_wall_photos_groups_required: `Приложение ${appId} не получило wall, photos и groups. Повторный вход без смены доступов в кабинете VK ID не поможет. Посты недели идут community GIF.`,
+      vk_oauth_refresh_token_missing:
+        'VK не выдал refresh_token. Owner-подключение не сохранено. Community-посты не затронуты.',
+      vk_oauth_exchange_rejected_invalid_scope:
+        'VK запретил запрошенные права. Проверьте доступы приложения.',
+      vk_oauth_exchange_rejected_invalid_client:
+        'VK отклонил клиент приложения. Проверьте VK ID и Redirect URI.',
+      vk_oauth_consent_denied: 'Доступ в VK не разрешён. Подключение не сохранено.',
+      vk_oauth_invalid_state: 'Сессия входа истекла. Начните вход заново из кабинета.',
+      vk_oauth_wrong_user: 'Нужен аккаунт владельца кабинета.',
+    };
+    return `<div class="vk-feedback is-error" role="alert">
+      <div><strong>Owner VK не подключён</strong>
+      <p class="meta">${escapeText(messages[reason] || 'Операция VK не завершена. Подробности в журнале кабинета.')}</p></div>
+      <a class="cabinet-header-home vk-login" href="${escapeAttr(apiBase)}/bot/api/v1/vk/legacy/login">Повторить вход</a>
+      <button type="button" class="cabinet-header-home" id="vk-feedback-dismiss">Закрыть</button>
+    </div>`;
+  }
+  return '';
+}
+
 function renderOwnerOAuthCard(owner) {
   if (!owner?.available) return '';
   const connected = owner.connected;
-  const canPhoto = owner.canPhoto || owner.canPrepare;
-  return `<article class="card vk-connection" aria-label="Owner OAuth VK">
+  const canPhoto = ownerCanPhoto(owner);
+  return `<article class="card vk-connection ${connected ? (canPhoto ? 'is-ready' : 'is-limited') : 'is-off'}" aria-label="Owner OAuth VK">
     <div><h3>Аккаунт владельца VK</h3><p>${connected ? `Подключён · ID ${escapeText(owner.userId)}` : 'Не подключён'}</p>
     ${
       connected
@@ -676,86 +740,23 @@ function renderWeekStatCell(label, value, tone) {
   </div>`;
 }
 
-let cachedClassicScrollbarWidth;
-
-function measureClassicScrollbarWidth() {
-  if (cachedClassicScrollbarWidth != null) return cachedClassicScrollbarWidth;
-  const outer = document.createElement('div');
-  outer.style.cssText =
-    'visibility:hidden;overflow:scroll;width:100px;height:100px;position:absolute;top:-9999px';
-  document.documentElement.appendChild(outer);
-  const inner = document.createElement('div');
-  inner.style.width = '100%';
-  outer.appendChild(inner);
-  cachedClassicScrollbarWidth = Math.max(0, outer.offsetWidth - inner.offsetWidth);
-  outer.remove();
-  return cachedClassicScrollbarWidth;
-}
-
-function pageHasVerticalScroll() {
-  const doc = document.documentElement;
-  return doc.scrollHeight > doc.clientHeight + 1;
-}
-
-function liveScrollbarWidth() {
-  return Math.max(0, window.innerWidth - document.documentElement.clientWidth);
-}
-
-function syncPageScrollbarPadding() {
-  if (!state.authenticated || document.body.classList.contains('modal-open')) return;
-  const doc = document.documentElement;
-  if (!pageHasVerticalScroll()) {
-    doc.style.paddingRight = `${measureClassicScrollbarWidth()}px`;
-  } else {
-    doc.style.paddingRight = '';
-  }
-}
-
-let scrollbarSyncBound = false;
-
-function ensureScrollbarSync() {
-  if (scrollbarSyncBound) return;
-  scrollbarSyncBound = true;
-  window.addEventListener('resize', () => {
-    cachedClassicScrollbarWidth = undefined;
-    syncPageScrollbarPadding();
-  });
-}
-
 function closeModal() {
-  // Always release the scroll lock, even if navigation already removed the DOM.
-  document.body.classList.remove('modal-open');
-  document.body.style.paddingRight = '';
   const modal = document.getElementById('modal');
-  if (modal) {
-    modal.classList.add('hidden');
-    modal.setAttribute('aria-hidden', 'true');
-  }
-  syncPageScrollbarPadding();
-  const body = document.getElementById('modal-body');
-  if (body) body.innerHTML = '';
+  document.body.classList.remove('modal-open');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+  closePanel(modal);
+  document.getElementById('modal-body')?.replaceChildren();
 }
 
 function openModal() {
   const modal = document.getElementById('modal');
   if (!modal) return;
-  const scrollbarCompensation = pageHasVerticalScroll() ? liveScrollbarWidth() : 0;
-  if (scrollbarCompensation > 0) {
-    document.body.style.paddingRight = `${scrollbarCompensation}px`;
-  }
   modal.classList.remove('hidden');
   modal.setAttribute('aria-hidden', 'false');
   document.body.classList.add('modal-open');
-}
-
-let modalEscapeBound = false;
-
-function ensureModalEscape() {
-  if (modalEscapeBound) return;
-  modalEscapeBound = true;
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') closeModal();
-  });
+  openPanel(modal, closeModal);
 }
 
 function bindModal() {
@@ -785,7 +786,7 @@ function readSlotMeta(node) {
 }
 
 function renderSlotSummary(meta) {
-  const kind = escapeText(meta.publicationKind || '—');
+  const kind = escapeText({ image: 'Фото', text: 'Текст', video: 'Видео' }[meta.publicationKind] || meta.publicationKind || '—');
   const channel = escapeText(meta.channel || '—');
   const project = escapeText(meta.project || '—');
   const topicRaw = (meta.topicLabel || '').trim();
@@ -1007,7 +1008,7 @@ function renderWeeklyPreparation() {
         return `<div class="weekly-project"><span>${escapeText(posts[0].title)}</span><strong>${done}<span> / ${posts.length}</span></strong><div class="weekly-days" aria-label="Готовность постов ${escapeAttr(posts[0].title)}">${posts.map((p) => `<span class="weekly-day is-${escapeAttr(p.status)}" title="${escapeAttr(new Date(p.date).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }))} · ${escapeAttr(p.status === 'scheduled' ? 'В отложенных VK' : p.status === 'sent' ? 'Опубликован' : p.status === 'preparing' ? 'Готовится' : p.status === 'failed' ? 'Ошибка' : p.status === 'uncertain' ? 'Нужна проверка' : 'Ожидает подготовки')}"></span>`).join('')}</div></div>`;
       })
       .join('')}</div>
-    <div class="weekly-feedback" aria-live="polite">${params().get('vk') === 'connected' ? '<p class="weekly-success">VK подключён. Теперь можно подготовить публикации.</p>' : params().get('vk') === 'error' ? '<p role="alert">VK не подключён. Повторите вход и разрешите доступ к стене, фотографиям и сообществам.</p>' : ''}${state.preparationError ? `<p role="alert">${escapeText(state.preparationError)}</p>` : ''}</div>
+    <div class="weekly-feedback" aria-live="polite">${state.preparationError ? `<p role="alert">${escapeText(state.preparationError)}</p>` : ''}</div>
     ${errors.length ? `<details class="weekly-errors"><summary>Требуют внимания · ${errors.length}</summary>${errors.map((p) => `<p><strong>${escapeText(p.title)}</strong> · ${escapeText(new Date(p.date).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }))}<br>${p.status === 'uncertain' ? 'Результат отправки неизвестен. Проверьте отложенные VK: повторная отправка заблокирована.' : 'Не удалось подготовить запись. Следующий запуск продолжит с сохранённого этапа.'}</p>`).join('')}</details>` : ''}
     ${
       ready
@@ -1061,7 +1062,7 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
   const retainedFocus = retainedModal?.contains(document.activeElement)
     ? document.activeElement
     : null;
-  const retainedScroll = retainedModal?.querySelector('#modal-body')?.scrollTop || 0;
+  const retainedScroll = window.scrollY;
   const tab = activeTab();
   const openCount = incidentOpenCount(incidents);
   const week = data.week;
@@ -1195,6 +1196,7 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
   app.dataset.project = project;
   app.innerHTML = `
     ${renderSiteHeader(openCount, data)}
+    ${renderVkOauthFeedback()}
     ${errorMessage ? `<div class="error-banner" role="alert">${escapeText(errorMessage)}</div>` : ''}
     ${weekPanel}
     ${tab === 'rubrics' ? rubricManager.render(data, project) : ''}
@@ -1212,8 +1214,8 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
   // Refresh the calendar without destroying the active dialog, unsaved form,
   // detail request or its scroll position. Tab changes intentionally close it.
   if (retainedModal && tab === 'week') {
-    document.getElementById('modal').replaceWith(retainedModal);
-    document.getElementById('modal-body').scrollTop = retainedScroll;
+    document.getElementById('app').querySelector('#modal')?.remove();
+    window.scrollTo(0, retainedScroll);
     retainedFocus?.focus({ preventScroll: true });
   } else {
     closeModal();
@@ -1221,6 +1223,11 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
 
   document.getElementById('logout').onclick = () => logout();
   document.getElementById('ozon-open').onclick = () => ozonComposer.open();
+  document.getElementById('vk-feedback-dismiss')?.addEventListener('click', () => {
+    setParam('vk', '');
+    setParam('reason', '');
+    loadOverview(true);
+  });
   document.getElementById('vk-owner-capabilities')?.addEventListener('click', async (event) => {
     const button = event.currentTarget;
     const out = document.getElementById('vk-owner-capabilities-out');
@@ -1281,7 +1288,6 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
     };
     document.getElementById('refresh').onclick = () => loadOverview(true);
     bindModal();
-    ensureModalEscape();
     app.querySelectorAll('.slot').forEach((node) => {
       node.addEventListener('click', () => openSlot(readSlotMeta(node)));
     });
@@ -1295,8 +1301,7 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
     document.getElementById('refresh').onclick = () => loadOverview(true);
   }
 
-  ensureScrollbarSync();
-  requestAnimationFrame(() => syncPageScrollbarPadding());
+  resizeFields(app);
 }
 
 function renderCard(card) {
@@ -1359,6 +1364,7 @@ async function openSlot(meta) {
   const body = document.getElementById('modal-body');
   body.innerHTML = `${renderSlotSummary(meta)}<div id="modal-extra" class="modal-extra"><p class="meta">Загрузка…</p></div>`;
   await loadSlotDetails(meta);
+  resizeFields(body);
 }
 
 async function handlePlanFormSubmit(event) {
@@ -1379,11 +1385,8 @@ async function handlePlanFormSubmit(event) {
     if (form.isConnected && form === document.getElementById('plan-form')) closeModal();
     await loadOverview(true);
   } catch (error) {
-    alert(
-      error.body?.error === 'version_conflict'
-        ? PUBLIC_ERROR.version_conflict
-        : PUBLIC_ERROR.save_failed,
-    );
+    const feedback = document.getElementById('plan-feedback');
+    if (feedback) feedback.textContent = error.body?.error === 'version_conflict' ? PUBLIC_ERROR.version_conflict : PUBLIC_ERROR.save_failed;
   }
 }
 
@@ -1450,6 +1453,7 @@ async function loadSlotDetails(meta) {
         <label class="modal-form-label" for="plan-brief">Бриф</label>
         <textarea id="plan-brief" name="brief" rows="5" maxlength="4000" placeholder="Контекст и пожелания к материалу">${escapeText(meta.brief || '')}</textarea>
       </div>
+      <p id="plan-feedback" class="error-banner" role="alert"></p>
       <input type="hidden" name="expectedVersion" value="${escapeText(meta.version)}" />
       <div class="modal-form-actions">
         <button type="submit" class="modal-form-submit">Сохранить</button>
@@ -1524,7 +1528,8 @@ function bindEditorialHandlers() {
   document.getElementById('editorial-run-job')?.addEventListener('click', async (event) => {
     const projectId = params().get('project');
     if (!projectId) {
-      alert('Выберите проект');
+      const feedback = document.getElementById('editorial-feedback');
+      if (feedback) feedback.textContent = 'Выберите сообщество, чтобы собрать план.';
       return;
     }
     await editorialAction(
