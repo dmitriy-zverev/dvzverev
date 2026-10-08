@@ -31,6 +31,10 @@ export class VkOAuthClient {
     this.store.set('state:' + state, { sessionId, verifier, expiresAt: this.now() + 600000 });
     const query = new URLSearchParams({
       client_id: this.config.clientId,
+      // Match VK ID SDK getVKIDUrl metadata as well as its OAuth parameters.
+      app_id: this.config.clientId,
+      sdk_type: 'vkid',
+      v: '2.6.1',
       redirect_uri: this.config.redirectUri,
       response_type: 'code',
       scope: this.config.scope,
@@ -54,7 +58,12 @@ export class VkOAuthClient {
       }),
     });
     const body = await response.json();
-    if (!response.ok || body.error) throw new Error('vk_oauth_exchange_rejected');
+    if (!response.ok || body.error) {
+      const reason = ['invalid_scope', 'invalid_client', 'invalid_grant'].includes(body.error)
+        ? '_' + body.error
+        : '';
+      throw new Error('vk_oauth_exchange_rejected' + reason);
+    }
     if (body.state !== state) throw new Error('vk_oauth_response_state_mismatch');
     if (
       !body.access_token ||
@@ -108,6 +117,7 @@ export class VkOAuthClient {
       userId: previous.userId,
       expiresAt: this.now() + Number(token.expires_in) * 1000,
       scope: token.scope ?? previous.scope ?? null,
+      permissions: token.permissions ?? previous.permissions ?? null,
       updatedAt: this.now(),
     });
   }

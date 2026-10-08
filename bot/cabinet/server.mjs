@@ -615,6 +615,10 @@ export function startCabinetServer(env = process.env) {
     const stop = startRefreshWorker(tick);
     server.once('close', stop);
   }
+  if (env.VK_WEEKLY_OAUTH_ENABLED === 'true') {
+    const tick = createRefreshTick(getWeeklyVkClient(env), (error) => reportOAuthError(env, error));
+    server.once('close', startRefreshWorker(tick));
+  }
   return server;
 }
 

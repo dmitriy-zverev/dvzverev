@@ -55,10 +55,20 @@ export async function handleVkOAuthRoute({
   cors,
 }) {
   if (!route.startsWith('/vk/')) return false;
+  let weeklyCallback = false;
+  let weekly = null;
   try {
+    weekly = env.VK_WEEKLY_OAUTH_ENABLED === 'true' ? getWeeklyVkClient(env) : null;
+    const callbackState = url.searchParams.get('state');
+    weeklyCallback =
+      route === '/vk/callback' &&
+      callbackState &&
+      /^[\w-]{43}$/.test(callbackState) &&
+      weekly?.store.get('state:' + callbackState);
     if (
       route.startsWith('/vk/legacy/') ||
       (route === '/vk/callback' &&
+        !weeklyCallback &&
         !url.searchParams.has('code') &&
         env.VK_LEGACY_OAUTH_ENABLED === 'true')
     ) {
@@ -105,6 +115,7 @@ export async function handleVkOAuthRoute({
         return true;
       }
       if (request.method === 'POST' && route === '/vk/legacy/complete') {
+        if (weekly) throw new Error('vk_oauth_server_login_required');
         assertOrigin(request, env);
         const body = parseJson(await readBody(request));
         json(
@@ -121,8 +132,8 @@ export async function handleVkOAuthRoute({
       json(response, 404, { error: 'not_found' }, cors);
       return true;
     }
-    if (env.VK_OAUTH_ENABLED !== 'true') return false;
-    let client = getOAuthBroker(env);
+    if (env.VK_OAUTH_ENABLED !== 'true' && !weeklyCallback) return false;
+    let client = weeklyCallback ? weekly : getOAuthBroker(env);
     let trial = false;
     if (route.startsWith('/vk/trial/')) {
       client = getTrialOAuthBroker(env);
@@ -130,7 +141,7 @@ export async function handleVkOAuthRoute({
       route = route.replace('/vk/trial/', '/vk/');
       if (!['/vk/login', '/vk/status', '/vk/refresh', '/vk/capabilities'].includes(route))
         throw new Error('vk_oauth_trial_read_only');
-    } else if (route === '/vk/callback' && env.VK_OAUTH_TRIAL_CLIENT_ID) {
+    } else if (!weeklyCallback && route === '/vk/callback' && env.VK_OAUTH_TRIAL_CLIENT_ID) {
       const state = url.searchParams.get('state');
       if (state && /^[\w-]{43}$/.test(state)) {
         const candidate = getTrialOAuthBroker(env);
@@ -151,6 +162,15 @@ export async function handleVkOAuthRoute({
     }
     if (request.method === 'GET' && route === '/vk/callback') {
       const result = await client.callback(url.searchParams, session.sessionId);
+      if (weeklyCallback) {
+        response.writeHead(303, {
+          Location: '/bot/?vk=connected',
+          'Cache-Control': 'no-store',
+          'Referrer-Policy': 'no-referrer',
+        });
+        response.end();
+        return true;
+      }
       json(
         response,
         200,
@@ -257,6 +277,33 @@ export async function handleVkOAuthRoute({
     return true;
   } catch (error) {
     await reportOAuthError(env, error);
+    if (weeklyCallback) {
+      const messages = {
+        vk_oauth_wall_photos_groups_required: `VK не выдал приложению права wall, photos и groups. Вход выполнен, но публикации недоступны. Проверьте доступы приложения ${weekly.config.clientId} в кабинете VK ID: повторный вход без изменения доступов их не добавит.`,
+        vk_oauth_refresh_token_missing:
+          'VK не выдал ключ обновления. Постоянное серверное подключение не сохранено.',
+        vk_oauth_exchange_rejected_invalid_scope:
+          'VK запретил запрошенные права. Проверьте доступы приложения в кабинете разработчика VK.',
+        vk_oauth_exchange_rejected_invalid_client:
+          'VK не разрешил серверную авторизацию этого приложения. Проверьте подключение VK ID и Redirect URI в настройках приложения.',
+        vk_oauth_consent_denied: 'Доступ в VK не разрешён. Подключение не сохранено.',
+        vk_oauth_invalid_state:
+          'Попытка входа истекла или относится к другой сессии. Вернитесь в кабинет и начните новый вход.',
+      };
+      const message =
+        messages[error.message] ||
+        'VK не завершил серверное подключение. Причина записана в журнале кабинета.';
+      response.writeHead(400, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Referrer-Policy': 'no-referrer',
+        'Content-Security-Policy': "default-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      });
+      response.end(
+        `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Подключение VK</title><h1>VK не подключён для публикаций</h1><p>${message}</p><p><a href="/bot/">Вернуться в кабинет</a></p></html>`,
+      );
+      return true;
+    }
     json(
       response,
       error.status || 400,

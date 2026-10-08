@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { OAuthStore } from '../../bot/vk-oauth/store.mjs';
 import { VkOAuthClient } from '../../bot/vk-oauth/client.mjs';
+import { getWeeklyVkClient } from '../../bot/vk-oauth/legacy.mjs';
 import {
   getOAuthBroker,
   getTrialOAuthBroker,
@@ -113,6 +114,9 @@ test('PKCE callback validates session, consumes state once and verifies identity
   );
   const auth = new URL(client.begin('session'));
   assert.equal(auth.searchParams.get('code_challenge_method'), 's256');
+  assert.equal(auth.searchParams.get('app_id'), auth.searchParams.get('client_id'));
+  assert.equal(auth.searchParams.get('sdk_type'), 'vkid');
+  assert.equal(auth.searchParams.get('v'), '2.6.1');
   assert.equal(auth.searchParams.get('code_challenge').length, 43);
   const query = new URLSearchParams({
     state: auth.searchParams.get('state'),
@@ -290,6 +294,8 @@ test('HTTP OAuth routes require cabinet session; POST requires Origin; callback 
     VK_OAUTH_ENABLED: 'true',
     VK_OAUTH_CLIENT_ID: '123',
     VK_OAUTH_TRIAL_CLIENT_ID: '456',
+    VK_WEEKLY_OAUTH_ENABLED: 'true',
+    VK_WEEKLY_CLIENT_ID: '789',
     VK_OAUTH_REDIRECT_URI: 'https://example.test/vk/callback',
     VK_OAUTH_STORE_PATH: join(dir, 'oauth.sqlite'),
     VK_OAUTH_ENCRYPTION_KEY: randomBytes(32).toString('hex'),
@@ -300,6 +306,17 @@ test('HTTP OAuth routes require cabinet session; POST requires Origin; callback 
   db.close();
   const client = getOAuthBroker(env);
   const trialClient = getTrialOAuthBroker(env);
+  const weekly = getWeeklyVkClient(env);
+  let weeklyPermissions = 270356;
+  weekly.fetcher = async (url, options) => {
+    if (url.includes('/oauth2/')) {
+      assert.equal(options.body.get('client_id'), '789');
+      return tokenResponse(options);
+    }
+    return json({
+      response: url.includes('account.getAppPermissions') ? weeklyPermissions : [{ id: 42 }],
+    });
+  };
   client.fetcher = async (url, options) =>
     url.includes('/oauth2/') ? tokenResponse(options) : json({ response: [{ id: 42 }] });
   const trialExchanges = [];
@@ -318,6 +335,7 @@ test('HTTP OAuth routes require cabinet session; POST requires Origin; callback 
     await new Promise((r) => server.close(r));
     client.store.close();
     trialClient.store.close();
+    weekly.store.close();
     await rm(dir, { recursive: true, force: true });
   });
   assert.equal((await fetch(root + '/vk/login', { redirect: 'manual' })).status, 401);
@@ -386,6 +404,59 @@ test('HTTP OAuth routes require cabinet session; POST requires Origin; callback 
   assert.equal((await rejectedCallback.json()).error, 'vk_oauth_refresh_token_missing');
   assert.deepEqual(trialClient.store.get('token'), savedTrialToken);
   assert.deepEqual(client.store.get('token'), primaryToken);
+  const weeklyLogin = await fetch(root + '/bot/api/v1/vk/legacy/login', {
+    redirect: 'manual',
+    headers,
+  });
+  assert.equal(weeklyLogin.status, 303);
+  const weeklyUrl = new URL(weeklyLogin.headers.get('location'));
+  assert.equal(weeklyUrl.hostname, 'id.vk.ru');
+  assert.equal(weeklyUrl.searchParams.get('client_id'), '789');
+  assert.equal(weeklyUrl.searchParams.get('app_id'), '789');
+  assert.equal(weeklyUrl.searchParams.get('sdk_type'), 'vkid');
+  assert.equal(weeklyUrl.searchParams.get('response_type'), 'code');
+  const weeklyCallback = await fetch(
+    `${root}/vk/callback?state=${weeklyUrl.searchParams.get('state')}&code=code&device_id=device`,
+    { redirect: 'manual', headers },
+  );
+  assert.equal(weeklyCallback.status, 303);
+  assert.equal(weeklyCallback.headers.get('location'), '/bot/?vk=connected');
+  assert.equal(weekly.status().canPrepare, true);
+  assert.equal(weekly.status().canVideo, true);
+  assert.equal(weekly.status().refreshAvailable, true);
+  const weeklyToken = weekly.store.get('token');
+  await weekly.accessToken(true);
+  assert.equal(weekly.store.get('token').permissions, 270356);
+  weeklyPermissions = 4;
+  const insufficientLogin = await fetch(root + '/vk/legacy/login', { redirect: 'manual', headers });
+  const insufficientState = new URL(insufficientLogin.headers.get('location')).searchParams.get(
+    'state',
+  );
+  const rejectedWeekly = await fetch(
+    `${root}/vk/callback?state=${insufficientState}&code=secret-code&device_id=device`,
+    { headers },
+  );
+  assert.equal(rejectedWeekly.status, 400);
+  const errorPage = await rejectedWeekly.text();
+  assert.match(errorPage, /VK не выдал приложению права/);
+  assert.match(errorPage, /приложения 789 в кабинете VK ID/);
+  assert.equal(errorPage.includes('54809516'), false);
+  assert.equal(errorPage.includes('secret-code'), false);
+  assert.equal(errorPage.includes('access-b'), false);
+  assert.equal(weekly.store.get('token').accessToken, weeklyToken.accessToken);
+  await assert.rejects(weekly.accessToken(true), /wall_photos_groups_required/);
+  assert.deepEqual(client.store.get('token'), primaryToken);
+  assert.deepEqual(trialClient.store.get('token'), savedTrialToken);
+  assert.equal(
+    (
+      await fetch(root + '/vk/legacy/complete', {
+        method: 'POST',
+        headers: { ...headers, origin: root },
+        body: '{}',
+      })
+    ).status,
+    400,
+  );
 });
 
 test('VK authentication diagnostics retain only known reasons, method and numeric subcode', async (t) => {

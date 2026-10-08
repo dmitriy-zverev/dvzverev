@@ -26,7 +26,8 @@ class ReleaseEnvironmentTest(unittest.TestCase):
             server.write_text(
                 'VK_OAUTH_CLIENT_ID=server-app\nVK_OAUTH_ENCRYPTION_KEY=server-key\n'
                 'VK_OAUTH_ALLOWED_USER_ID=owner\nVK_LEGACY_OAUTH_ENABLED=true\n'
-                'VK_LEGACY_CLIENT_ID=legacy-app\nBOT_CABINET_MEMORY_LIMIT=256m\n'
+                'VK_LEGACY_CLIENT_ID=legacy-app\nVK_WEEKLY_OAUTH_ENABLED=true\n'
+                'VK_WEEKLY_CLIENT_ID=weekly-app\nBOT_CABINET_MEMORY_LIMIT=256m\n'
                 'VK_USER_ACCESS_TOKEN=remote-user-test\nVK_OAUTH_ACCESS_TOKEN=unexpected-token\n'
             )
             subprocess.run(
@@ -40,6 +41,8 @@ class ReleaseEnvironmentTest(unittest.TestCase):
             self.assertIn('VK_OAUTH_ALLOWED_USER_ID=owner\n', result)
             self.assertIn('VK_LEGACY_OAUTH_ENABLED=true\n', result)
             self.assertIn('VK_LEGACY_CLIENT_ID=legacy-app\n', result)
+            self.assertIn('VK_WEEKLY_OAUTH_ENABLED=true\n', result)
+            self.assertIn('VK_WEEKLY_CLIENT_ID=weekly-app\n', result)
             self.assertIn('BOT_CABINET_MEMORY_LIMIT=256m\n', result)
             self.assertNotIn('local-app', result)
             self.assertNotIn('user-test', result)

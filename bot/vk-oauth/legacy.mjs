@@ -1,7 +1,34 @@
 import { randomBytes } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { OAuthStore } from './store.mjs';
-import { VkOAuthClient } from './client.mjs';
+import { VkOAuthClient, oauthConfig } from './client.mjs';
+
+// Server-issued tokens for the publishing app, isolated from legacy and identity-only OAuth.
+export class WeeklyVkClient extends VkOAuthClient {
+  async tokenRequest(parameters) {
+    const token = await super.tokenRequest(parameters);
+    let permissions;
+    try {
+      permissions = Number(await this.rawApi('account.getAppPermissions', {}, token.access_token));
+    } catch (error) {
+      if ([15, 1051].includes(error.vkCode)) error.message = 'vk_oauth_wall_photos_groups_required';
+      throw error;
+    }
+    if (!Number.isSafeInteger(permissions) || (permissions & 270340) !== 270340)
+      throw new Error('vk_oauth_wall_photos_groups_required');
+    return { ...token, permissions };
+  }
+  status() {
+    const status = super.status();
+    const permissions = this.store.get('token')?.permissions || 0;
+    return {
+      ...status,
+      available: true,
+      canPrepare: status.connected && (permissions & 270340) === 270340,
+      canVideo: status.connected && (permissions & 16) === 16,
+    };
+  }
+}
 
 export class LegacyVkClient extends VkOAuthClient {
   begin(sessionId) {
@@ -79,8 +106,19 @@ export class LegacyVkClient extends VkOAuthClient {
 
 let broker;
 export function getWeeklyVkClient(env) {
-  if (env.VK_LEGACY_OAUTH_ENABLED !== 'true') return null;
+  if (env.VK_WEEKLY_OAUTH_ENABLED !== 'true' && env.VK_LEGACY_OAUTH_ENABLED !== 'true') return null;
   if (!broker) {
+    const path =
+      env.VK_OAUTH_STORE_PATH ||
+      resolve(dirname(env.BOT_CABINET_DB_PATH || 'bot/data/cabinet.sqlite'), 'vk-oauth.sqlite');
+    if (env.VK_WEEKLY_OAUTH_ENABLED === 'true') {
+      const config = oauthConfig({ ...env, VK_OAUTH_CLIENT_ID: env.VK_WEEKLY_CLIENT_ID });
+      broker = new WeeklyVkClient(
+        new OAuthStore(`${path}.weekly-${config.clientId}`, env.VK_OAUTH_ENCRYPTION_KEY),
+        config,
+      );
+      return broker;
+    }
     const clientId = env.VK_LEGACY_CLIENT_ID;
     const redirectUri = new URL(env.VK_LEGACY_REDIRECT_URI);
     if (
@@ -90,9 +128,6 @@ export function getWeeklyVkClient(env) {
       redirectUri.search
     )
       throw new Error('vk_legacy_config_invalid');
-    const path =
-      env.VK_OAUTH_STORE_PATH ||
-      resolve(dirname(env.BOT_CABINET_DB_PATH || 'bot/data/cabinet.sqlite'), 'vk-oauth.sqlite');
     broker = new LegacyVkClient(
       new OAuthStore(`${path}.legacy-${clientId}`, env.VK_OAUTH_ENCRYPTION_KEY),
       {
@@ -189,7 +224,7 @@ export function legacyManualLoginPage(authorizeUrl) {
         if (response.status === 401) { location.replace('/bot/'); return; }
         const result = await response.json();
         if (!response.ok) {
-          const messages = {vk_oauth_invalid_redirect:'Нужен полный адрес страницы oauth.vk.ru/blank.html после входа.', vk_oauth_invalid_state:'Попытка входа истекла или относится к другой вкладке. Обновите эту страницу и снова откройте VK.', vk_oauth_wrong_user:'Войдите в VK под аккаунтом владельца кабинета.', vk_oauth_wall_photos_groups_required:'VK не выдал права на стену, фотографии и сообщества. Пройдите вход заново.', vk_oauth_invalid_token:'В адресе нет корректного ключа VK. Скопируйте полный адрес после разрешения доступа.', vk_oauth_consent_required:'Сначала разрешите приложению доступ в VK.', vk_api_rejected_5:'VK отклонил ключ при проверке на сервере (код 5). Точная причина не указана. Обновите эту страницу и получите новый адрес после входа; прежняя попытка уже завершена.', vk_api_rejected_5_ip_mismatch:'VK выдал ключ для другого IP-адреса и запретил использовать его на сервере кабинета. Повторный вход таким способом не решит проблему: требуется серверная авторизация через VK ID.', vk_api_rejected_5_expired:'Срок действия ключа VK истёк. Обновите эту страницу и снова откройте VK.', vk_api_rejected_5_revoked:'Доступ приложения отозван в VK. Обновите эту страницу и снова разрешите доступ.', vk_api_rejected_5_invalid_token:'VK считает ключ недействительным. Обновите эту страницу, снова откройте VK и скопируйте полный адрес сразу после разрешения доступа.'};
+          const messages = {vk_oauth_invalid_redirect:'Нужен полный адрес страницы oauth.vk.ru/blank.html после входа.', vk_oauth_invalid_state:'Попытка входа истекла или относится к другой вкладке. Обновите эту страницу и снова откройте VK.', vk_oauth_wrong_user:'Войдите в VK под аккаунтом владельца кабинета.', vk_oauth_wall_photos_groups_required:'VK не выдал права на стену, фотографии и сообщества. Пройдите вход заново.', vk_oauth_invalid_token:'В адресе нет корректного ключа VK. Скопируйте полный адрес после разрешения доступа.', vk_oauth_consent_required:'Сначала разрешите приложению доступ в VK.', vk_api_rejected_5:'VK отклонил ключ при проверке на сервере (код 5). Точная причина не указана. Обновите эту страницу и получите новый адрес после входа; прежняя попытка уже завершена.', vk_api_rejected_5_ip_mismatch:'VK выдал ключ для другого IP-адреса и запретил использовать его на сервере кабинета. Для публикаций нужен ключ, полученный сервером. Вернитесь в кабинет и используйте серверный вход; права wall, photos и groups проверяются отдельно.', vk_api_rejected_5_expired:'Срок действия ключа VK истёк. Обновите эту страницу и снова откройте VK.', vk_api_rejected_5_revoked:'Доступ приложения отозван в VK. Обновите эту страницу и снова разрешите доступ.', vk_api_rejected_5_invalid_token:'VK считает ключ недействительным. Обновите эту страницу, снова откройте VK и скопируйте полный адрес сразу после разрешения доступа.'};
           feedback.textContent = messages[result.error] || 'Не удалось проверить подключение. Причина записана в журнале кабинета. Обновите эту страницу перед новой попыткой.'; return;
         }
         location.replace('/bot/?vk=connected');
