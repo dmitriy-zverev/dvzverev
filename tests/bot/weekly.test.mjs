@@ -73,7 +73,10 @@ async function fixture(t) {
   return { db, env, week, dependencies };
 }
 
-function client(fail, { attachment = 'photo-123_42', postType = 'postponed' } = {}) {
+function client(
+  fail,
+  { attachment = 'photo-123_42', postType = 'postponed', getByIdError = null } = {},
+) {
   let writes = 0;
   const receipts = new Map();
   const kind = attachment.startsWith('doc')
@@ -101,6 +104,7 @@ function client(fail, { attachment = 'photo-123_42', postType = 'postponed' } = 
         });
         return { post_id: writes };
       }
+      if (getByIdError) throw getByIdError;
       return [receipts.get(Number(parameters.posts.split('_')[1]))];
     },
   };
@@ -153,6 +157,62 @@ test('gif without postponed confirmation stays uncertain (no auto-repost)', asyn
     client: c,
   });
   assert.equal(c.writes, 1);
+  f.db.close();
+});
+
+test('community token wall.get 27 after wall.post still marks deferred', async (t) => {
+  const f = await fixture(t);
+  f.db.prepare("DELETE FROM schedule_slots WHERE plan_id='p1'").run();
+  const getByIdError = Object.assign(new Error('vk_api_rejected_27'), { vkCode: 27 });
+  const c = client(null, { attachment: 'doc-123_9', getByIdError });
+  await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
+    ...f.dependencies,
+    client: c,
+  });
+  assert.equal(c.writes, 1);
+  assert.equal(
+    f.db.prepare("SELECT status FROM vk_weekly_posts WHERE plan_id='p0'").get().status,
+    'deferred',
+  );
+  f.db.close();
+});
+
+test('uncertain with post_id recovers when wall.get is unreadable (community 27)', async (t) => {
+  const f = await fixture(t);
+  f.db.prepare("DELETE FROM schedule_slots WHERE plan_id='p1'").run();
+  f.db
+    .prepare(
+      `INSERT INTO vk_weekly_posts(plan_id,week_start,status,post_json,attachment,post_id,group_id,attempts,updated_at)
+       VALUES ('p0',?,'uncertain',?,?,?,?,1,?)`,
+    )
+    .run(
+      f.week.start,
+      JSON.stringify({ id: 'weekly-x', kind: 'lifestyle', text: 'Уже во VK.' }),
+      'doc-123_42',
+      99,
+      '123',
+      new Date().toISOString(),
+    );
+  let writes = 0;
+  const c = {
+    accessToken: async () => 'test-secret',
+    api: async (method) => {
+      if (method === 'wall.post') {
+        writes++;
+        throw new Error('must_not_repost');
+      }
+      throw Object.assign(new Error('vk_api_rejected_27'), { vkCode: 27 });
+    },
+  };
+  await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
+    ...f.dependencies,
+    client: c,
+  });
+  assert.equal(writes, 0);
+  assert.equal(
+    f.db.prepare("SELECT status FROM vk_weekly_posts WHERE plan_id='p0'").get().status,
+    'deferred',
+  );
   f.db.close();
 });
 

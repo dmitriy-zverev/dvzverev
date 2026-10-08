@@ -283,6 +283,26 @@ function isPostponedReceipt(saved, { postId, groupId, publishDate, attachment, m
   return attachmentMatches(saved, attachment, media);
 }
 
+/** Community keys can wall.post but often cannot wall.get* (VK 15/27). */
+function communityWallUnreadable(error) {
+  return error?.vkCode === 15 || error?.vkCode === 27;
+}
+
+async function loadWallReceipt(client, groupId, postId) {
+  try {
+    const lookup = await client.api('wall.getById', {
+      posts: `-${groupId}_${postId}`,
+    });
+    return {
+      saved: Array.isArray(lookup) ? lookup[0] : lookup.items?.[0],
+      unreadable: false,
+    };
+  } catch (error) {
+    if (communityWallUnreadable(error)) return { saved: null, unreadable: true };
+    throw error;
+  }
+}
+
 function markDeferred(db, slot, config, message, postId, stamp) {
   withTransaction(db, () => {
     db.prepare(
@@ -416,10 +436,6 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
         const publishDate = Math.floor(Date.parse(slot.slot_utc) / 1000);
 
         if (stored?.post_id) {
-          const lookup = await client.api('wall.getById', {
-            posts: `-${config.vkGroupId}_${stored.post_id}`,
-          });
-          const saved = Array.isArray(lookup) ? lookup[0] : lookup.items?.[0];
           let message = '';
           if (stored.post_json) {
             try {
@@ -428,8 +444,10 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
               message = '';
             }
           }
+          const receipt = await loadWallReceipt(client, config.vkGroupId, stored.post_id);
           if (
-            isPostponedReceipt(saved, {
+            receipt.unreadable ||
+            isPostponedReceipt(receipt.saved, {
               postId: stored.post_id,
               groupId: config.vkGroupId,
               publishDate,
@@ -437,6 +455,7 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
               media,
             })
           ) {
+            // Trust our post_id when community token cannot read wall, or VK confirms postponed.
             markDeferred(db, slot, config, message, stored.post_id, stamp);
             consecutiveFailures = 0;
             await pause(1200);
@@ -529,12 +548,10 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
           "UPDATE vk_weekly_posts SET status='uncertain',post_id=?,updated_at=? WHERE plan_id=?",
         ).run(result.post_id, new Date().toISOString(), slot.plan_id);
 
-        const lookup = await client.api('wall.getById', {
-          posts: `-${config.vkGroupId}_${result.post_id}`,
-        });
-        const saved = Array.isArray(lookup) ? lookup[0] : lookup.items?.[0];
+        const receipt = await loadWallReceipt(client, config.vkGroupId, result.post_id);
         if (
-          !isPostponedReceipt(saved, {
+          !receipt.unreadable &&
+          !isPostponedReceipt(receipt.saved, {
             postId: result.post_id,
             groupId: config.vkGroupId,
             publishDate,

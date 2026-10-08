@@ -7,7 +7,7 @@ export async function weeklyDelivery(config, slot, now, fetcher = fetch, env = p
   try {
     const row = db
       .prepare(
-        `SELECT w.*,s.edition_id FROM schedule_slots s
+        `SELECT w.*,s.edition_id,s.slot_utc FROM schedule_slots s
       LEFT JOIN vk_weekly_posts w USING(plan_id)
       WHERE s.project_id=? AND s.destination_id=? AND s.slot_key=?`,
       )
@@ -27,13 +27,27 @@ export async function weeklyDelivery(config, slot, now, fetcher = fetch, env = p
         }),
       });
       const data = await response.json();
-      if (!response.ok || data.error) throw new Error('vk_weekly_publication_check_failed');
-      const post = Array.isArray(data.response) ? data.response[0] : data.response?.items?.[0];
-      sent =
-        post?.id === row.post_id &&
-        post.owner_id === -Number(row.group_id) &&
-        post.post_type === 'post' &&
-        post.date * 1000 <= now.getTime();
+      const vkCode = data.error?.error_code;
+      // Community tokens often cannot wall.get* (15/27). After slot time, trust publish_date.
+      if (!response.ok || data.error) {
+        if (
+          (vkCode === 15 || vkCode === 27) &&
+          Date.parse(row.slot_utc) <= now.getTime()
+        ) {
+          sent = true;
+        } else if (vkCode === 15 || vkCode === 27) {
+          return { status: 'vk_scheduled' };
+        } else {
+          throw new Error('vk_weekly_publication_check_failed');
+        }
+      } else {
+        const post = Array.isArray(data.response) ? data.response[0] : data.response?.items?.[0];
+        sent =
+          post?.id === row.post_id &&
+          post.owner_id === -Number(row.group_id) &&
+          post.post_type === 'post' &&
+          post.date * 1000 <= now.getTime();
+      }
       if (!sent) return { status: 'vk_scheduled' };
       withTransaction(db, () => {
         db.prepare("UPDATE vk_weekly_posts SET status='sent',updated_at=? WHERE plan_id=?").run(
