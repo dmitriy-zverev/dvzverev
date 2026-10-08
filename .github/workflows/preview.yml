@@ -21,6 +21,12 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Install media test dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/media-python"
+          "$RUNNER_TEMP/media-python/bin/pip" install Pillow
+          echo "$RUNNER_TEMP/media-python/bin" >> "$GITHUB_PATH"
+
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
       - run: pnpm check-bundle

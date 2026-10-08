@@ -259,6 +259,7 @@ test('publish requires review and a fresh version; concurrent and repeated reque
   const dependencies = {
     app: f.app,
     client: {
+      status: () => ({ canPrepare: true }),
       accessToken: async () => 'user-token',
       api: async (method, params) => {
         assert.equal(method, 'wall.post');
@@ -384,6 +385,7 @@ test('uncertain VK response persists across reload and cannot be retried', async
     app: f.app,
     upload: async () => 'photo-123_5',
     client: {
+      status: () => ({ canPrepare: true }),
       accessToken: async () => 'token',
       api: async () => {
         throw new Error('timeout');
