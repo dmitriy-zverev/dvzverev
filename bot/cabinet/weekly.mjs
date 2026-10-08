@@ -17,7 +17,9 @@ export const WEEKLY_MAX_ATTEMPTS = 3;
 export const WEEKLY_MAX_CONSECUTIVE_FAILURES = 3;
 
 const READY_STATUSES = new Set(['deferred', 'scheduled', 'sent']);
-const SKIP_STATUSES = new Set(['deferred', 'scheduled', 'sent', 'uncertain', 'posting', 'exhausted']);
+/** Rubric media `image` and legacy destination kind `gif` are the same wall GIF path. */
+const WEEKLY_KINDS = new Set(['text', 'image', 'gif']);
+const WEEKLY_KIND_SQL = "'text','image','gif'";
 
 export function nextWeek(now = new Date()) {
   const p = zonedParts(now, 'Europe/Moscow');
@@ -30,6 +32,22 @@ export function nextWeek(now = new Date()) {
   };
 }
 
+/** Current calendar week (Mon–Sun MSK), full bounds — past slots stay visible. */
+export function currentWeek(now = new Date()) {
+  const next = nextWeek(now);
+  const start = addDaysYmd(next.start, -7);
+  return {
+    start,
+    end: addDaysYmd(start, 6),
+    from: localSlotToUtc(start, '00:00', 'Europe/Moscow').toISOString(),
+    to: localSlotToUtc(addDaysYmd(start, 7), '00:00', 'Europe/Moscow').toISOString(),
+  };
+}
+
+export function weekForScope(now = new Date(), scope = 'current') {
+  return scope === 'next' ? nextWeek(now) : currentWeek(now);
+}
+
 export function isSundayWeeklyPrepareWindow(now = new Date()) {
   const p = zonedParts(now, 'Europe/Moscow');
   const dateYmd = `${p.year}-${p.month}-${p.day}`;
@@ -37,48 +55,62 @@ export function isSundayWeeklyPrepareWindow(now = new Date()) {
   return weekday === 7 && Number(p.hour) >= 20;
 }
 
-export function weeklySnapshot(db, now = new Date(), current = false) {
+function publishedAlready(row) {
+  return row.plan_status === 'sent' || row.delivery_status === 'sent';
+}
+
+export function weeklySnapshot(db, now = new Date(), scope = 'current') {
+  const current = scope === true || scope === 'current';
+  const scopeKey = current ? 'current' : scope === 'next' || scope === false ? 'next' : 'current';
   db.prepare(
     `UPDATE vk_weekly_posts SET post_json=NULL WHERE plan_id IN
     (SELECT plan_id FROM schedule_slots WHERE slot_utc < ?)`,
   ).run(new Date(now.getTime() - 30 * 86400000).toISOString());
-  const week = nextWeek(now);
-  if (current) {
-    week.start = addDaysYmd(week.start, -7);
-    week.end = addDaysYmd(week.start, 6);
-    week.from = now.toISOString();
-    week.to = localSlotToUtc(addDaysYmd(week.start, 7), '00:00', 'Europe/Moscow').toISOString();
-  }
+  const week = weekForScope(now, scopeKey);
   const job = db.prepare('SELECT * FROM vk_weekly_jobs WHERE week_start = ?').get(week.start);
   const running = job?.status === 'running' && job.lease_until > now.getTime();
   const rows = db
     .prepare(
-      `SELECT s.plan_id, s.project_id, p.title, s.destination_id, s.slot_utc,
-      s.topic, s.brief, s.expected_media, s.publication_kind, w.status, w.post_id, w.group_id, w.error, w.attempts
+      `SELECT s.plan_id, s.project_id, p.title, s.destination_id, s.slot_utc, s.plan_status,
+      s.topic, s.brief, s.expected_media, s.publication_kind, w.status, w.post_id, w.group_id, w.error, w.attempts,
+      (SELECT d.status FROM deliveries d
+        WHERE d.edition_id = s.edition_id AND d.platform = 'vk'
+        ORDER BY d.updated_at DESC LIMIT 1) AS delivery_status
     FROM schedule_slots s JOIN projects p USING(project_id)
     LEFT JOIN vk_weekly_posts w USING(plan_id)
-    WHERE s.slot_utc >= ? AND s.slot_utc < ? AND s.publication_kind IN ('text','image')
+    WHERE s.slot_utc >= ? AND s.slot_utc < ? AND s.publication_kind IN (${WEEKLY_KIND_SQL})
       AND s.plan_status != 'cancelled' AND p.enabled = 1
     ORDER BY s.slot_utc, s.project_id`,
     )
     .all(week.from, week.to);
-  const posts = rows.map((r) => ({
-    planId: r.plan_id,
-    projectId: r.project_id,
-    title: r.title,
-    date: r.slot_utc,
-    topic: r.topic,
-    media: r.expected_media || r.publication_kind,
-    status: r.status === 'posting' && !running ? 'uncertain' : r.status || 'pending',
-    error: r.error,
-    attempts: r.attempts || 0,
-    url: r.post_id ? `https://vk.ru/wall-${r.group_id}_${r.post_id}` : null,
-  }));
+  const nowMs = now.getTime();
+  const posts = rows.map((r) => {
+    let status = r.status === 'posting' && !running ? 'uncertain' : r.status || 'pending';
+    if (publishedAlready(r)) status = 'sent';
+    return {
+      planId: r.plan_id,
+      projectId: r.project_id,
+      title: r.title,
+      date: r.slot_utc,
+      topic: r.topic,
+      media: r.expected_media || r.publication_kind,
+      status,
+      error: r.error,
+      attempts: r.attempts || 0,
+      url: r.post_id ? `https://vk.ru/wall-${r.group_id}_${r.post_id}` : null,
+      past: Date.parse(r.slot_utc) <= nowMs,
+    };
+  });
+  // Prepare only future holes; past + already published never inflate missing.
+  const actionable = posts.filter((p) => !p.past && !READY_STATUSES.has(p.status));
   const ready = posts.filter((p) => READY_STATUSES.has(p.status)).length;
-  const uncertain = posts.filter((p) => p.status === 'uncertain').length;
-  const exhausted = posts.filter((p) => p.status === 'exhausted').length;
-  const missing = posts.length - ready - uncertain - exhausted;
+  const uncertain = actionable.filter((p) => p.status === 'uncertain').length;
+  const exhausted = actionable.filter((p) => p.status === 'exhausted').length;
+  const missing = actionable.filter(
+    (p) => p.status !== 'uncertain' && p.status !== 'exhausted',
+  ).length;
   return {
+    scope: scopeKey,
     week,
     posts,
     total: posts.length,
@@ -87,16 +119,16 @@ export function weeklySnapshot(db, now = new Date(), current = false) {
     uncertain,
     exhausted,
     running,
-    complete: posts.length > 0 && ready === posts.length,
+    complete: posts.length > 0 && actionable.length === 0,
   };
 }
 
-export async function ensureWeeklySnapshot(db, env, now = new Date(), current = false) {
+export async function ensureWeeklySnapshot(db, env, now = new Date(), scope = 'current') {
   const app = await loadAppConfig(env);
   if (app.mode !== 'multi') throw new Error('vk_weekly_multi_config_required');
   ensureRubrics(db, app.service, now);
   materializeScheduleSlots(db, app.service, env, now);
-  return weeklySnapshot(db, now, current);
+  return weeklySnapshot(db, now, scope);
 }
 
 export function claimWeeklyJob(db, week, now = new Date()) {
@@ -125,17 +157,26 @@ export async function maybeStartSundayWeeklyPrepare(env, now = new Date(), depen
     if (getMeta(db, metaKey)) return { skipped: 'already_started', week: week.start };
     const client = dependencies.client || getWeeklyVkClient(env);
     if (!client?.status().canPrepare) return { skipped: 'vk_community_not_ready', week: week.start };
-    if (dependencies.ensure !== false) await ensureWeeklySnapshot(db, env, now, false);
-    const snapshot = weeklySnapshot(db, now, false);
-    if (snapshot.missing <= 0 && !snapshot.running)
-      return { skipped: 'nothing_missing', week: week.start };
+    if (dependencies.ensure !== false) await ensureWeeklySnapshot(db, env, now, 'next');
+    const snapshot = weeklySnapshot(db, now, 'next');
     if (snapshot.running) return { skipped: 'already_running', week: week.start };
+    // `missing` excludes uncertain; those still need verify-only recovery.
+    if (snapshot.missing <= 0 && snapshot.uncertain <= 0) {
+      // Stamp so Sunday ticks stop re-running expensive ensure/materialize.
+      setMeta(db, metaKey, now.toISOString());
+      return { skipped: 'nothing_missing', week: week.start };
+    }
     const owner = claimWeeklyJob(db, week.start, now);
     if (!owner) return { skipped: 'lease_busy', week: week.start };
     setMeta(db, metaKey, now.toISOString());
     const prepare = dependencies.prepare || prepareWeeklyPosts;
     void prepare(env, week.start, owner, { ...dependencies, source: 'schedule' });
-    return { started: true, week: week.start, missing: snapshot.missing };
+    return {
+      started: true,
+      week: week.start,
+      missing: snapshot.missing,
+      uncertain: snapshot.uncertain,
+    };
   } finally {
     db.close();
   }
@@ -250,11 +291,24 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
     const app = dependencies.app || (await loadAppConfig(env));
     const rows = db
       .prepare(
-        `SELECT s.* FROM schedule_slots s JOIN projects p USING(project_id)
+        `SELECT s.*, w.status AS weekly_status, w.post_id AS weekly_post_id, w.attempts AS weekly_attempts
+      FROM schedule_slots s JOIN projects p USING(project_id)
       LEFT JOIN vk_weekly_posts w USING(plan_id) WHERE s.slot_utc>=? AND s.slot_utc<?
-      AND s.publication_kind IN ('text','image') AND s.plan_status!='cancelled' AND p.enabled=1
-      AND (w.status IS NULL OR w.status NOT IN ('deferred','scheduled','sent','uncertain','posting','exhausted'))
-      AND COALESCE(w.attempts, 0) < ?
+      AND s.publication_kind IN (${WEEKLY_KIND_SQL})
+      AND s.plan_status NOT IN ('cancelled','sent') AND p.enabled=1
+      AND NOT EXISTS (
+        SELECT 1 FROM deliveries d
+        WHERE d.edition_id = s.edition_id AND d.platform = 'vk' AND d.status = 'sent'
+      )
+      AND (
+        w.status IS NULL
+        OR w.status IN ('failed','preparing')
+        OR (w.status='uncertain' AND w.post_id IS NOT NULL)
+      )
+      AND (
+        COALESCE(w.attempts, 0) < ?
+        OR (w.status='uncertain' AND w.post_id IS NOT NULL)
+      )
       ORDER BY s.slot_utc,s.project_id`,
       )
       .all(
@@ -270,11 +324,14 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
       let created = false;
       const stamp = new Date().toISOString();
       const media = slot.publication_kind === 'text' ? 'text' : 'image';
-      db.prepare(
-        `INSERT INTO vk_weekly_posts(plan_id,week_start,status,attempts,updated_at) VALUES (?,?,'preparing',1,?)
-        ON CONFLICT(plan_id) DO UPDATE SET status='preparing',error=NULL,attempts=attempts+1,updated_at=excluded.updated_at`,
-      ).run(slot.plan_id, week, stamp);
-      bumpDataVersion(db);
+      const verifyOnly = slot.weekly_status === 'uncertain' && slot.weekly_post_id;
+      if (!verifyOnly) {
+        db.prepare(
+          `INSERT INTO vk_weekly_posts(plan_id,week_start,status,attempts,updated_at) VALUES (?,?,'preparing',1,?)
+          ON CONFLICT(plan_id) DO UPDATE SET status='preparing',error=NULL,attempts=attempts+1,updated_at=excluded.updated_at`,
+        ).run(slot.plan_id, week, stamp);
+        bumpDataVersion(db);
+      }
       try {
         const rubric = assertSlotCurrent(db, slot);
         const config = {
@@ -293,14 +350,19 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
         const id = slotGuid(slot.plan_id);
         const publishDate = Math.floor(Date.parse(slot.slot_utc) / 1000);
 
-        if (stored.post_id && !READY_STATUSES.has(stored.status)) {
+        if (stored?.post_id) {
           const lookup = await client.api('wall.getById', {
             posts: `-${config.vkGroupId}_${stored.post_id}`,
           });
           const saved = Array.isArray(lookup) ? lookup[0] : lookup.items?.[0];
-          const message = stored.post_json
-            ? formatVkPost(JSON.parse(stored.post_json))
-            : '';
+          let message = '';
+          if (stored.post_json) {
+            try {
+              message = formatVkPost(JSON.parse(stored.post_json));
+            } catch {
+              message = '';
+            }
+          }
           if (
             isPostponedReceipt(saved, {
               postId: stored.post_id,
@@ -315,6 +377,9 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
             await pause(1200);
             continue;
           }
+          // Any existing post_id: never wall.post again (duplicate risk). Soft skip.
+          await pause(3000);
+          continue;
         }
 
         const recent = db
@@ -322,17 +387,31 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
             'SELECT post_json FROM vk_weekly_posts WHERE post_json IS NOT NULL AND plan_id IN (SELECT plan_id FROM schedule_slots WHERE project_id=?) ORDER BY updated_at DESC LIMIT 30',
           )
           .all(slot.project_id)
-          .map((r) => JSON.parse(r.post_json));
-        const post = stored.post_json
-          ? JSON.parse(stored.post_json)
-          : await generate(config, {
-              id,
-              now: new Date(),
-              history: recent.map((p) => p.title).filter(Boolean),
-              excludeQuoteIds: recent
-                .map((p) => p.quoteId || p.generation?.quoteId)
-                .filter(Boolean),
-            });
+          .flatMap((r) => {
+            try {
+              return [JSON.parse(r.post_json)];
+            } catch {
+              return [];
+            }
+          });
+        let post = null;
+        if (stored.post_json) {
+          try {
+            post = JSON.parse(stored.post_json);
+          } catch {
+            post = null;
+          }
+        }
+        if (!post) {
+          post = await generate(config, {
+            id,
+            now: new Date(),
+            history: recent.map((p) => p.title).filter(Boolean),
+            excludeQuoteIds: recent
+              .map((p) => p.quoteId || p.generation?.quoteId)
+              .filter(Boolean),
+          });
+        }
         const message = formatVkPost(post);
         db.prepare('UPDATE vk_weekly_posts SET post_json=?,group_id=? WHERE plan_id=?').run(
           JSON.stringify(post),
@@ -443,6 +522,7 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
       env,
     });
   } catch (error) {
+    console.error(`weekly prepare failed week=${week}: ${error.message || error}`);
     db.prepare(
       "UPDATE vk_weekly_jobs SET status='failed',lease_until=0,updated_at=? WHERE week_start=? AND owner=?",
     ).run(new Date().toISOString(), week, owner);
@@ -457,4 +537,4 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
   }
 }
 
-export { SKIP_STATUSES, READY_STATUSES };
+export { READY_STATUSES, WEEKLY_KINDS };

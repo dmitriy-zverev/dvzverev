@@ -298,11 +298,22 @@ async function handleRequest(request, response, env) {
     if (route === '/weekly-preparation' && ['GET', 'POST'].includes(request.method)) {
       if (request.method === 'POST') assertOrigin(request, env);
       const now = new Date();
-      // Button only prepares the next week (text + GIF). Current-week / video path removed.
+      const queryScope = url.searchParams.get('scope');
+      let bodyScope = null;
+      if (request.method === 'POST') {
+        try {
+          const body = parseJson(await readBody(request));
+          bodyScope = body?.scope;
+        } catch {
+          bodyScope = null;
+        }
+      }
+      const scope = bodyScope === 'next' || queryScope === 'next' ? 'next' : 'current';
+      // Default current week; ?scope=next for Sunday batch. Past/sent never re-prepared.
       const snapshot =
         request.method === 'POST'
-          ? await ensureWeeklySnapshot(db, env, now, false)
-          : weeklySnapshot(db, now, false);
+          ? await ensureWeeklySnapshot(db, env, now, scope)
+          : weeklySnapshot(db, now, scope);
       const client = getWeeklyVkClient(env);
       if (request.method === 'POST') {
         if (!client?.status().canPrepare) {
@@ -317,12 +328,14 @@ async function handleRequest(request, response, env) {
           );
           return;
         }
-        if (!snapshot.running && snapshot.missing > 0) {
+        if (!snapshot.running && (snapshot.missing > 0 || snapshot.uncertain > 0)) {
           const owner = claimWeeklyJob(db, snapshot.week.start);
           if (owner) {
             auditAuth(db, 'vk_weekly_preparation', {
               week: snapshot.week.start,
+              scope,
               missing: snapshot.missing,
+              uncertain: snapshot.uncertain,
             });
             void prepareWeeklyPosts(env, snapshot.week.start, owner, { source: 'button' });
           }
@@ -332,7 +345,7 @@ async function handleRequest(request, response, env) {
         response,
         request.method === 'POST' ? 202 : 200,
         {
-          ...weeklySnapshot(db, now, false),
+          ...weeklySnapshot(db, now, scope),
           vk: weeklyVkStatus(env),
         },
         cors,

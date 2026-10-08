@@ -22,7 +22,7 @@ export function summarizeWeek(db, weekStart) {
        JOIN projects p USING(project_id)
        LEFT JOIN vk_weekly_posts w USING(plan_id)
        WHERE s.slot_utc >= ? AND s.slot_utc < ?
-         AND s.publication_kind IN ('text','image')
+         AND s.publication_kind IN ('text','image','gif')
          AND s.plan_status != 'cancelled' AND p.enabled = 1
        ORDER BY s.slot_utc, s.project_id`,
     )

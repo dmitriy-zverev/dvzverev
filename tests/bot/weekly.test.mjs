@@ -12,6 +12,7 @@ import {
   prepareWeeklyPosts,
   isSundayWeeklyPrepareWindow,
   maybeStartSundayWeeklyPrepare,
+  currentWeek,
 } from '../../bot/cabinet/weekly.mjs';
 import { notifyWeeklyPrepareDigest, summarizeWeek } from '../../bot/cabinet/weekly-notify.mjs';
 import {
@@ -118,7 +119,7 @@ test('text slots defer without attachment and skip duplicates on rerun', async (
   });
   assert.equal(covers, 0);
   assert.equal(c.writes, 2);
-  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z')).ready, 2);
+  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z'), 'next').ready, 2);
   assert.equal(
     f.db.prepare("SELECT status FROM vk_weekly_posts WHERE plan_id='p0'").get().status,
     'deferred',
@@ -143,6 +144,73 @@ test('gif without postponed confirmation stays uncertain (no auto-repost)', asyn
   assert.equal(
     f.db.prepare("SELECT status, error FROM vk_weekly_posts WHERE plan_id='p0'").get().status,
     'uncertain',
+  );
+  // Second run verifies only — must not wall.post again.
+  await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
+    ...f.dependencies,
+    client: c,
+  });
+  assert.equal(c.writes, 1);
+  f.db.close();
+});
+
+test('legacy publication_kind gif is prepared like image', async (t) => {
+  const f = await fixture(t);
+  f.db.prepare("UPDATE schedule_slots SET publication_kind='gif',expected_media='gif'").run();
+  const c = client(null, { attachment: 'doc-123_42' });
+  await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
+    ...f.dependencies,
+    client: c,
+  });
+  assert.equal(c.writes, 2);
+  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z'), 'next').ready, 2);
+  f.db.close();
+});
+
+test('uncertain receipt recovers to deferred when VK confirms postponed', async (t) => {
+  const f = await fixture(t);
+  f.db.prepare("DELETE FROM schedule_slots WHERE plan_id='p1'").run();
+  const publishDate = Math.floor(Date.parse(f.week.start + 'T15:00:00.000Z') / 1000);
+  f.db
+    .prepare(
+      `INSERT INTO vk_weekly_posts(plan_id,week_start,status,post_json,attachment,post_id,group_id,attempts,updated_at)
+       VALUES ('p0',?,'uncertain',?,?,?,?,1,?)`,
+    )
+    .run(
+      f.week.start,
+      JSON.stringify({ id: 'weekly-x', kind: 'lifestyle', text: 'Уже во VK.' }),
+      'doc-123_42',
+      99,
+      '123',
+      new Date().toISOString(),
+    );
+  let writes = 0;
+  const c = {
+    accessToken: async () => 'test-secret',
+    api: async (method) => {
+      if (method === 'wall.post') {
+        writes++;
+        throw new Error('must_not_repost');
+      }
+      return [
+        {
+          id: 99,
+          owner_id: -123,
+          date: publishDate,
+          post_type: 'postponed',
+          attachments: [{ type: 'doc', doc: { owner_id: -123, id: 42 } }],
+        },
+      ];
+    },
+  };
+  await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
+    ...f.dependencies,
+    client: c,
+  });
+  assert.equal(writes, 0);
+  assert.equal(
+    f.db.prepare("SELECT status FROM vk_weekly_posts WHERE plan_id='p0'").get().status,
+    'deferred',
   );
   f.db.close();
 });
@@ -179,6 +247,136 @@ test('sunday window and auto-prepare guard fire once per next week', async (t) =
   );
   assert.equal(second.skipped, 'already_started');
   assert.equal(started, 1);
+  f.db.close();
+});
+
+test('sunday nothing_missing stamps meta so ticks stop', async (t) => {
+  const f = await fixture(t);
+  await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
+    ...f.dependencies,
+    client: client(),
+  });
+  const snap = weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z'), 'next');
+  assert.equal(snap.missing, 0);
+  assert.equal(snap.uncertain, 0);
+  let started = 0;
+  const first = await maybeStartSundayWeeklyPrepare(f.env, new Date('2026-10-11T17:05:00Z'), {
+    ensure: false,
+    client: { status: () => ({ canPrepare: true }) },
+    prepare: async () => {
+      started++;
+    },
+  });
+  assert.equal(first.skipped, 'nothing_missing');
+  assert.equal(started, 0);
+  const second = await maybeStartSundayWeeklyPrepare(f.env, new Date('2026-10-11T17:10:00Z'), {
+    ensure: false,
+    client: { status: () => ({ canPrepare: true }) },
+    prepare: async () => {
+      started++;
+    },
+  });
+  assert.equal(second.skipped, 'already_started');
+  assert.equal(started, 0);
+  f.db.close();
+});
+
+test('sunday starts prepare when only uncertain slots remain', async (t) => {
+  const f = await fixture(t);
+  f.db.prepare("DELETE FROM schedule_slots WHERE plan_id='p1'").run();
+  f.db
+    .prepare(
+      `INSERT INTO vk_weekly_posts(plan_id,week_start,status,post_json,attachment,post_id,group_id,attempts,updated_at)
+       VALUES ('p0',?,'uncertain',?,?,?,?,1,?)`,
+    )
+    .run(
+      f.week.start,
+      JSON.stringify({ id: 'weekly-x', kind: 'lifestyle', text: 'Уже во VK.' }),
+      'doc-123_42',
+      99,
+      '123',
+      new Date().toISOString(),
+    );
+  const snap = weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z'), 'next');
+  assert.equal(snap.missing, 0);
+  assert.equal(snap.uncertain, 1);
+  let started = 0;
+  const first = await maybeStartSundayWeeklyPrepare(f.env, new Date('2026-10-11T17:05:00Z'), {
+    ensure: false,
+    client: { status: () => ({ canPrepare: true }) },
+    prepare: async () => {
+      started++;
+    },
+  });
+  assert.equal(first.started, true);
+  assert.equal(first.uncertain, 1);
+  assert.equal(started, 1);
+  f.db.close();
+});
+
+test('uncertain verify soft-fail does not abort later failed retries', async (t) => {
+  const f = await fixture(t);
+  const publishDate = Math.floor(Date.parse(f.week.start + 'T15:00:00.000Z') / 1000);
+  f.db
+    .prepare(
+      `INSERT INTO vk_weekly_posts(plan_id,week_start,status,post_json,attachment,post_id,group_id,attempts,updated_at)
+       VALUES ('p0',?,'uncertain',?,?,?,?,3,?)`,
+    )
+    .run(
+      f.week.start,
+      JSON.stringify({ id: 'weekly-x', kind: 'lifestyle', text: 'Уже во VK.' }),
+      'doc-123_42',
+      99,
+      '123',
+      new Date().toISOString(),
+    );
+  f.db
+    .prepare(
+      `INSERT INTO vk_weekly_posts(plan_id,week_start,status,error,attempts,updated_at)
+       VALUES ('p1',?,'failed','vk_api_rejected_6',1,?)`,
+    )
+    .run(f.week.start, new Date().toISOString());
+  let writes = 0;
+  const receipts = new Map([
+    [
+      99,
+      {
+        id: 99,
+        owner_id: -123,
+        date: publishDate,
+        post_type: 'post',
+        attachments: [{ type: 'doc', doc: { owner_id: -123, id: 42 } }],
+      },
+    ],
+  ]);
+  const c = {
+    accessToken: async () => 'test-secret',
+    uploadWeeklyImage: async () => 'photo-123_42',
+    api: async (method, parameters) => {
+      if (method === 'wall.post') {
+        writes++;
+        const postId = 200 + writes;
+        receipts.set(postId, {
+          id: postId,
+          owner_id: -123,
+          date: parameters.publish_date,
+          post_type: 'postponed',
+          attachments: [{ type: 'photo', photo: { owner_id: -123, id: 42 } }],
+        });
+        return { post_id: postId };
+      }
+      return [receipts.get(Number(String(parameters.posts).split('_')[1]))];
+    },
+  };
+  await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
+    ...f.dependencies,
+    client: c,
+  });
+  assert.equal(writes, 1);
+  assert.equal(
+    f.db.prepare("SELECT status FROM vk_weekly_posts WHERE plan_id='p1'").get().status,
+    'deferred',
+  );
   f.db.close();
 });
 
@@ -244,12 +442,66 @@ test('weekly prepare skips video slots until user OAuth for video returns', asyn
     client: c,
   });
   assert.equal(writes, 0);
-  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z')).total, 0);
+  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z'), 'next').total, 0);
 });
 
 test('next week is Monday through Sunday in Moscow even around UTC midnight', () => {
   assert.equal(nextWeek(new Date('2026-10-11T22:00:00Z')).start, '2026-10-19');
   assert.equal(nextWeek(new Date('2026-10-11T20:00:00Z')).start, '2026-10-12');
+  assert.equal(currentWeek(new Date('2026-10-08T12:00:00Z')).start, '2026-10-05');
+});
+
+test('current week excludes past and already published from missing', async (t) => {
+  const f = await fixture(t);
+  const week = currentWeek(new Date('2026-10-08T12:00:00Z'));
+  f.db.prepare('DELETE FROM schedule_slots').run();
+  const stamp = new Date().toISOString();
+  f.db
+    .prepare(
+      `INSERT INTO schedule_slots(plan_id,project_id,destination_id,slot_utc,slot_key,publication_kind,expected_media,plan_status,config_version,created_at,updated_at)
+       VALUES ('past','things','things-vk',?,?, 'image','image','pending','v1',?,?)`,
+    )
+    .run('2026-10-06T15:00:00.000Z', '2026-10-06@18:00[Europe/Moscow]', stamp, stamp);
+  f.db
+    .prepare(
+      `INSERT INTO schedule_slots(plan_id,project_id,destination_id,slot_utc,slot_key,publication_kind,expected_media,plan_status,config_version,created_at,updated_at)
+       VALUES ('pub','things','things-vk',?,?, 'image','image','sent','v1',?,?)`,
+    )
+    .run('2026-10-09T15:00:00.000Z', '2026-10-09@18:00[Europe/Moscow]', stamp, stamp);
+  f.db
+    .prepare(
+      `INSERT INTO schedule_slots(plan_id,project_id,destination_id,slot_utc,slot_key,publication_kind,expected_media,plan_status,config_version,created_at,updated_at)
+       VALUES ('hole','things','things-vk',?,?, 'image','image','pending','v1',?,?)`,
+    )
+    .run('2026-10-10T15:00:00.000Z', '2026-10-10@18:00[Europe/Moscow]', stamp, stamp);
+  const snap = weeklySnapshot(f.db, new Date('2026-10-08T12:00:00Z'), 'current');
+  assert.equal(snap.week.start, week.start);
+  assert.equal(snap.total, 3);
+  assert.equal(snap.ready, 1);
+  assert.equal(snap.missing, 1);
+  assert.equal(snap.posts.find((p) => p.planId === 'pub').status, 'sent');
+  assert.equal(snap.posts.find((p) => p.planId === 'past').past, true);
+  f.db.close();
+});
+
+test('prepare skips slots already sent via plan_status', async (t) => {
+  const f = await fixture(t);
+  f.db.prepare("UPDATE schedule_slots SET plan_status='sent' WHERE plan_id='p0'").run();
+  const c = client();
+  await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
+    ...f.dependencies,
+    client: c,
+  });
+  assert.equal(c.writes, 1);
+  assert.equal(
+    f.db.prepare("SELECT status FROM vk_weekly_posts WHERE plan_id='p1'").get()?.status,
+    'deferred',
+  );
+  assert.equal(
+    f.db.prepare("SELECT status FROM vk_weekly_posts WHERE plan_id='p0'").get(),
+    undefined,
+  );
+  f.db.close();
 });
 
 test('prepare only missing image posts; preserve editor brief and VK receipts across reruns', async (t) => {
@@ -269,7 +521,7 @@ test('prepare only missing image posts; preserve editor brief and VK receipts ac
   assert.equal(c.writes, 2);
   assert.deepEqual(briefs[0].editorialPlan, { topic: 'Тёплый свет', brief: 'Без списков' });
   assert.match(briefs[0].openrouterPrompt, /Без списков/);
-  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z')).complete, true);
+  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z'), 'next').complete, true);
   assert.equal(f.db.prepare('SELECT COUNT(*) n FROM editions').get().n, 2);
   const second = claimWeeklyJob(f.db, f.week.start);
   await prepareWeeklyPosts(f.env, f.week.start, second, { ...f.dependencies, client: c });
@@ -290,7 +542,7 @@ test('explicit write rejection allows retry; successful slots and saved content 
     ...f.dependencies,
     client: c,
   });
-  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z')).ready, 1);
+  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z'), 'next').ready, 1);
   await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
     ...f.dependencies,
     client: c,
@@ -325,7 +577,7 @@ test('slot stops after three attempts and is not selected again', async (t) => {
   assert.equal(row.status, 'exhausted');
   assert.equal(row.attempts, 3);
   assert.equal(writes, 3);
-  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z')).exhausted, 1);
+  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z'), 'next').exhausted, 1);
   f.db.close();
 });
 
@@ -375,7 +627,7 @@ test('unknown write outcome blocks that slot on every retry', async (t) => {
     ...f.dependencies,
     client: c,
   });
-  const status = weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z'));
+  const status = weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z'), 'next');
   assert.equal(status.uncertain, 1);
   assert.equal(status.missing, 0);
   await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
@@ -455,7 +707,7 @@ test('successful write with missing photo remains uncertain and never posts agai
     ...f.dependencies,
     client: c,
   });
-  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z')).uncertain, 2);
+  assert.equal(weeklySnapshot(f.db, new Date('2026-10-07T10:00:00Z'), 'next').uncertain, 2);
   await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
     ...f.dependencies,
     client: c,

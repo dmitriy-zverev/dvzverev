@@ -323,12 +323,18 @@ test('calendar exposes rubric badges and filters before computing calendar count
   assert.equal(none.summary.materials, 0);
 });
 
-test('current week supplement contains only remaining future media slots', async (t) => {
+test('current week snapshot shows full week; missing only future unpublished', async (t) => {
   const f = await fixture(t);
-  const snapshot = weeklySnapshot(f.db, now, true);
+  const snapshot = weeklySnapshot(f.db, now, 'current');
   assert.ok(snapshot.total > 0);
-  assert.ok(snapshot.posts.every((p) => p.date > now.toISOString()));
+  assert.equal(snapshot.scope, 'current');
+  assert.ok(snapshot.posts.every((p) => p.date >= snapshot.week.from));
   assert.ok(snapshot.posts.every((p) => p.date < snapshot.week.to));
+  assert.ok(
+    snapshot.posts
+      .filter((p) => !p.past && p.status === 'pending')
+      .every((p) => p.date > now.toISOString()),
+  );
 });
 
 test('stale scheduler task cannot generate or send after rubric deletion', async (t) => {

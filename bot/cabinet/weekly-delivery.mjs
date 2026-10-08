@@ -1,8 +1,6 @@
 import { openCabinetDb, withTransaction, bumpDataVersion } from './db.mjs';
 import { formatVkPost } from '../content.mjs';
 
-const DEFERRED = new Set(['deferred', 'scheduled']);
-
 // Delayed VK posts belong to VK, so the regular worker must never send them again.
 export async function weeklyDelivery(config, slot, now, fetcher = fetch, env = process.env) {
   const db = openCabinetDb(env);
@@ -36,10 +34,7 @@ export async function weeklyDelivery(config, slot, now, fetcher = fetch, env = p
         post.owner_id === -Number(row.group_id) &&
         post.post_type === 'post' &&
         post.date * 1000 <= now.getTime();
-      if (!sent) {
-        if (DEFERRED.has(row.status)) return { status: 'vk_scheduled' };
-        return { status: 'vk_scheduled' };
-      }
+      if (!sent) return { status: 'vk_scheduled' };
       withTransaction(db, () => {
         db.prepare("UPDATE vk_weekly_posts SET status='sent',updated_at=? WHERE plan_id=?").run(
           now.toISOString(),
