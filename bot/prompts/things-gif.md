@@ -99,11 +99,11 @@ They are a brand detail, not the main subject.
 
 ANIMATION
 
-The movement must be very restrained.
+The movement must be very restrained and physically calm.
 
-The GIF should feel almost like a photograph.
+The GIF should feel almost like a photograph that barely breathes.
 
-Animate only one or two details.
+Animate only one single detail — never two competing motions at once.
 
 Good movements:
 
@@ -114,9 +114,9 @@ sunlight shifting gently;
 a linen cloth moving from a faint breeze;
 a paper edge lifting slightly;
 small reflection moving across glass;
-candle flame moving subtly;
-a slow hand movement if a person is included;
-a small object being gently placed on a surface.
+candle flame moving subtly.
+
+Motion must be continuous, even, and low amplitude — no stutter, no snap, no sudden direction changes.
 
 Avoid excessive object movement.
 
@@ -124,20 +124,29 @@ Do not make products float.
 
 Do not rotate products unnaturally.
 
+Do not morph, melt, warp, or reshape any object between frames.
+
+Do not slide one object across another.
+
+Do not stack, collide, or overlap moving layers.
+
 Do not use fast camera movement.
 
 CAMERA
 
-Mostly static camera.
+Locked tripod. Completely fixed camera.
 
-Optional:
-extremely slow push-in;
-very subtle parallax;
-slow lateral movement of only a few percent.
+No push-in.
+No pull-out.
+No dolly.
+No zoom.
+No pan.
+No tilt.
+No parallax.
+No handheld shake.
+No orbit.
 
-No zoom effects.
-No shaking.
-No fast cuts.
+The frame crop must stay identical from first to last frame.
 
 LOOP
 
@@ -212,6 +221,11 @@ No artificial glitter.
 No sparkles everywhere.
 No dramatic gold effects.
 No visual clutter.
+No camera наезды / push-ins / punch-ins.
+No jerky, stuttering, or ping-pongy motion.
+No objects crossing through each other.
+No duplicated ghost layers of the same object.
+No flickering edges, boiling textures, or face/object morphing.
 
 OUTPUT GOAL
 

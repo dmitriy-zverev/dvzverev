@@ -61,7 +61,7 @@ Do not overcrowd the frame.
 
 ANIMATION
 
-Movement must be extremely subtle.
+Movement must be extremely subtle, even, and continuous — like a still painting that barely breathes.
 
 Possible movements:
 a candle flame barely moving;
@@ -72,12 +72,23 @@ steam rising from a cup;
 dust floating through a beam of light;
 tree branches moving outside the window;
 a shadow slowly changing;
-a hand turning one page;
 ink slowly spreading into paper.
 
-Only one or two elements should move.
+Only one element should move. Never two competing motions.
 
-The camera should remain almost still or use an extremely slow cinematic push-in.
+No stutter, no snap, no sudden reverse, no morphing, no melting shapes.
+No objects sliding over or through each other.
+No duplicated ghost layers.
+
+CAMERA
+
+Locked tripod. Completely fixed camera for the whole loop.
+
+No push-in / наезд.
+No pull-out.
+No dolly, zoom, pan, tilt, parallax, orbit, or handheld shake.
+
+The crop must stay identical from first to last frame.
 
 Create a seamless natural loop of approximately 4–7 seconds.
 
@@ -109,6 +120,10 @@ No overly attractive fashion-model characters looking into the camera.
 No glossy Pinterest lifestyle photography.
 No anime.
 No modern luxury interior.
+No camera наезды or punch-zooms.
+No jerky, stuttering, or ping-pong motion.
+No flickering textures or boiling edges.
+No colliding / overlapping moving layers.
 
 The final result should look like a moving fragment of an old painting or an art-house period film.
 
