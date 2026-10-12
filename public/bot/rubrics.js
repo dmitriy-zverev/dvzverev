@@ -88,8 +88,8 @@ export function createRubricManager({ api, escapeText: esc, refresh, selectProje
         )
         .join('')}</select></label>
       <div class="rubric-media-note" id="rubric-media-note"><strong>Медиа готовятся на неделю вперёд</strong><p>GIF уходит на стену как документ сообщества (community-токен). Отдельный вход VK не нужен. Короткое видео пока требует user OAuth.</p></div>
-      <label>Дополнительный промпт для текста<textarea name="textPrompt" rows="5" maxlength="6000" placeholder="О чём эта рубрика, подача, структура, ограничения…">${esc(r.textPrompt)}</textarea><span class="meta">Дополняет системный промпт группы.</span></label>
-      <label>Дополнительный промпт для GIF и видео · необязательно<textarea name="mediaPrompt" rows="4" maxlength="6000" placeholder="Сюжеты, композиция, настроение, движение камеры…">${esc(r.mediaPrompt)}</textarea><span class="meta">Без него используется визуальный стиль группы.</span></label>
+      <label>Промпт рубрики<textarea name="textPrompt" rows="5" maxlength="6000" placeholder="О чём эта рубрика, подача, структура, ограничения…">${esc(r.textPrompt)}</textarea><span class="meta">Основное задание рубрики. Общий промпт группы добавляется следом.</span></label>
+      <label>Промпт для GIF и видео · необязательно<textarea name="mediaPrompt" rows="4" maxlength="6000" placeholder="Сюжеты, композиция, настроение, движение камеры…">${esc(r.mediaPrompt)}</textarea><span class="meta">Основной визуальный промпт рубрики. Стиль группы добавляется следом. Пустое поле оставляет только стиль группы.</span></label>
       <label class="rubric-enabled"><input type="checkbox" name="enabled" ${r.enabled ? 'checked' : ''}> Рубрика активна</label>
       <p class="rubric-change-note">Изменения применяются к ещё не вышедшим постам. Подготовленные отложенные записи отменяются; медиа понадобится подготовить заново. Опубликованные посты сохраняются.</p>
       <p class="rubric-error" role="alert" id="rubric-error"></p></div>

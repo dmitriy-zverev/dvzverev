@@ -159,11 +159,15 @@ export function applyRubricConfig(config, rubric) {
     rubricBase: base,
     rubricId: rubric.id,
     rubricRevision: rubric.revision,
-    openrouterPrompt: `${base.openrouterPrompt}\n\nРубрика «${rubric.name}». Дополнительное задание (сохраняй системные требования группы):\n${rubric.textPrompt}`,
-    coverPrompt: [base.coverPrompt, rubric.mediaPrompt]
-      .filter(Boolean)
-      .join('\n\nДополнительные требования рубрики:\n'),
-    videoPrompt: [base.videoPrompt, rubric.mediaPrompt].filter(Boolean).join('\n\n'),
+    openrouterPrompt: rubric.textPrompt
+      ? `${rubric.textPrompt}\n\nОбщие правила группы. Соблюдай их вместе с заданием рубрики «${rubric.name}»:\n${base.openrouterPrompt}`
+      : base.openrouterPrompt,
+    coverPrompt: rubric.mediaPrompt
+      ? `${rubric.mediaPrompt}\n\nВизуальный стиль группы:\n${base.coverPrompt || ''}`
+      : base.coverPrompt,
+    videoPrompt: rubric.mediaPrompt
+      ? `${rubric.mediaPrompt}\n\nВизуальный стиль группы:\n${base.videoPrompt || ''}`
+      : base.videoPrompt,
     weeklyImages: rubric.media !== 'text',
     imagesEnabled: rubric.media !== 'text',
     vkImagesEnabled: rubric.media !== 'text',

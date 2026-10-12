@@ -259,7 +259,7 @@ test('unknown outcomes and media preparation block edits before changing schedul
   assert.equal(listRubrics(f.db)[0].revision, 1);
 });
 
-test('rubric prompts supplement system style and media format determines weekly preparation', () => {
+test('rubric prompt leads and the group prompt is appended', () => {
   const c = applyRubricConfig(
     { openrouterPrompt: 'SYSTEM', coverPrompt: 'GROUP STYLE', videoPrompt: 'CAMERA' },
     {
@@ -272,10 +272,17 @@ test('rubric prompts supplement system style and media format determines weekly 
       times: ['18:00'],
     },
   );
-  assert.match(c.openrouterPrompt, /SYSTEM[\s\S]*TEXT/);
-  assert.match(c.coverPrompt, /GROUP STYLE[\s\S]*DETAIL/);
-  assert.match(c.videoPrompt, /CAMERA[\s\S]*DETAIL/);
+  assert.match(c.openrouterPrompt, /^TEXT[\s\S]*SYSTEM/);
+  assert.match(c.coverPrompt, /^DETAIL[\s\S]*GROUP STYLE/);
+  assert.match(c.videoPrompt, /^DETAIL[\s\S]*CAMERA/);
   assert.equal(c.weeklyImages, true);
+  const plain = applyRubricConfig(
+    { openrouterPrompt: 'SYSTEM', coverPrompt: 'GROUP STYLE', videoPrompt: 'CAMERA' },
+    { id: 'r2', revision: 1, name: 'Без задания', textPrompt: '', mediaPrompt: '', media: 'text' },
+  );
+  assert.equal(plain.openrouterPrompt, 'SYSTEM');
+  assert.equal(plain.coverPrompt, 'GROUP STYLE');
+  assert.equal(plain.videoPrompt, 'CAMERA');
 });
 
 test('Redis ignores failures and unfinished generation from the old rubric revision', () => {
