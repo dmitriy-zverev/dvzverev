@@ -172,7 +172,8 @@ export async function readState(config) {
               !['sending', 'sent', 'failed', 'uncertain'].includes(entry.image.telegram.status)) ||
             (entry.image.vk &&
               (!['uploading', 'ready', 'failed'].includes(entry.image.vk.status) ||
-                (entry.image.vk.attachment !== undefined &&
+                (entry.image.vk.attachment != null &&
+                  entry.image.vk.attachment !== '' &&
                   !/^(?:photo|doc)-?\d+_\d+(?:_[A-Za-z0-9_-]+)?$/.test(
                     entry.image.vk.attachment,
                   )))))) ||

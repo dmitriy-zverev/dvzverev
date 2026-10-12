@@ -80,7 +80,10 @@ export async function weeklyDelivery(config, slot, now, fetcher = fetch, env = p
         image: {
           status: 'ready',
           text,
-          vk: { status: 'ready', attachment: row.attachment },
+          vk: {
+            status: 'ready',
+            ...(row.attachment ? { attachment: row.attachment } : {}),
+          },
         },
         ...(content?.generation ? { generation: content.generation } : {}),
         vkGroupId: String(row.group_id),

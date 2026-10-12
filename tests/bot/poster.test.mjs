@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, rm, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { spawnSync, spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { acquireLock } from '../../bot/lock.mjs';
@@ -218,6 +218,35 @@ test('schedule uses Moscow time, handles date rollover, and skips missed windows
   assert.equal(dueSlot(config, new Date('2026-10-05T07:05:00Z')), null);
   assert.equal(dueSlot(config, new Date('2026-10-05T06:59:59Z')), null);
   assert.throws(() => configFromEnv({ BOT_TIMES: '25:00' }));
+});
+
+test('null vk attachment from a text receipt stays readable', async (t) => {
+  const config = await setup(t);
+  config.telegramEnabled = false;
+  config.vkGroupId = '1';
+  await mkdir(dirname(config.statePath), { recursive: true });
+  await writeFile(
+    config.statePath,
+    JSON.stringify({
+      version: 1,
+      chatId: config.chatId,
+      vkGroupId: '1',
+      entries: [
+        {
+          slot: '2026-10-12@10:00[Europe/Moscow]',
+          platform: 'vk',
+          status: 'sent',
+          postId: 'p',
+          vkText: 'text',
+          vkGroupId: '1',
+          image: { status: 'ready', text: 'text', vk: { status: 'ready', attachment: null } },
+        },
+      ],
+    }),
+  );
+  const state = await readState(config);
+  assert.equal(state.entries[0].status, 'sent');
+  assert.equal(state.entries[0].image.vk.attachment, null);
 });
 
 test('queue rejects duplicate identifiers before publishing', async (t) => {
