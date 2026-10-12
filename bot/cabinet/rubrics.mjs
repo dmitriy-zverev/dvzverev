@@ -325,6 +325,7 @@ async function performChangeRubric(
   row = db.prepare('SELECT * FROM schedule_rubrics WHERE id=?').get(id);
   const pending = JSON.parse(row.pending_json);
   const published = new Set();
+  const kept = new Set();
   for (const slot of targets) {
     assertLease();
     if (!slot.post_id || slot.weekly_status === 'cancelled') continue;
@@ -332,9 +333,15 @@ async function performChangeRubric(
     const receipt = await postponedReceipt(client, slot);
     assertLease();
     if (receipt.unreadable) {
-      const result = await deletePostponed(client, slot);
-      assertLease();
-      if (result !== 1) throw new Error('rubric_cancel_unconfirmed');
+      try {
+        const result = await deletePostponed(client, slot);
+        assertLease();
+        if (result !== 1) throw new Error('rubric_cancel_unconfirmed');
+      } catch (error) {
+        if (!communityWallUnreadable(error)) throw error;
+        kept.add(slot.plan_id);
+        continue;
+      }
     } else if (receipt.saved && !receipt.saved.is_deleted) {
       if (receipt.saved.id !== slot.post_id || receipt.saved.owner_id !== -Number(slot.group_id))
         throw new Error('rubric_cancel_unconfirmed');
@@ -371,7 +378,7 @@ async function performChangeRubric(
   withTransaction(db, () => {
     assertLease();
     for (const slot of targets) {
-      if (published.has(slot.plan_id)) continue;
+      if (published.has(slot.plan_id) || kept.has(slot.plan_id)) continue;
       db.prepare('UPDATE rubric_slots SET hidden=1 WHERE plan_id=?').run(slot.plan_id);
       db.prepare('DELETE FROM vk_weekly_posts WHERE plan_id=?').run(slot.plan_id);
       if (slot.edition_id)

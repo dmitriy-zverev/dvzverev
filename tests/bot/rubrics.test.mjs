@@ -218,6 +218,33 @@ test('community wall.get denial still deletes future postponed posts', async (t)
   assert.equal(listRubrics(f.db)[0].pending, false);
 });
 
+test('community token that cannot delete keeps the postponed post and still saves the rubric', async (t) => {
+  const f = await fixture(t);
+  const slot = f.slots[0];
+  f.db
+    .prepare(
+      "INSERT INTO vk_weekly_posts(plan_id,week_start,status,post_id,group_id,updated_at) VALUES (?,?,'deferred',42,'123',?)",
+    )
+    .run(slot.plan_id, '2099-10-05', now.toISOString());
+  const denied = Object.assign(new Error('vk_api_rejected_27'), { vkCode: 27 });
+  const client = {
+    status: () => ({ canPrepare: true }),
+    bindGroup() {},
+    api: async () => {
+      throw denied;
+    },
+  };
+  await changeRubric(f.db, f.rubric.id, { ...f.rubric, name: 'Новое имя' }, { client, now });
+  assert.equal(listRubrics(f.db)[0].name, 'Новое имя');
+  assert.equal(listRubrics(f.db)[0].state, 'active');
+  assert.equal(listRubrics(f.db)[0].pending, false);
+  assert.equal(
+    f.db.prepare('SELECT post_id, status FROM vk_weekly_posts WHERE plan_id=?').get(slot.plan_id)
+      .post_id,
+    42,
+  );
+});
+
 test('unknown outcomes and media preparation block edits before changing schedule', async (t) => {
   const f = await fixture(t);
   f.db
