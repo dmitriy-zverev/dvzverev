@@ -18,6 +18,7 @@ import {
   weekDates,
 } from './time.mjs';
 import { redisConfigured, getRedis } from '../redis/client.mjs';
+import { rubricOwnsSlot } from './rubrics.mjs';
 import { getTask } from '../redis/schedule.mjs';
 import { encodeTask } from '../redis/codec.mjs';
 import { taskKey } from '../redis/keys.mjs';
@@ -81,17 +82,22 @@ function readOverviewSnapshot(db, { week, projectFilter, statusFilter, rubricFil
        SELECT s.*, p.title AS project_title, e.aggregate_status, e.topic AS edition_topic,
               e.body_text, e.body_removed_at, e.content_expires_at, d.status AS delivery_status,
               d.external_id, d.platform, d.vk_group_id, w.status AS weekly_status,
-              rs.rubric_id, rs.label AS rubric_label, rs.color AS rubric_color
+              rs.rubric_id, rs.label AS rubric_label, rs.color AS rubric_color,
+              r.state AS rubric_state, r.config_json AS rubric_config
        FROM schedule_slots s
        JOIN projects p ON p.project_id = s.project_id
        LEFT JOIN editions e ON e.edition_id = s.edition_id
        LEFT JOIN vk_weekly_posts w ON w.plan_id = s.plan_id
        LEFT JOIN rubric_slots rs ON rs.plan_id = s.plan_id
+       LEFT JOIN schedule_rubrics r ON r.id = rs.rubric_id
        LEFT JOIN current_deliveries d ON d.edition_id = s.edition_id AND d.destination_id = s.destination_id
        WHERE s.slot_utc >= ? AND s.slot_utc < ? AND COALESCE(rs.hidden,0)=0${projectClause}
        ORDER BY s.slot_utc ASC, s.project_id ASC`,
     )
-    .all(...params);
+    .all(...params)
+    .filter(
+      (row) => !getMeta(db, `rubrics_managed:${row.project_id}`) || ownedByListedRubric(row),
+    );
 
   const adHocRows = loadAdHocRows(db, rangeStart, rangeEnd, projectFilter);
   let cards = [
@@ -248,6 +254,21 @@ function operatorDateParts(slotDate, timeZone) {
   );
   const time = `${parts.hour}:${parts.minute}`;
   return { date, time };
+}
+
+function ownedByListedRubric(row) {
+  if (!row.rubric_config || row.rubric_state !== 'active') return false;
+  let config;
+  try {
+    config = JSON.parse(row.rubric_config);
+  } catch {
+    return false;
+  }
+  if (config.enabled === false) return false;
+  if (!rubricOwnsSlot({ ...config, state: 'active', enabled: true }, row.slot_key)) return false;
+  row.rubric_label = config.name;
+  if (config.color) row.rubric_color = config.color;
+  return true;
 }
 
 function mapCard(row, timeZone) {

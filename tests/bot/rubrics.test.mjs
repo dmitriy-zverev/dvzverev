@@ -105,7 +105,7 @@ test('editing rebuilds unpublished slots but keeps published badge and content',
   materializeScheduleSlots(f.db, f.service, f.env, now);
   assert.equal(
     f.db.prepare('SELECT label FROM rubric_slots WHERE plan_id=?').get(published.plan_id).label,
-    f.rubric.name,
+    'Новое имя',
   );
   assert.equal(
     f.db.prepare('SELECT body_text FROM editions WHERE edition_id=?').get('sent').body_text,
@@ -125,6 +125,45 @@ test('editing rebuilds unpublished slots but keeps published badge and content',
     2,
   );
   assert.throws(() => assertSlotCurrent(f.db, f.slots[1]), /cancelled/);
+});
+
+test('calendar drops slots that no longer belong to a listed rubric', async (t) => {
+  const f = await fixture(t);
+  const sample = f.slots[0];
+  f.db
+    .prepare(
+      `INSERT INTO schedule_slots(plan_id,project_id,destination_id,slot_utc,slot_key,publication_kind,expected_media,config_version,plan_status,created_at,updated_at)
+       VALUES ('ghost','g',?,?,?,'text',NULL,'v1','planned',?,?)`,
+    )
+    .run(
+      '2099-10-08T07:00:00.000Z',
+      '2099-10-08@10:00[Europe/Moscow]',
+      sample.destination_id,
+      now.toISOString(),
+      now.toISOString(),
+    );
+  f.db
+    .prepare('INSERT INTO rubric_slots VALUES (?,?,?,?,1,0)')
+    .run('ghost', f.rubric.id, 'Основная рубрика · 10:00', f.rubric.color);
+  f.db.prepare("UPDATE rubric_slots SET label='Основная рубрика · 18:00' WHERE plan_id=?").run(
+    sample.plan_id,
+  );
+  materializeScheduleSlots(f.db, f.service, f.env, now);
+  assert.equal(
+    f.db.prepare('SELECT plan_status FROM schedule_slots WHERE plan_id=?').get('ghost').plan_status,
+    'cancelled',
+  );
+  assert.equal(f.db.prepare('SELECT hidden FROM rubric_slots WHERE plan_id=?').get('ghost').hidden, 1);
+  assert.equal(
+    f.db.prepare('SELECT label FROM rubric_slots WHERE plan_id=?').get(sample.plan_id).label,
+    f.rubric.name,
+  );
+  const overview = await buildOverview(f.db, { week: '2099-10-08' }, f.env);
+  assert.equal(
+    overview.cards.some((card) => card.time === '10:00'),
+    false,
+  );
+  assert.ok(overview.cards.some((card) => card.rubricLabel === f.rubric.name));
 });
 
 test('deleting hides every calendar post and never resurrects the former schedule', async (t) => {

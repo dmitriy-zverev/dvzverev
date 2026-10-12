@@ -138,6 +138,40 @@ export function rubricForDate(db, projectId, date, time) {
   );
 }
 
+export function rubricOwnsSlot(rubric, slotKey) {
+  if (!rubric || rubric.state !== 'active' || rubric.enabled === false) return false;
+  const time = String(slotKey || '').match(/@(\d{2}:\d{2})\[/)?.[1];
+  const date = String(slotKey || '').slice(0, 10);
+  if (!time || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  const day = new Date(`${date}T12:00:00Z`).getUTCDay() || 7;
+  return rubric.days.includes(day) && rubric.times.includes(time);
+}
+
+export function retireUnownedSlots(db, projectId, now = new Date()) {
+  if (!getMeta(db, `rubrics_managed:${projectId}`)) return 0;
+  const stamp = now.toISOString();
+  let retired = 0;
+  const rows = db
+    .prepare('SELECT plan_id, slot_key, plan_status, slot_utc FROM schedule_slots WHERE project_id=?')
+    .all(projectId);
+  for (const slot of rows) {
+    const date = slot.slot_key.slice(0, 10);
+    const time = slot.slot_key.match(/@(\d{2}:\d{2})\[/)?.[1];
+    const rubric = time ? rubricForDate(db, projectId, date, time) : null;
+    if (rubric) {
+      bindRubricSlot(db, slot.plan_id, rubric);
+      continue;
+    }
+    if (slot.slot_utc <= stamp || slot.plan_status === 'sent') continue;
+    db.prepare(
+      "UPDATE schedule_slots SET plan_status='cancelled', updated_at=? WHERE plan_id=? AND plan_status!='sent'",
+    ).run(stamp, slot.plan_id);
+    db.prepare('UPDATE rubric_slots SET hidden=1 WHERE plan_id=?').run(slot.plan_id);
+    retired += 1;
+  }
+  return retired;
+}
+
 export function bindRubricSlot(db, planId, rubric) {
   if (!rubric) return;
   db.prepare(
@@ -200,7 +234,8 @@ export function assertSlotCurrent(db, slot) {
       (rubric.hidden ||
         rubric.state !== 'active' ||
         !rubric.enabled ||
-        rubric.revision !== rubric.slotRevision))
+        rubric.revision !== rubric.slotRevision ||
+        (slot.slot_key && !rubricOwnsSlot(rubric, slot.slot_key))))
   )
     throw new Error('rubric_slot_cancelled');
   return rubric;

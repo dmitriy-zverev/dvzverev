@@ -19,7 +19,7 @@ import { upsertPostFeatures, inferMediaActual } from './analytics/features.mjs';
 import { runAnalyticsCleanup } from './analytics/ttl.mjs';
 import { runEditorialScheduler } from './editorial/scheduler.mjs';
 import { syncEditorialMemory } from './editorial/memory.mjs';
-import { rubricService, rubricForDate, bindRubricSlot } from './rubrics.mjs';
+import { rubricService, rubricForDate, bindRubricSlot, retireUnownedSlots } from './rubrics.mjs';
 
 const MATERIALIZE_DAYS_FORWARD = 14;
 const MATERIALIZE_DAYS_BACK = 7;
@@ -139,6 +139,7 @@ export function materializeScheduleSlots(db, service, env, now = new Date()) {
         }
       }
     }
+    for (const projectId of Object.keys(service.projects || {})) retireUnownedSlots(db, projectId, now);
     bumpDataVersion(db);
     return inserted;
   });
