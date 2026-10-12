@@ -197,12 +197,17 @@ describe('redis schedule', () => {
       LIMIT: { offset: 0, count: 1 },
     });
     const existing = decodeTask(await redis.get(taskKey(ids[0])));
-    const conflict = await createAdHocTask(redis, service, {
-      projectId: existing.projectId,
-      destinationId: existing.destinationId,
-      slotUtc: existing.slotUtc,
-      topic: 'x',
-    });
+    const conflict = await createAdHocTask(
+      redis,
+      service,
+      {
+        projectId: existing.projectId,
+        destinationId: existing.destinationId,
+        slotUtc: existing.slotUtc,
+        topic: 'x',
+      },
+      new Date('2026-10-08T12:00:00Z'),
+    );
     assert.equal(conflict.error, 'slot_conflict');
     assert.ok(conflict.suggestedSlotUtc);
     assert.notEqual(conflict.suggestedSlotUtc, existing.slotUtc);
