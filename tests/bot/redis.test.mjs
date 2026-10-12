@@ -367,3 +367,30 @@ test('orphan generating task returns to due queue; exhausted task becomes termin
   });
   assert.equal(decodeTask(await redis.get(taskKey(task.id))).status, 'failed');
 });
+
+test('requeuePlanFromScheduleRow restores a missing redis task as planned', async () => {
+  const redis = createMockRedis();
+  const planId = '11111111-1111-4111-8111-111111111111';
+  const row = {
+    plan_id: planId,
+    project_id: 'things',
+    destination_id: 'things-vk',
+    slot_utc: '2026-10-07T07:00:00.000Z',
+    slot_key: '2026-10-07@10:00[Europe/Moscow]',
+    plan_status: 'missed',
+    version: 2,
+    topic: 'Тема',
+    brief: 'Бриф',
+    publication_kind: 'text',
+    edition_id: null,
+  };
+  const restored = await requeuePlanFromScheduleRow(
+    redis,
+    service,
+    row,
+    new Date('2026-10-07T07:03:00Z'),
+  );
+  assert.ok(restored.task);
+  assert.equal(restored.task.status, 'planned');
+  assert.equal(decodeTask(await redis.get(taskKey(planId))).status, 'planned');
+});
