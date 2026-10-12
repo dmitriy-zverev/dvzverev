@@ -19,6 +19,7 @@ import {
   assertSlotCurrent,
 } from '../../bot/cabinet/rubrics.mjs';
 import { weeklySnapshot } from '../../bot/cabinet/weekly.mjs';
+import { saveGroupEditorPrompt, getActivePromptVersion } from '../../bot/cabinet/analytics/prompts.mjs';
 import { publish } from '../../bot/core.mjs';
 import { taskStatusFromState } from '../../bot/redis/runner.mjs';
 
@@ -55,6 +56,25 @@ async function fixture(t) {
     .all(now.toISOString());
   return { root, db, env, service, rubric, slots };
 }
+
+test('group system prompt saves without rewriting rubric records', async (t) => {
+  const f = await fixture(t);
+  const before = f.db.prepare('SELECT config_json FROM schedule_rubrics WHERE id=?').get(f.rubric.id)
+    .config_json;
+  const first = saveGroupEditorPrompt(f.db, 'g', 'Общие правила группы.');
+  const again = saveGroupEditorPrompt(f.db, 'g', 'Общие правила группы.');
+  assert.equal(again.unchanged, true);
+  assert.equal(again.versionId, first.versionId);
+  saveGroupEditorPrompt(f.db, 'g', 'Новые общие правила.');
+  const restored = saveGroupEditorPrompt(f.db, 'g', 'Общие правила группы.');
+  assert.equal(restored.versionId, first.versionId);
+  assert.equal(getActivePromptVersion(f.db, 'g', 'editor').content_text, 'Общие правила группы.');
+  assert.equal(
+    f.db.prepare('SELECT config_json FROM schedule_rubrics WHERE id=?').get(f.rubric.id).config_json,
+    before,
+  );
+  assert.throws(() => saveGroupEditorPrompt(f.db, 'g', '  '), /rubric_system_prompt_empty/);
+});
 
 test('bootstrap preserves existing slot ids and creates each group schedule only once', async (t) => {
   const f = await fixture(t);

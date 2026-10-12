@@ -28,6 +28,7 @@ import { DELIVERY_SNAPSHOT } from './delivery-snapshot.mjs';
 import { readReportOperatorState } from './reports/status.mjs';
 import { loadServiceForCabinet } from './projects.mjs';
 import { listRubrics } from './rubrics.mjs';
+import { groupEditorPrompts } from './analytics/prompts.mjs';
 
 export async function buildOverview(
   db,
@@ -45,8 +46,16 @@ export async function buildOverview(
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
   }
+  let systemPrompts = {};
+  try {
+    const { document } = await loadServiceForCabinet(env);
+    systemPrompts = await groupEditorPrompts(db, document, env);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
   return {
     ...snapshot,
+    systemPrompts,
     service: reports ? { ...service, reports } : service,
   };
 }

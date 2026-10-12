@@ -38,6 +38,7 @@ import {
   queueWeeklyPrepare,
   weeklyPrepareEnabled,
 } from './weekly.mjs';
+import { groupEditorPrompts, saveGroupEditorPrompt } from './analytics/prompts.mjs';
 import { handleOzonRoute } from './ozon.mjs';
 
 const API_PREFIX = '/bot/api/v1';
@@ -245,12 +246,28 @@ async function handleRequest(request, response, env) {
       ensureRubrics(db, service);
       try {
         if (route === '/rubrics' && request.method === 'GET') {
-          json(response, 200, { rubrics: listRubrics(db), projects: listProjects(db) }, cors);
+          json(
+            response,
+            200,
+            {
+              rubrics: listRubrics(db),
+              projects: listProjects(db),
+              systemPrompts: await groupEditorPrompts(db, service, env),
+            },
+            cors,
+          );
           return;
         }
         assertOrigin(request, env);
         const body = parseJson(await readBody(request));
         let result;
+        if (request.method !== 'DELETE' && typeof body.systemPrompt === 'string') {
+          const projectId =
+            body.projectId ||
+            db.prepare('SELECT project_id FROM schedule_rubrics WHERE id=?').get(route.split('/')[2])
+              ?.project_id;
+          if (projectId) saveGroupEditorPrompt(db, projectId, body.systemPrompt);
+        }
         if (route === '/rubrics' && request.method === 'POST')
           result = createRubric(db, service, body.projectId, body);
         else if (['PATCH', 'DELETE'].includes(request.method))

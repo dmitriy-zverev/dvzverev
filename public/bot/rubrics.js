@@ -17,7 +17,8 @@ const messages = {
   rubric_cancel_unconfirmed:
     'VK не подтвердил отмену отложенной записи. Повторите попытку; уже снятые записи повторно не отправляются.',
   rubric_invalid: 'Укажите название, хотя бы один день и время в формате 18:00.',
-  rubric_prompt_too_long: 'Каждый дополнительный промпт должен быть не длиннее 6000 символов.',
+  rubric_prompt_too_long: 'Промпт слишком длинный.',
+  rubric_system_prompt_empty: 'Системный промпт группы не может быть пустым.',
 };
 
 export function createRubricManager({ api, escapeText: esc, refresh, selectProject }) {
@@ -88,7 +89,8 @@ export function createRubricManager({ api, escapeText: esc, refresh, selectProje
         )
         .join('')}</select></label>
       <div class="rubric-media-note" id="rubric-media-note"><strong>Медиа готовятся на неделю вперёд</strong><p>GIF уходит на стену как документ сообщества (community-токен). Отдельный вход VK не нужен. Короткое видео пока требует user OAuth.</p></div>
-      <label>Промпт рубрики<textarea name="textPrompt" rows="5" maxlength="6000" placeholder="О чём эта рубрика, подача, структура, ограничения…">${esc(r.textPrompt)}</textarea><span class="meta">Основное задание рубрики. Общий промпт группы добавляется следом.</span></label>
+      <label>Системный промпт<textarea name="systemPrompt" rows="12">${esc(data.systemPrompts?.[r.projectId] || '')}</textarea><span class="meta">Общий для всех рубрик этой группы.</span></label>
+      <label>Промпт рубрики<textarea name="textPrompt" rows="5" maxlength="6000" placeholder="О чём эта рубрика, подача, структура, ограничения…">${esc(r.textPrompt)}</textarea><span class="meta">Основное задание рубрики. Системный промпт группы добавляется следом.</span></label>
       <label>Промпт для GIF и видео · необязательно<textarea name="mediaPrompt" rows="4" maxlength="6000" placeholder="Сюжеты, композиция, настроение, движение камеры…">${esc(r.mediaPrompt)}</textarea><span class="meta">Основной визуальный промпт рубрики. Стиль группы добавляется следом. Пустое поле оставляет только стиль группы.</span></label>
       <label class="rubric-enabled"><input type="checkbox" name="enabled" ${r.enabled ? 'checked' : ''}> Рубрика активна</label>
       <p class="rubric-change-note">Изменения применяются к ещё не вышедшим постам. Подготовленные отложенные записи отменяются; медиа понадобится подготовить заново. Опубликованные посты сохраняются.</p>
@@ -115,6 +117,16 @@ export function createRubricManager({ api, escapeText: esc, refresh, selectProje
     };
     syncNote();
     media.onchange = syncNote;
+    const projectSelect = form.elements.namedItem('projectId');
+    const systemField = form.elements.namedItem('systemPrompt');
+    if (!rubric && projectSelect && systemField) {
+      projectSelect.addEventListener('change', () => {
+        const next = data.systemPrompts?.[projectSelect.value] || '';
+        const previous = data.systemPrompts?.[r.projectId] || '';
+        if (systemField.value === previous) systemField.value = next;
+        r.projectId = projectSelect.value;
+      });
+    }
     async function save(remove = false) {
       if (saving) return;
       const values = new FormData(form);
@@ -133,6 +145,7 @@ export function createRubricManager({ api, escapeText: esc, refresh, selectProje
             media: values.get('media'),
             textPrompt: values.get('textPrompt'),
             mediaPrompt: values.get('mediaPrompt'),
+            systemPrompt: values.get('systemPrompt'),
             enabled: values.has('enabled'),
           };
       saving = true;

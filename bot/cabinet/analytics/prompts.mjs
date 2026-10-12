@@ -43,6 +43,66 @@ export function getActivePromptVersion(db, projectId, role) {
   return row || null;
 }
 
+const SYSTEM_PROMPT_MAX = 30000;
+
+export async function groupEditorPrompts(db, service, env = process.env) {
+  const configRoot = resolve(env.BOT_CONFIG_PATH || 'bot/service.json', '..');
+  const prompts = {};
+  for (const [projectId, project] of Object.entries(service?.projects || {})) {
+    const active = getActivePromptVersion(db, projectId, 'editor');
+    if (typeof active?.content_text === 'string' && active.content_text.length) {
+      prompts[projectId] = active.content_text;
+      continue;
+    }
+    const path = project.prompts?.editor;
+    if (!path) {
+      prompts[projectId] = '';
+      continue;
+    }
+    try {
+      prompts[projectId] = await readFile(resolveRelativeConfigPath(configRoot, path), 'utf8');
+    } catch {
+      prompts[projectId] = '';
+    }
+  }
+  return prompts;
+}
+
+export function saveGroupEditorPrompt(db, projectId, contentText, now = new Date()) {
+  const text = String(contentText ?? '');
+  if (!text.trim()) throw new Error('rubric_system_prompt_empty');
+  if (text.length > SYSTEM_PROMPT_MAX) throw new Error('rubric_prompt_too_long');
+  const active = getActivePromptVersion(db, projectId, 'editor');
+  if (active?.content_text === text) return { unchanged: true, versionId: active.version_id };
+  const hash = contentHash(text);
+  const previous = db
+    .prepare(
+      `SELECT version_id, status FROM prompt_versions
+       WHERE project_id=? AND role='editor' AND content_hash=?
+       ORDER BY created_at DESC LIMIT 1`,
+    )
+    .get(projectId, hash);
+  if (previous) {
+    if (previous.status === 'active') return { unchanged: true, versionId: previous.version_id };
+    const activated = activatePromptVersion(db, previous.version_id, { now });
+    if (activated.error) throw new Error(activated.error);
+    return { unchanged: false, versionId: previous.version_id };
+  }
+  const created = registerPromptVersion(db, {
+    projectId,
+    role: 'editor',
+    versionLabel: `cabinet-${hash.slice(0, 12)}`,
+    contentText: text,
+    source: 'cabinet',
+    parentVersionId: active?.version_id || null,
+    now,
+  });
+  if (created.error) throw new Error(created.error === 'version_exists' ? 'rubric_version_conflict' : created.error);
+  const activated = activatePromptVersion(db, created.version.versionId, { now });
+  if (activated.error) throw new Error(activated.error);
+  return { unchanged: false, versionId: created.version.versionId };
+}
+
 export function registerPromptVersion(db, input, { inTransaction = false } = {}) {
   const run = () => insertPromptVersion(db, input);
   if (inTransaction) return run();
