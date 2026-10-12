@@ -189,6 +189,35 @@ test('VK cancellation requires login and is durable and retryable after network 
   assert.equal(listRubrics(f.db).length, 0);
 });
 
+test('community wall.get denial still deletes future postponed posts', async (t) => {
+  const f = await fixture(t);
+  const slot = f.slots[0];
+  f.db
+    .prepare(
+      "INSERT INTO vk_weekly_posts(plan_id,week_start,status,post_id,group_id,updated_at) VALUES (?,?,'deferred',42,'123',?)",
+    )
+    .run(slot.plan_id, '2099-10-05', now.toISOString());
+  let deleted = 0;
+  const client = {
+    status: () => ({ canPrepare: true }),
+    bindGroup() {},
+    api: async (method) => {
+      if (method === 'wall.getById')
+        throw Object.assign(new Error('vk_api_rejected_27'), { vkCode: 27 });
+      if (method === 'wall.delete') {
+        deleted += 1;
+        return 1;
+      }
+      throw new Error(`unexpected ${method}`);
+    },
+  };
+  await changeRubric(f.db, f.rubric.id, { ...f.rubric, name: 'Новое имя' }, { client, now });
+  assert.equal(deleted, 1);
+  assert.equal(listRubrics(f.db)[0].name, 'Новое имя');
+  assert.equal(listRubrics(f.db)[0].state, 'active');
+  assert.equal(listRubrics(f.db)[0].pending, false);
+});
+
 test('unknown outcomes and media preparation block edits before changing schedule', async (t) => {
   const f = await fixture(t);
   f.db

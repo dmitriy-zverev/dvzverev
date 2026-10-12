@@ -229,6 +229,32 @@ function checkConflicts(db, projectId, config, ignoreId = null) {
     throw new Error('rubric_schedule_conflict');
 }
 
+function communityWallUnreadable(error) {
+  return error?.vkCode === 15 || error?.vkCode === 27;
+}
+
+async function postponedReceipt(client, slot) {
+  try {
+    const found = await client.api('wall.getById', {
+      posts: `-${slot.group_id}_${slot.post_id}`,
+    });
+    return {
+      saved: Array.isArray(found) ? found[0] : found.items?.[0],
+      unreadable: false,
+    };
+  } catch (error) {
+    if (communityWallUnreadable(error)) return { saved: null, unreadable: true };
+    throw error;
+  }
+}
+
+async function deletePostponed(client, slot) {
+  return client.api('wall.delete', {
+    owner_id: -Number(slot.group_id),
+    post_id: slot.post_id,
+  });
+}
+
 // Persist cancellation intent before any network call. A failure keeps the rubric stopped;
 // repeating this operation finishes cancellation without creating replacement posts.
 async function performChangeRubric(
@@ -303,13 +329,19 @@ async function performChangeRubric(
     assertLease();
     if (!slot.post_id || slot.weekly_status === 'cancelled') continue;
     if (client.bindGroup) client.bindGroup(slot.group_id);
-    const found = await client.api('wall.getById', { posts: `-${slot.group_id}_${slot.post_id}` });
-    const saved = Array.isArray(found) ? found[0] : found.items?.[0];
+    const receipt = await postponedReceipt(client, slot);
     assertLease();
-    if (saved && !saved.is_deleted) {
-      if (saved.id !== slot.post_id || saved.owner_id !== -Number(slot.group_id))
+    if (receipt.unreadable) {
+      const result = await deletePostponed(client, slot);
+      assertLease();
+      if (result !== 1) throw new Error('rubric_cancel_unconfirmed');
+    } else if (receipt.saved && !receipt.saved.is_deleted) {
+      if (receipt.saved.id !== slot.post_id || receipt.saved.owner_id !== -Number(slot.group_id))
         throw new Error('rubric_cancel_unconfirmed');
-      if (saved.date <= Math.floor(now.getTime() / 1000) || saved.post_type === 'post') {
+      if (
+        receipt.saved.date <= Math.floor(now.getTime() / 1000) ||
+        receipt.saved.post_type === 'post'
+      ) {
         published.add(slot.plan_id);
         withTransaction(db, () => {
           db.prepare("UPDATE vk_weekly_posts SET status='sent' WHERE plan_id=?").run(slot.plan_id);
@@ -321,17 +353,14 @@ async function performChangeRubric(
               slot.edition_id,
             );
             db.prepare("UPDATE deliveries SET status='sent',sent_at=? WHERE edition_id=?").run(
-              new Date(saved.date * 1000).toISOString(),
+              new Date(receipt.saved.date * 1000).toISOString(),
               slot.edition_id,
             );
           }
         });
         continue;
       }
-      const result = await client.api('wall.delete', {
-        owner_id: -Number(slot.group_id),
-        post_id: slot.post_id,
-      });
+      const result = await deletePostponed(client, slot);
       assertLease();
       if (result !== 1) throw new Error('rubric_cancel_unconfirmed');
     }
