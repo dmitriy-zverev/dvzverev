@@ -241,6 +241,31 @@
     line-height: 1.55;
     font-weight: 400;
   }
+  .rubric-system-prompt-label .rubric-collapsible-prompt {
+    display: grid;
+    gap: 8px;
+  }
+  .rubric-collapsible-prompt.is-collapsed textarea {
+    max-height: 15.5em;
+    overflow-y: auto;
+    resize: none;
+  }
+  .rubric-prompt-toggle {
+    align-self: start;
+    padding: 0;
+    font: inherit;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: #2f5f95;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .rubric-prompt-toggle:hover {
+    color: #20364a;
+  }
   .rubric-dialog .meta {
     font-weight: 400;
   }

@@ -21,6 +21,30 @@ const messages = {
   rubric_system_prompt_empty: 'Системный промпт группы не может быть пустым.',
 };
 
+const SYSTEM_PROMPT_COLLAPSE_CHARS = 1000;
+
+function bindCollapsiblePrompt(wrap) {
+  if (!wrap) return () => {};
+  const textarea = wrap.querySelector('textarea');
+  const toggle = wrap.querySelector('[data-prompt-expand]');
+  if (!textarea || !toggle) return () => {};
+  const sync = () => {
+    const long = textarea.value.length > SYSTEM_PROMPT_COLLAPSE_CHARS;
+    const expanded = wrap.classList.contains('is-expanded');
+    toggle.hidden = !long;
+    toggle.textContent = expanded ? 'Свернуть' : 'Показать полностью';
+    toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    wrap.classList.toggle('is-collapsed', long && !expanded);
+  };
+  toggle.addEventListener('click', () => {
+    wrap.classList.toggle('is-expanded');
+    sync();
+    if (wrap.classList.contains('is-expanded')) textarea.focus();
+  });
+  sync();
+  return sync;
+}
+
 export function createRubricManager({ api, escapeText: esc, refresh, selectProject }) {
   let dialog = null;
   let saving = false;
@@ -89,7 +113,7 @@ export function createRubricManager({ api, escapeText: esc, refresh, selectProje
         )
         .join('')}</select></label>
       <div class="rubric-media-note" id="rubric-media-note"><strong>Медиа готовятся на неделю вперёд</strong><p>GIF уходит на стену как документ сообщества (community-токен). Отдельный вход VK не нужен. Короткое видео пока требует user OAuth.</p></div>
-      <label>Системный промпт<textarea name="systemPrompt" rows="12">${esc(data.systemPrompts?.[r.projectId] || '')}</textarea><span class="meta">Общий для всех рубрик этой группы.</span></label>
+      <label class="rubric-system-prompt-label">Системный промпт<span class="rubric-collapsible-prompt" data-collapsible-prompt><textarea name="systemPrompt" rows="5">${esc(data.systemPrompts?.[r.projectId] || '')}</textarea><button type="button" class="rubric-prompt-toggle" data-prompt-expand hidden>Показать полностью</button></span><span class="meta">Общий для всех рубрик этой группы.</span></label>
       <label>Промпт рубрики<textarea name="textPrompt" rows="5" maxlength="6000" placeholder="О чём эта рубрика, подача, структура, ограничения…">${esc(r.textPrompt)}</textarea><span class="meta">Основное задание рубрики. Системный промпт группы добавляется следом.</span></label>
       <label>Промпт для GIF и видео · необязательно<textarea name="mediaPrompt" rows="4" maxlength="6000" placeholder="Сюжеты, композиция, настроение, движение камеры…">${esc(r.mediaPrompt)}</textarea><span class="meta">Основной визуальный промпт рубрики. Стиль группы добавляется следом. Пустое поле оставляет только стиль группы.</span></label>
       <label class="rubric-enabled"><input type="checkbox" name="enabled" ${r.enabled ? 'checked' : ''}> Рубрика активна</label>
@@ -119,12 +143,16 @@ export function createRubricManager({ api, escapeText: esc, refresh, selectProje
     media.onchange = syncNote;
     const projectSelect = form.elements.namedItem('projectId');
     const systemField = form.elements.namedItem('systemPrompt');
+    const syncSystemPromptCollapse = bindCollapsiblePrompt(
+      dialog.querySelector('[data-collapsible-prompt]'),
+    );
     if (!rubric && projectSelect && systemField) {
       projectSelect.addEventListener('change', () => {
         const next = data.systemPrompts?.[projectSelect.value] || '';
         const previous = data.systemPrompts?.[r.projectId] || '';
         if (systemField.value === previous) systemField.value = next;
         r.projectId = projectSelect.value;
+        syncSystemPromptCollapse();
       });
     }
     async function save(remove = false) {
