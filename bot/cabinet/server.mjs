@@ -242,7 +242,7 @@ async function handleRequest(request, response, env) {
     const session = requireSession(db, request);
     if (route === '/rubrics' || /^\/rubrics\/[\w-]+$/.test(route)) {
       if (request.method !== 'GET') assertOrigin(request, env);
-      const { document: service } = await loadServiceForCabinet(env);
+      const { document: service, configRoot } = await loadServiceForCabinet(env);
       ensureRubrics(db, service);
       try {
         if (route === '/rubrics' && request.method === 'GET') {
@@ -252,7 +252,7 @@ async function handleRequest(request, response, env) {
             {
               rubrics: listRubrics(db),
               projects: listProjects(db),
-              systemPrompts: await groupEditorPrompts(db, service, env),
+              systemPrompts: await groupEditorPrompts(db, service, env, configRoot),
             },
             cors,
           );

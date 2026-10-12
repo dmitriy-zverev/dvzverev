@@ -19,7 +19,12 @@ import {
   assertSlotCurrent,
 } from '../../bot/cabinet/rubrics.mjs';
 import { weeklySnapshot } from '../../bot/cabinet/weekly.mjs';
-import { saveGroupEditorPrompt, getActivePromptVersion } from '../../bot/cabinet/analytics/prompts.mjs';
+import {
+  saveGroupEditorPrompt,
+  getActivePromptVersion,
+  groupEditorPrompts,
+  readEditorPromptFromConfig,
+} from '../../bot/cabinet/analytics/prompts.mjs';
 import { publish } from '../../bot/core.mjs';
 import { taskStatusFromState } from '../../bot/redis/runner.mjs';
 
@@ -74,6 +79,26 @@ test('group system prompt saves without rewriting rubric records', async (t) => 
     before,
   );
   assert.throws(() => saveGroupEditorPrompt(f.db, 'g', '  '), /rubric_system_prompt_empty/);
+});
+
+test('group editor prompt loads from config files when cabinet DB has no active version', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'rubrics-prompts-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, 'bot', 'prompts'), { recursive: true });
+  await writeFile(join(root, 'bot', 'prompts', 'group-editor.md'), 'Тестовая группа — системный стиль.');
+  const env = { BOT_CABINET_DB_PATH: join(root, 'db.sqlite'), BOT_CONFIG_PATH: join(root, 'service.json') };
+  await writeFile(join(root, 'service.json'), '{}');
+  const db = openCabinetDb(env);
+  t.after(() => db.close());
+  const service = {
+    projects: { g: { prompts: { editor: 'prompts/group-editor.md' } } },
+  };
+  const prompts = await groupEditorPrompts(db, service, env, root);
+  assert.equal(prompts.g, 'Тестовая группа — системный стиль.');
+  assert.equal(
+    await readEditorPromptFromConfig(root, 'prompts/group-editor.md'),
+    'Тестовая группа — системный стиль.',
+  );
 });
 
 test('bootstrap preserves existing slot ids and creates each group schedule only once', async (t) => {

@@ -45,8 +45,28 @@ export function getActivePromptVersion(db, projectId, role) {
 
 const SYSTEM_PROMPT_MAX = 30000;
 
-export async function groupEditorPrompts(db, service, env = process.env) {
-  const configRoot = resolve(env.BOT_CONFIG_PATH || 'bot/service.json', '..');
+function editorPromptPaths(configRoot, relativePath) {
+  const paths = [resolveRelativeConfigPath(configRoot, relativePath)];
+  const normalized = String(relativePath).replaceAll('\\', '/');
+  if (normalized.startsWith('prompts/')) {
+    paths.push(resolve(configRoot, 'bot', normalized));
+  }
+  return paths;
+}
+
+export async function readEditorPromptFromConfig(configRoot, relativePath) {
+  for (const abs of editorPromptPaths(configRoot, relativePath)) {
+    try {
+      return await readFile(abs, 'utf8');
+    } catch {
+      continue;
+    }
+  }
+  return '';
+}
+
+export async function groupEditorPrompts(db, service, env = process.env, configRoot = null) {
+  const root = configRoot || resolve(resolve(env.BOT_CONFIG_PATH || 'bot/service.json'), '..');
   const prompts = {};
   for (const [projectId, project] of Object.entries(service?.projects || {})) {
     const active = getActivePromptVersion(db, projectId, 'editor');
@@ -59,11 +79,7 @@ export async function groupEditorPrompts(db, service, env = process.env) {
       prompts[projectId] = '';
       continue;
     }
-    try {
-      prompts[projectId] = await readFile(resolveRelativeConfigPath(configRoot, path), 'utf8');
-    } catch {
-      prompts[projectId] = '';
-    }
+    prompts[projectId] = await readEditorPromptFromConfig(root, path);
   }
   return prompts;
 }

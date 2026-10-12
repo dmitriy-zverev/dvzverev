@@ -96,6 +96,7 @@ services:
       - ./data:/app/data
       - ./content:/app/content:ro
       - ./service.json:/app/service.json:ro
+      - ./prompts:/app/prompts:ro
     restart: unless-stopped
     init: true
     read_only: true

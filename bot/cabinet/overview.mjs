@@ -48,8 +48,8 @@ export async function buildOverview(
   }
   let systemPrompts = {};
   try {
-    const { document } = await loadServiceForCabinet(env);
-    systemPrompts = await groupEditorPrompts(db, document, env);
+    const { document, configRoot } = await loadServiceForCabinet(env);
+    systemPrompts = await groupEditorPrompts(db, document, env, configRoot);
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
   }
