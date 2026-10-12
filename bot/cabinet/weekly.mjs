@@ -59,6 +59,11 @@ function weeklyPrepareRequestKey(weekStart) {
   return `weekly_prepare_request:${weekStart}`;
 }
 
+/** Off unless explicitly enabled. Live slots publish at their clock time. */
+export function weeklyPrepareEnabled(env = process.env) {
+  return env.VK_WEEKLY_PREPARE_ENABLED === 'true';
+}
+
 /** Cabinet button queues work; poster (256MB) runs prepare — not the 128MB cabinet. */
 export function queueWeeklyPrepare(db, weekStart, source = 'button') {
   setMeta(
@@ -71,6 +76,7 @@ export function queueWeeklyPrepare(db, weekStart, source = 'button') {
 }
 
 export async function maybeRunQueuedWeeklyPrepare(env, now = new Date(), dependencies = {}) {
+  if (!weeklyPrepareEnabled(env)) return { skipped: 'weekly_prepare_disabled' };
   const db = openCabinetDb(env);
   try {
     for (const scope of ['current', 'next']) {
@@ -214,6 +220,7 @@ export function claimWeeklyJob(db, week, now = new Date()) {
 
 /** Poster tick: Sunday ≥20:00 MSK starts next-week prepare once. */
 export async function maybeStartSundayWeeklyPrepare(env, now = new Date(), dependencies = {}) {
+  if (!weeklyPrepareEnabled(env)) return { skipped: 'weekly_prepare_disabled' };
   if (!isSundayWeeklyPrepareWindow(now)) return { skipped: 'not_sunday_window' };
   const week = nextWeek(now);
   const metaKey = `weekly_auto_prepare:${week.start}`;
@@ -468,7 +475,14 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
 
         const recent = db
           .prepare(
-            'SELECT post_json FROM vk_weekly_posts WHERE post_json IS NOT NULL AND plan_id IN (SELECT plan_id FROM schedule_slots WHERE project_id=?) ORDER BY updated_at DESC LIMIT 30',
+            `SELECT post_json FROM (
+              SELECT post_json, updated_at, plan_id
+              FROM vk_weekly_posts
+              WHERE post_json IS NOT NULL
+                AND plan_id IN (SELECT plan_id FROM schedule_slots WHERE project_id=?)
+              ORDER BY updated_at DESC, plan_id DESC
+              LIMIT 30
+            ) ORDER BY updated_at ASC, plan_id ASC`,
           )
           .all(slot.project_id)
           .flatMap((r) => {

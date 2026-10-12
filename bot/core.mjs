@@ -736,6 +736,7 @@ export async function publish(
     sendPhoto = sendTelegramAnimation,
     uploadImage = uploadVkCover,
     scheduledTask = null,
+    checkWeekly = weeklyDelivery,
   } = {},
 ) {
   let rubricSlot = null;
@@ -822,7 +823,7 @@ export async function publish(
     }
     const weeklySlot = scheduledTask?.slotKey || (!manual && dueSlot(config, now));
     if (!manual && config.vkEnabled && weeklySlot) {
-      const result = await weeklyDelivery(
+      const result = await checkWeekly(
         config,
         weeklySlot,
         now,
@@ -841,12 +842,19 @@ export async function publish(
         }
         return { status: result.status };
       }
-      // Media slots that used to require weekly prepare stay blocked without a receipt.
+      // Weekly photo missing: publish text only instead of skipping the slot.
       if (
         config.weeklyImages &&
         config.mediaTimes?.includes(weeklySlot.match(/@(\d{2}:\d{2})\[/)?.[1])
       ) {
-        return { status: 'weekly_preparation_required' };
+        console.log(
+          JSON.stringify({
+            projectId: config.projectId,
+            slot: weeklySlot,
+            status: 'weekly_photo_missing_text_fallback',
+          }),
+        );
+        config = { ...config, imagesEnabled: false, vkImagesEnabled: false };
       }
     }
     if (

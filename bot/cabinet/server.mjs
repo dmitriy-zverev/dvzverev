@@ -36,6 +36,7 @@ import {
   ensureWeeklySnapshot,
   weeklySnapshot,
   queueWeeklyPrepare,
+  weeklyPrepareEnabled,
 } from './weekly.mjs';
 import { handleOzonRoute } from './ozon.mjs';
 
@@ -315,6 +316,22 @@ async function handleRequest(request, response, env) {
           : weeklySnapshot(db, now, scope);
       const client = getWeeklyVkClient(env);
       if (request.method === 'POST') {
+        if (!weeklyPrepareEnabled(env)) {
+          json(
+            response,
+            409,
+            {
+              error: 'weekly_prepare_disabled',
+              message:
+                'Недельная отложка выключена. Посты выходят в запланированное время слота.',
+              ...weeklySnapshot(db, now, scope),
+              prepareEnabled: false,
+              vk: weeklyVkStatus(env),
+            },
+            cors,
+          );
+          return;
+        }
         if (!client?.status().canPrepare) {
           json(
             response,
@@ -344,6 +361,7 @@ async function handleRequest(request, response, env) {
         request.method === 'POST' ? 202 : 200,
         {
           ...weeklySnapshot(db, now, scope),
+          prepareEnabled: weeklyPrepareEnabled(env),
           vk: weeklyVkStatus(env),
         },
         cors,

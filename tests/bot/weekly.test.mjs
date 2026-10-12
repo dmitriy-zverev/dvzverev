@@ -14,6 +14,7 @@ import {
   maybeStartSundayWeeklyPrepare,
   maybeRunQueuedWeeklyPrepare,
   queueWeeklyPrepare,
+  weeklyPrepareEnabled,
   currentWeek,
 } from '../../bot/cabinet/weekly.mjs';
 import { notifyWeeklyPrepareDigest, summarizeWeek } from '../../bot/cabinet/weekly-notify.mjs';
@@ -29,10 +30,14 @@ import {
 import { listWeeklyCommunityTargets } from '../../bot/vk-oauth/community-weekly.mjs';
 import { OAuthStore } from '../../bot/vk-oauth/store.mjs';
 import { weeklyDelivery } from '../../bot/cabinet/weekly-delivery.mjs';
+import { selectLiteraryQuote } from '../../bot/literary-quotes.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'weekly-test-'));
-  const env = { BOT_CABINET_DB_PATH: join(root, 'cabinet.sqlite') };
+  const env = {
+    BOT_CABINET_DB_PATH: join(root, 'cabinet.sqlite'),
+    VK_WEEKLY_PREPARE_ENABLED: 'true',
+  };
   t.after(() => rm(root, { recursive: true, force: true }));
   const db = openCabinetDb(env);
   const week = nextWeek(new Date('2026-10-07T10:00:00Z'));
@@ -135,6 +140,69 @@ test('text slots defer without attachment and skip duplicates on rerun', async (
     client: c,
   });
   assert.equal(c.writes, 2);
+  f.db.close();
+});
+
+test('literary week does not repeat the newest quote on every slot', async (t) => {
+  const f = await fixture(t);
+  f.db.prepare("UPDATE schedule_slots SET publication_kind='text',expected_media=NULL").run();
+  const history = [
+    'crime-consciousness',
+    'austen-hope',
+    'bronte-freedom',
+    'shelley-creature',
+    'anna-families',
+    'emily-kindred',
+  ];
+  history.forEach((quoteId, index) => {
+    const planId = `hist${index}`;
+    const stamp = `2026-10-0${index + 1}T08:00:00.000Z`;
+    f.db
+      .prepare(
+        `INSERT INTO schedule_slots(plan_id,project_id,destination_id,slot_utc,slot_key,publication_kind,expected_media,config_version,created_at,updated_at) VALUES (?,'things','things-vk',?,?,'text',NULL,'v1',?,?)`,
+      )
+      .run(planId, stamp, `2026-10-0${index + 1}@10:00[Europe/Moscow]`, stamp, stamp);
+    f.db
+      .prepare(
+        `INSERT INTO vk_weekly_posts(plan_id,week_start,status,post_json,group_id,attempts,updated_at) VALUES (?,?,'deferred',?,?,1,?)`,
+      )
+      .run(
+        planId,
+        '2026-09-28',
+        JSON.stringify({
+          id: planId,
+          kind: 'literary',
+          quoteId,
+          title: quoteId,
+          commentary: 'Старый пост. Вторая строка.',
+          generation: { quoteId, title: quoteId },
+        }),
+        '123',
+        stamp,
+      );
+  });
+  f.dependencies.generate = async (_config, { id, excludeQuoteIds }) => {
+    const quote = selectLiteraryQuote(excludeQuoteIds);
+    return {
+      id,
+      kind: 'literary',
+      quoteId: quote.id,
+      title: quote.id,
+      commentary: 'Тишина остаётся после закрытой книги. Голос не стирается сразу.',
+      generation: { quoteId: quote.id, title: quote.id },
+    };
+  };
+  await prepareWeeklyPosts(f.env, f.week.start, claimWeeklyJob(f.db, f.week.start), {
+    ...f.dependencies,
+    client: client(),
+  });
+  const ids = f.db
+    .prepare("SELECT post_json FROM vk_weekly_posts WHERE plan_id IN ('p0','p1') ORDER BY plan_id")
+    .all()
+    .map((row) => JSON.parse(row.post_json).quoteId);
+  assert.equal(ids.length, 2);
+  assert.equal(new Set(ids).size, 2);
+  assert.equal(ids.includes('emily-kindred'), false);
   f.db.close();
 });
 
@@ -274,6 +342,29 @@ test('uncertain receipt recovers to deferred when VK confirms postponed', async 
     f.db.prepare("SELECT status FROM vk_weekly_posts WHERE plan_id='p0'").get().status,
     'deferred',
   );
+  f.db.close();
+});
+
+test('week-ahead postpone stays off unless explicitly enabled', async (t) => {
+  const f = await fixture(t);
+  const env = { BOT_CABINET_DB_PATH: f.env.BOT_CABINET_DB_PATH };
+  assert.equal(weeklyPrepareEnabled(env), false);
+  const sunday = await maybeStartSundayWeeklyPrepare(env, new Date('2026-10-11T17:05:00Z'), {
+    ensure: false,
+    client: { status: () => ({ canPrepare: true }) },
+    prepare: async () => {
+      throw new Error('prepare_should_not_run');
+    },
+  });
+  assert.equal(sunday.skipped, 'weekly_prepare_disabled');
+  queueWeeklyPrepare(f.db, f.week.start, 'button');
+  const queued = await maybeRunQueuedWeeklyPrepare(env, new Date('2026-10-07T10:00:00Z'), {
+    client: { status: () => ({ canPrepare: true }) },
+    prepare: async () => {
+      throw new Error('prepare_should_not_run');
+    },
+  });
+  assert.equal(queued.skipped, 'weekly_prepare_disabled');
   f.db.close();
 });
 

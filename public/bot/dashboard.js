@@ -1018,6 +1018,7 @@ function renderWeeklyPreparation() {
   if (!batch.total)
     return `<section class="weekly-prepare">${scopeToggle}<p class="weekly-eyebrow">Недельная подготовка</p><h2>Слотов на ${scope === 'next' ? 'следующую' : 'текущую'} неделю пока нет</h2><p class="weekly-description">Добавьте рубрики с текстом или GIF. Автозапуск следующей недели: воскресенье 20:00 МСК. Кнопка добивает дыры; уже опубликованные не трогаем.</p><button type="button" id="prepare-rubrics" aria-label="Настроить рубрики →">Настроить рубрики ${icon('right')}</button></section>`;
   const connected = Boolean(batch.vk?.canPrepare);
+  const prepareOff = batch.prepareEnabled === false;
   const busy = batch.running || state.preparing;
   const workLeft = batch.missing > 0 || batch.uncertain > 0;
   const ready = batch.ready;
@@ -1050,11 +1051,11 @@ function renderWeeklyPreparation() {
     ${scopeToggle}
     <div class="weekly-prepare-main">
       <div class="weekly-prepare-copy"><p class="weekly-eyebrow">${scopeLabel} · VK</p><h2 id="prepare-title">${date(batch.week.start)} — ${date(batch.week.end)}</h2>
-      <p class="weekly-description">Текст и GIF всех групп — в отложенные VK community-ключом.<br>${scope === 'next' ? 'Автозапуск: воскресенье 20:00 МСК.' : 'Приоритет — текущая неделя.'} Уже опубликованные и прошлые слоты пропускаем.</p></div>
+      <p class="weekly-description">${prepareOff ? 'Недельная отложка выключена. Посты выходят в запланированное время слота.' : `Текст и GIF всех групп — в отложенные VK community-ключом.<br>${scope === 'next' ? 'Автозапуск: воскресенье 20:00 МСК.' : 'Приоритет — текущая неделя.'} Уже опубликованные и прошлые слоты пропускаем.`}</p></div>
       <div class="weekly-prepare-action">
         <span class="weekly-auth ${connected ? 'is-connected' : ''}"><span class="weekly-auth-dot" aria-hidden="true"></span> ${connected ? 'Ключи сообществ готовы' : 'Нужны ключи сообществ на сервере'}</span>
-        <button class="weekly-primary" type="button" id="prepare-week" ${busy || batch.complete || !workLeft || !connected ? 'disabled' : ''} aria-busy="${Boolean(busy)}" ${batch.complete ? 'aria-label="Неделя подготовлена ✓"' : ''}>${busy ? 'Подготавливаем посты…' : batch.complete ? `Неделя подготовлена ${icon('check')}` : 'Подготовить посты'}<span aria-hidden="true">${!busy && !batch.complete && workLeft ? ` · ${workCount}` : ''}</span></button>
-        <p class="weekly-action-note">${batch.complete ? 'Все будущие слоты подтверждены или уже опубликованы' : busy ? 'Можно закрыть страницу — подготовка продолжится' : !connected ? 'Добавьте community-токены групп в env сервера' : batch.uncertain && !batch.missing ? 'Проверяем записи с неизвестным результатом' : 'Готовим только будущие слоты без подтверждённого отложенного поста'}</p>
+        <button class="weekly-primary" type="button" id="prepare-week" ${busy || batch.complete || !workLeft || !connected || prepareOff ? 'disabled' : ''} aria-busy="${Boolean(busy)}" ${batch.complete ? 'aria-label="Неделя подготовлена ✓"' : ''}>${busy ? 'Подготавливаем посты…' : batch.complete ? `Неделя подготовлена ${icon('check')}` : 'Подготовить посты'}<span aria-hidden="true">${!busy && !batch.complete && workLeft && !prepareOff ? ` · ${workCount}` : ''}</span></button>
+        <p class="weekly-action-note">${prepareOff ? 'Кнопка недели выключена. Слот публикуется, когда наступает его время.' : batch.complete ? 'Все будущие слоты подтверждены или уже опубликованы' : busy ? 'Можно закрыть страницу — подготовка продолжится' : !connected ? 'Добавьте community-токены групп в env сервера' : batch.uncertain && !batch.missing ? 'Проверяем записи с неизвестным результатом' : 'Готовим только будущие слоты без подтверждённого отложенного поста'}</p>
       </div>
     </div>
     <div class="weekly-progress-line"><span>${busy ? 'Подготовка идёт' : batch.complete ? 'Готово' : 'Готовность недели'}</span><strong>${ready}<span> / ${batch.total}</span></strong></div>

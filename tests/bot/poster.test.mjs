@@ -1133,6 +1133,47 @@ test('VK-only project sends no Telegram post and reloads its receipt', async (t)
   assert.equal(restart.status, 'empty');
 });
 
+test('missing weekly photo falls back to text-only VK publish', async (t) => {
+  const config = {
+    ...(await setup(t)),
+    projectId: 'things',
+    telegramEnabled: false,
+    chatId: '',
+    vkEnabled: true,
+    vkToken: 'community-secret',
+    vkGroupId: '194579254',
+    weeklyImages: true,
+    vkImagesEnabled: true,
+    imagesEnabled: false,
+    mediaTimes: ['18:00'],
+    postSource: 'openrouter',
+  };
+  let generateImageCalls = 0;
+  let sentEntry;
+  const slotKey = '2026-10-08@18:00[Europe/Moscow]';
+  const result = await publish(config, {
+    now: new Date('2026-10-08T15:01:00Z'),
+    scheduledTask: { id: 'plan-1', slotKey, version: 1 },
+    checkWeekly: async () => ({ status: 'weekly_preparation_required' }),
+    generate: async () => ({ ...post, id: 'text-fallback' }),
+    generateImage: async () => {
+      generateImageCalls++;
+      throw new Error('Must not generate cover');
+    },
+    sendVK: async (_config, entry) => {
+      sentEntry = entry;
+      return 77;
+    },
+    notify: async () => {},
+  });
+  assert.equal(result.status, 'sent');
+  assert.equal(result.platform, 'vk');
+  assert.equal(generateImageCalls, 0);
+  assert.equal(sentEntry.image, undefined);
+  assert.match(sentEntry.vkText, /Code/);
+  assert.equal((await readState(config)).entries[0].vkPostId, 77);
+});
+
 test('VK-only temporary failure retries the saved post without generating another', async (t) => {
   const config = {
     ...(await setup(t)),
