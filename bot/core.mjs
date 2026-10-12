@@ -843,20 +843,6 @@ export async function publish(
         }
         return { status: result.status };
       }
-      // Weekly photo missing: publish text only instead of skipping the slot.
-      if (
-        config.weeklyImages &&
-        config.mediaTimes?.includes(weeklySlot.match(/@(\d{2}:\d{2})\[/)?.[1])
-      ) {
-        console.log(
-          JSON.stringify({
-            projectId: config.projectId,
-            slot: weeklySlot,
-            status: 'weekly_photo_missing_text_fallback',
-          }),
-        );
-        config = { ...config, imagesEnabled: false, vkImagesEnabled: false };
-      }
     }
     if (
       config.telegramEnabled !== false &&

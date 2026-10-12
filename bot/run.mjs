@@ -34,10 +34,6 @@ import { formatCliError } from './config/errors.mjs';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { collectMetrics, importCommerce, metricsReport } from './metrics.mjs';
-import {
-  maybeStartSundayWeeklyPrepare,
-  maybeRunQueuedWeeklyPrepare,
-} from './cabinet/weekly.mjs';
 
 function parseArgs(argv) {
   const args = [...argv];
@@ -239,24 +235,6 @@ async function runMultiProjectScheduler(app, stoppingRef) {
             error,
           );
         }
-      }
-    }
-    if (cabinetEnabled()) {
-      try {
-        const queued = await maybeRunQueuedWeeklyPrepare(process.env);
-        if (queued.started) {
-          console.log(JSON.stringify({ weeklyQueuedPrepare: queued }));
-        }
-      } catch (error) {
-        console.error(`Queued weekly prepare failed: ${error.message}`);
-      }
-      try {
-        const weekly = await maybeStartSundayWeeklyPrepare(process.env);
-        if (weekly.started) {
-          console.log(JSON.stringify({ weeklyAutoPrepare: weekly }));
-        }
-      } catch (error) {
-        console.error(`Sunday weekly prepare failed: ${error.message}`);
       }
     }
     lastProgressAt = Date.now();

@@ -55,10 +55,6 @@ const state = {
   timer: null,
   dataVersion: null,
   vk: null,
-  weekly: null,
-  weeklyScope: 'current',
-  preparing: false,
-  preparationError: null,
 };
 
 function params() {
@@ -1001,126 +997,6 @@ function renderEditorialSection(bundle) {
     </section>`;
 }
 
-function weeklyScope() {
-  return state.weeklyScope === 'next' ? 'next' : 'current';
-}
-
-function renderWeeklyPreparation() {
-  const batch = state.weekly;
-  const scope = weeklyScope();
-  const scopeLabel = scope === 'next' ? 'Следующая неделя' : 'Текущая неделя';
-  const scopeToggle = `<div class="weekly-scope" role="group" aria-label="Неделя подготовки">
-      <button type="button" class="weekly-scope-btn${scope === 'current' ? ' is-active' : ''}" data-weekly-scope="current" aria-pressed="${scope === 'current'}">Текущая</button>
-      <button type="button" class="weekly-scope-btn${scope === 'next' ? ' is-active' : ''}" data-weekly-scope="next" aria-pressed="${scope === 'next'}">Следующая неделя</button>
-    </div>`;
-  if (!batch)
-    return `<section class="weekly-prepare"><p role="status">Не удалось проверить подготовку недели.</p><p class="meta">Обновите страницу. Публикации не запускаются без проверки расписания.</p>${scopeToggle}</section>`;
-  if (!batch.total)
-    return `<section class="weekly-prepare">${scopeToggle}<p class="weekly-eyebrow">Недельная подготовка</p><h2>Слотов на ${scope === 'next' ? 'следующую' : 'текущую'} неделю пока нет</h2><p class="weekly-description">Добавьте рубрики с текстом или GIF. Автозапуск следующей недели: воскресенье 20:00 МСК. Кнопка добивает дыры; уже опубликованные не трогаем.</p><button type="button" id="prepare-rubrics" aria-label="Настроить рубрики →">Настроить рубрики ${icon('right')}</button></section>`;
-  const connected = Boolean(batch.vk?.canPrepare);
-  const prepareOff = batch.prepareEnabled === false;
-  const busy = batch.running || state.preparing;
-  const workLeft = batch.missing > 0 || batch.uncertain > 0;
-  const ready = batch.ready;
-  const percent = batch.total ? Math.round((ready / batch.total) * 100) : 0;
-  const date = (value) =>
-    new Intl.DateTimeFormat('ru-RU', {
-      day: 'numeric',
-      month: 'long',
-      timeZone: 'Europe/Moscow',
-    }).format(new Date(value + 'T12:00:00Z'));
-  const projects = [...new Set(batch.posts.map((post) => post.projectId))];
-  const errors = batch.posts.filter(
-    (post) =>
-      !post.past && ['failed', 'exhausted', 'uncertain'].includes(post.status),
-  );
-  const dayTitle = (status, past) =>
-    past && status === 'pending'
-      ? 'Время прошло'
-      : ({
-          deferred: 'Отложен во VK',
-          scheduled: 'Отложен во VK',
-          sent: 'Опубликован',
-          preparing: 'Готовится',
-          exhausted: 'Остановлено после 3 попыток',
-          failed: 'Ошибка',
-          uncertain: 'Нужна проверка',
-        })[status] || 'Ожидает подготовки';
-  const workCount = batch.missing + (batch.uncertain || 0);
-  return `<section class="weekly-prepare${batch.complete ? ' is-complete' : ''}" aria-labelledby="prepare-title">
-    ${scopeToggle}
-    <div class="weekly-prepare-main">
-      <div class="weekly-prepare-copy"><p class="weekly-eyebrow">${scopeLabel} · VK</p><h2 id="prepare-title">${date(batch.week.start)} — ${date(batch.week.end)}</h2>
-      <p class="weekly-description">${prepareOff ? 'Недельная отложка выключена. Посты выходят в запланированное время слота.' : `Текст и GIF всех групп — в отложенные VK community-ключом.<br>${scope === 'next' ? 'Автозапуск: воскресенье 20:00 МСК.' : 'Приоритет — текущая неделя.'} Уже опубликованные и прошлые слоты пропускаем.`}</p></div>
-      <div class="weekly-prepare-action">
-        <span class="weekly-auth ${connected ? 'is-connected' : ''}"><span class="weekly-auth-dot" aria-hidden="true"></span> ${connected ? 'Ключи сообществ готовы' : 'Нужны ключи сообществ на сервере'}</span>
-        <button class="weekly-primary" type="button" id="prepare-week" ${busy || batch.complete || !workLeft || !connected || prepareOff ? 'disabled' : ''} aria-busy="${Boolean(busy)}" ${batch.complete ? 'aria-label="Неделя подготовлена ✓"' : ''}>${busy ? 'Подготавливаем посты…' : batch.complete ? `Неделя подготовлена ${icon('check')}` : 'Подготовить посты'}<span aria-hidden="true">${!busy && !batch.complete && workLeft && !prepareOff ? ` · ${workCount}` : ''}</span></button>
-        <p class="weekly-action-note">${prepareOff ? 'Кнопка недели выключена. Слот публикуется, когда наступает его время.' : batch.complete ? 'Все будущие слоты подтверждены или уже опубликованы' : busy ? 'Можно закрыть страницу — подготовка продолжится' : !connected ? 'Добавьте community-токены групп в env сервера' : batch.uncertain && !batch.missing ? 'Проверяем записи с неизвестным результатом' : 'Готовим только будущие слоты без подтверждённого отложенного поста'}</p>
-      </div>
-    </div>
-    <div class="weekly-progress-line"><span>${busy ? 'Подготовка идёт' : batch.complete ? 'Готово' : 'Готовность недели'}</span><strong>${ready}<span> / ${batch.total}</span></strong></div>
-    <progress class="weekly-progress" value="${ready}" max="${batch.total || 1}" aria-label="Отложенные посты ${scopeLabel.toLowerCase()}">${percent}%</progress>
-    <div class="weekly-projects">${projects
-      .map((id) => {
-        const posts = batch.posts.filter((p) => p.projectId === id);
-        const done = posts.filter((p) =>
-          ['deferred', 'scheduled', 'sent'].includes(p.status),
-        ).length;
-        return `<div class="weekly-project"><span>${escapeText(posts[0].title)}</span><strong>${done}<span> / ${posts.length}</span></strong><div class="weekly-days" aria-label="Готовность постов ${escapeAttr(posts[0].title)}">${posts.map((p) => `<span class="weekly-day is-${escapeAttr(p.status === 'exhausted' ? 'failed' : p.status === 'deferred' ? 'scheduled' : p.past && p.status === 'pending' ? 'sent' : p.status)}" title="${escapeAttr(new Date(p.date).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }))} · ${escapeAttr(dayTitle(p.status, p.past))}"></span>`).join('')}</div></div>`;
-      })
-      .join('')}</div>
-    <div class="weekly-feedback" aria-live="polite">${state.preparationError ? `<p role="alert">${escapeText(state.preparationError)}</p>` : ''}</div>
-    ${errors.length ? `<details class="weekly-errors"><summary>Требуют внимания · ${errors.length}</summary>${errors.map((p) => `<p><strong>${escapeText(p.title)}</strong> · ${escapeText(new Date(p.date).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }))}<br>${p.status === 'uncertain' ? 'Результат отправки неизвестен. Проверьте отложенные VK: повторная отправка заблокирована.' : p.status === 'exhausted' ? 'Остановлено после 3 попыток — VK больше не дергаем.' : 'Не удалось подготовить запись. До 3 попыток, потом стоп.'}</p>`).join('')}</details>` : ''}
-    ${
-      ready
-        ? `<details class="weekly-links"><summary>Записи в VK · ${ready}</summary><div>${batch.posts
-            .filter((p) => p.url)
-            .map(
-              (p) =>
-                `<a href="${escapeAttr(p.url)}" target="_blank" rel="noopener noreferrer">${escapeText(p.title)} · ${escapeText(new Date(p.date).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }))} ${icon('external')}</a>`,
-            )
-            .join('')}</div></details>`
-        : ''
-    }
-  </section>`;
-}
-
-async function prepareWeek() {
-  const batch = state.weekly;
-  const workLeft = batch?.missing > 0 || batch?.uncertain > 0;
-  if (state.preparing || batch?.running || !workLeft) return;
-  state.preparing = true;
-  state.preparationError = null;
-  const button = document.getElementById('prepare-week');
-  if (button) {
-    button.disabled = true;
-    button.textContent = 'Подготавливаем посты…';
-  }
-  try {
-    const scope = weeklyScope();
-    state.weekly = await api('/bot/api/v1/weekly-preparation', {
-      method: 'POST',
-      body: JSON.stringify({ scope }),
-    });
-  } catch (error) {
-    state.preparationError =
-      error.status === 409
-        ? error.body?.message || 'Нужны community-токены всех VK-групп на сервере.'
-        : 'Не удалось запустить подготовку. Обновите страницу.';
-  } finally {
-    state.preparing = false;
-    await loadOverview(true);
-  }
-}
-
-async function setWeeklyScope(scope) {
-  const next = scope === 'next' ? 'next' : 'current';
-  if (state.weeklyScope === next) return;
-  state.weeklyScope = next;
-  state.preparationError = null;
-  await loadOverview(true);
-}
-
 function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
   state.ozonProjects = data.projects;
   const retainedModal = document.body.classList.contains('modal-open')
@@ -1141,7 +1017,6 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
   const weekPanel =
     tab === 'week'
       ? `
-    ${renderWeeklyPreparation()}
     <section class="summary summary--week-stats" aria-label="Сводка недели: расписание и публикации">
       <div class="week-stats-kpis" role="list" aria-label="Ключевые показатели недели">
         ${renderWeekKpi('Пропущено', summary.missed, 'missed')}
@@ -1313,14 +1188,6 @@ function renderOverview(data, incidents, errorMessage = '', tabBundle = null) {
     } finally {
       button.disabled = false;
     }
-  });
-  document.getElementById('prepare-week')?.addEventListener('click', () => prepareWeek());
-  document.querySelectorAll('[data-weekly-scope]').forEach((button) => {
-    button.addEventListener('click', () => setWeeklyScope(button.dataset.weeklyScope));
-  });
-  document.getElementById('prepare-rubrics')?.addEventListener('click', () => {
-    setParam('tab', 'rubrics');
-    loadOverview(true);
   });
   if (tab === 'rubrics') rubricManager.bind(app, data, project);
   document.getElementById('rubric-filter')?.addEventListener('change', (event) => {
@@ -1867,7 +1734,7 @@ async function loadOverview(manual = false) {
       if (error.status === 401) throw error;
       return isEditorialTab() ? { editorial: { error: error.message } } : { error: error.message };
     });
-    const [overview, incidents, vk, weekly, tabBundle] = await Promise.all([
+    const [overview, incidents, vk, tabBundle] = await Promise.all([
       api(`/bot/api/v1/overview?${query}`),
       api(
         `/bot/api/v1/incidents?${project ? `project=${encodeURIComponent(project)}&` : ''}status=open`,
@@ -1876,14 +1743,6 @@ async function loadOverview(manual = false) {
         if (error.status === 401) throw error;
         return { unavailable: true };
       }),
-      activeTab() === 'week'
-        ? api(`/bot/api/v1/weekly-preparation?scope=${encodeURIComponent(weeklyScope())}`).catch(
-            (error) => {
-              if (error.status === 401) throw error;
-              return null;
-            },
-          )
-        : Promise.resolve(null),
       tabBundleRequest,
     ]);
     if (state.dataVersion && overview.data_version < state.dataVersion && !manual) {
@@ -1892,9 +1751,8 @@ async function loadOverview(manual = false) {
     state.dataVersion = overview.data_version;
     if (requestId !== overviewRequest || requestedSearch !== location.search) return;
     state.vk = vk;
-    state.weekly = weekly?.week && Array.isArray(weekly.posts) ? weekly : null;
     renderOverview(overview, incidents, '', tabBundle);
-    state.backoffMs = weekly?.running || weekly?.current?.running ? 3000 : 30000;
+    state.backoffMs = 30000;
   } catch (error) {
     if (requestId !== overviewRequest || requestedSearch !== location.search) return;
     if (error.status === 401) {
