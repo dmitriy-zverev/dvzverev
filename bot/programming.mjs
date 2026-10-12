@@ -1,5 +1,20 @@
 import { requestCompletion, GenerationFailure } from './openrouter.mjs';
 
+const VK_INDENT_UNIT = '\u00A0';
+
+/** VK wall strips leading ASCII spaces; NBSP keeps visual indent for code blocks. */
+export function formatCodeIndentForVk(text) {
+  const normalized = text.replace(/\t/g, '    ');
+  return normalized
+    .split('\n')
+    .map((line) => {
+      const leading = /^ +/.exec(line);
+      if (!leading) return line;
+      return VK_INDENT_UNIT.repeat(leading[0].length) + line.slice(leading[0].length);
+    })
+    .join('\n');
+}
+
 export function programmingText(post) {
   if (
     typeof post?.id !== 'string' ||
@@ -9,7 +24,7 @@ export function programmingText(post) {
     post.text.length > 4096
   )
     throw new Error('Invalid programming post');
-  return post.text.trim();
+  return formatCodeIndentForVk(post.text.trim());
 }
 
 export function programmingPlan(config, { slot, now = new Date(), editorialHistory = [] } = {}) {
@@ -71,7 +86,9 @@ export async function generateProgrammingPost(config, options = {}) {
   }
   if (plan.type === 'solution') {
     const source = plan.task;
-    const text = `Разбор задачи\n\n${source.generation.editorial.solutionText}\n\nУсловие: https://vk.ru/wall-${config.vkGroupId}_${source.vkPostId}`;
+    const text = formatCodeIndentForVk(
+      `Разбор задачи\n\n${source.generation.editorial.solutionText}\n\nУсловие: https://vk.ru/wall-${config.vkGroupId}_${source.vkPostId}`,
+    );
     const post = {
       id,
       kind: 'programming',
@@ -110,7 +127,7 @@ export async function generateProgrammingPost(config, options = {}) {
         messages: [
           {
             role: 'system',
-            content: `${config.openrouterPrompt}\nТехнический контракт: верни JSON с полями text (только публичный пост), title, technology, difficulty, correct_answer, explanation, possible_alternative_answers, solution_text (готовый будущий разбор), checked (true только после внутренней проверки). Метаданные и ответ не включай в text задачи. Ориентир для обычного текста — примерно 500 символов, без строгого лимита, код и необходимые условия могут увеличить объём. VK не поддерживает Markdown: код обычным текстом с отступами, без тройных обратных кавычек. Максимум 3900 символов для text и solution_text по ограничениям канала. Сейчас доступа к проверке внешних источников нет: только evergreen, без новостей, исследований, историй конкретных компаний, ссылок и неподтверждённых цифр. Для задач заранее проверь решение и сохрани самостоятельный компактный разбор в solution_text, включая условие для понимания. Не обещай точную дату разбора. Для редакционного текста поля ответа оставь пустыми.`,
+            content: `${config.openrouterPrompt}\nТехнический контракт: верни JSON с полями text (только публичный пост), title, technology, difficulty, correct_answer, explanation, possible_alternative_answers, solution_text (готовый будущий разбор), checked (true только после внутренней проверки). Метаданные и ответ не включай в text задачи. Ориентир для обычного текста — примерно 500 символов, без строгого лимита, код и необходимые условия могут увеличить объём. VK не поддерживает Markdown: код обычным текстом, без тройных обратных кавычек; отступы только пробелами (4 пробела на уровень, без табов), каждая вложенная строка с тем же числом пробелов в начале. Максимум 3900 символов для text и solution_text по ограничениям канала. Сейчас доступа к проверке внешних источников нет: только evergreen, без новостей, исследований, историй конкретных компаний, ссылок и неподтверждённых цифр. Для задач заранее проверь решение и сохрани самостоятельный компактный разбор в solution_text, включая условие для понимания. Не обещай точную дату разбора. Для редакционного текста поля ответа оставь пустыми.`,
           },
           {
             role: 'user',

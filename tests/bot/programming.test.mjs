@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { dueSlot } from '../../bot/core.mjs';
 import { generatePost, GenerationFailure } from '../../bot/openrouter.mjs';
 import { formatVkPost } from '../../bot/content.mjs';
-import { programmingPlan } from '../../bot/programming.mjs';
+import { formatCodeIndentForVk, programmingPlan } from '../../bot/programming.mjs';
 
 const config = {
   contentMode: 'programming',
@@ -48,6 +48,18 @@ test('programming schedule has eleven weekly slots and skips Tuesday evening', (
   assert.equal(dueSlot(config, new Date('2026-10-06T15:00:00Z')), null);
   assert.match(dueSlot(config, new Date('2026-10-06T09:01:00Z')), /@12:00/);
   assert.match(dueSlot(config, new Date('2026-10-07T15:00:00Z')), /@18:00/);
+});
+
+test('formatCodeIndentForVk keeps leading spaces for VK wall', () => {
+  const raw = 'def outer():\n    x = 1\n    def inner():\n        print(x)\n';
+  const formatted = formatVkPost({
+    id: 'indent',
+    kind: 'programming',
+    text: raw,
+  });
+  assert.ok(formatted.includes(`${'\u00A0'.repeat(4)}x = 1`));
+  assert.ok(formatted.includes(`${'\u00A0'.repeat(8)}print(x)`));
+  assert.equal(formatCodeIndentForVk('  a\tb'), `${'\u00A0'.repeat(2)}a    b`);
 });
 
 test('programming task keeps answers private and rejects unchecked tasks', async () => {
