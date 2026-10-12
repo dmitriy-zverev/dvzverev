@@ -31,7 +31,7 @@ import { handleEditorialRoute } from './editorial/routes.mjs';
 import { handleVkOAuthRoute, getOAuthBroker, reportOAuthError } from '../vk-oauth/routes.mjs';
 import { createRefreshTick, startRefreshWorker } from '../vk-oauth/refresh.mjs';
 import { getOwnerVkClient, getWeeklyVkClient, weeklyVkStatus } from '../vk-oauth/legacy.mjs';
-import { retryEditionNow } from './retry.mjs';
+import { retryEditionNow, retryPlanNow } from './retry.mjs';
 import {
   ensureWeeklySnapshot,
   weeklySnapshot,
@@ -485,6 +485,22 @@ async function handleRequest(request, response, env) {
         }),
         cors,
       );
+      return;
+    }
+
+    if (route.startsWith('/plans/') && route.endsWith('/retry') && request.method === 'POST') {
+      assertOrigin(request, env);
+      const planId = decodeURIComponent(route.slice('/plans/'.length, -'/retry'.length));
+      if (!/^[0-9a-f-]{36}$/.test(planId)) {
+        json(response, 400, { error: 'invalid_id' }, cors);
+        return;
+      }
+      const result = await retryPlanNow(db, planId, env);
+      if (result.error) {
+        json(response, result.status, { error: result.error }, cors);
+        return;
+      }
+      json(response, 202, result, cors);
       return;
     }
 

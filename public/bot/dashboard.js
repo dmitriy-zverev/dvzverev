@@ -805,6 +805,7 @@ function readSlotMeta(node) {
     contentPreview: node.dataset.preview,
     vkUrl: node.dataset.vk,
     tone: node.dataset.tone,
+    retryable: node.dataset.retryable === '1',
   };
 }
 
@@ -1272,6 +1273,7 @@ function renderCard(card) {
     data-vk="${escapeText(card.vkUrl || '')}"
     data-adhoc="${card.adHoc ? '1' : '0'}"
     data-release-label="${escapeText(card.releaseLabel || '')}"
+    data-retryable="${card.retryable ? '1' : ''}"
     title="${escapeText(tip)}"
     aria-label="${escapeText(tip)}">
     <span class="slot-top">
@@ -1376,7 +1378,7 @@ async function loadSlotDetails(meta) {
           : ''
       }`;
       document.getElementById('retry-publication')?.addEventListener('click', (event) => {
-        retryPublication(event.currentTarget, meta.editionId);
+        retryPublication(event.currentTarget, meta.editionId, meta.planId);
       });
     } catch (error) {
       extra.innerHTML = `<p class="error-banner" role="alert">${escapeText(publicErrorMessage(error, 'edition'))}</p>`;
@@ -1384,7 +1386,11 @@ async function loadSlotDetails(meta) {
     return;
   }
 
+  const retryControl = meta.retryable
+    ? `<div class="modal-form-actions modal-retry-actions"><button type="button" id="retry-publication" class="modal-form-submit">Повторить</button></div><p id="retry-feedback" class="meta" role="status"></p>`
+    : '';
   extra.innerHTML = `
+    ${retryControl}
     <form id="plan-form" class="modal-form" data-plan-id="${escapeText(meta.planId)}">
       <div class="modal-form-field">
         <label class="modal-form-label" for="plan-topic">Тема</label>
@@ -1400,6 +1406,9 @@ async function loadSlotDetails(meta) {
         <button type="submit" class="modal-form-submit">Сохранить</button>
       </div>
     </form>`;
+  document.getElementById('retry-publication')?.addEventListener('click', (event) => {
+    retryPublication(event.currentTarget, meta.editionId, meta.planId);
+  });
   document.getElementById('plan-form').addEventListener('submit', handlePlanFormSubmit);
 }
 
@@ -1412,14 +1421,19 @@ function retryFeedback(code) {
   return 'Не удалось запустить публикацию. Обновите страницу и повторите.';
 }
 
-async function retryPublication(button, editionId) {
-  if (!editionId) return;
+async function retryPublication(button, editionId, planId) {
+  const retryPath = editionId
+    ? `/bot/api/v1/editions/${encodeURIComponent(editionId)}/retry`
+    : planId
+      ? `/bot/api/v1/plans/${encodeURIComponent(planId)}/retry`
+      : null;
+  if (!retryPath) return;
   const feedback = document.getElementById('retry-feedback');
   button.disabled = true;
   button.setAttribute('aria-busy', 'true');
   button.textContent = 'Запускаем…';
   try {
-    await api(`/bot/api/v1/editions/${encodeURIComponent(editionId)}/retry`, {
+    await api(retryPath, {
       method: 'POST',
       body: '{}',
     });

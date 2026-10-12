@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { loadAppConfig } from '../app-config.mjs';
 import { readState, retryUnpublishedSlot } from '../core.mjs';
+import { getRedis, redisConfigured } from '../redis/client.mjs';
+import { getTask, markTaskStatus, SLOT_CATCHUP_MS } from '../redis/schedule.mjs';
+import { bumpDataVersion, withTransaction } from './db.mjs';
 import { getEdition } from './overview.mjs';
 import { loadServiceForCabinet } from './projects.mjs';
-import { canRetryPublication } from './status.mjs';
+import { canRetryPlanSlot, canRetryPublication } from './status.mjs';
 import { syncProjectState } from './sync.mjs';
 
 const HTTP_STATUS = {
@@ -13,6 +16,88 @@ const HTTP_STATUS = {
   not_found: 404,
   paused: 409,
 };
+
+export async function retryPlanNow(db, planId, env = process.env) {
+  const plan = db.prepare('SELECT * FROM schedule_slots WHERE plan_id = ?').get(planId);
+  if (!plan) return { error: 'not_found', status: 404 };
+  if (
+    !canRetryPlanSlot({
+      slotKey: plan.slot_key,
+      status: plan.plan_status,
+      editionId: plan.edition_id,
+    })
+  ) {
+    return { error: 'not_retryable', status: 409 };
+  }
+
+  const now = new Date();
+  const stamp = now.toISOString();
+
+  if (redisConfigured(env)) {
+    const redis = await getRedis(env);
+    const task = await getTask(redis, planId);
+    if (!task) return { error: 'not_found', status: 404 };
+    if (task.editionId) return { error: 'not_retryable', status: 409 };
+    if (!['missed', 'failed', 'exhausted'].includes(task.status)) {
+      return { error: 'not_retryable', status: 409 };
+    }
+    const ageMs = now.getTime() - Date.parse(task.slotUtc);
+    if (ageMs < 0 || ageMs >= SLOT_CATCHUP_MS) return { error: 'not_retryable', status: 409 };
+    const updated = await markTaskStatus(redis, planId, 'planned');
+    if (!updated) return { error: 'not_found', status: 404 };
+    withTransaction(db, () => {
+      db.prepare(
+        `UPDATE schedule_slots SET plan_status = 'planned', updated_at = ?
+         WHERE plan_id = ? AND edition_id IS NULL AND plan_status IN ('missed', 'failed', 'exhausted')`,
+      ).run(stamp, planId);
+      bumpDataVersion(db);
+    });
+    db.prepare(
+      'INSERT INTO audit_log (audit_id, actor, action, plan_id, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run(
+      randomUUID(),
+      'owner',
+      'retry_missed_plan',
+      planId,
+      JSON.stringify({ slotKey: plan.slot_key, projectId: plan.project_id }),
+      stamp,
+    );
+    return { status: 'queued', slotKey: plan.slot_key };
+  }
+
+  const app = await loadAppConfig(env);
+  const config = await app.resolveProjectConfig(plan.project_id);
+  const task = {
+    id: planId,
+    topic: plan.topic,
+    brief: plan.brief,
+    slotKey: plan.slot_key,
+  };
+  const result = await retryUnpublishedSlot(config, plan.slot_key, task);
+  if (result.status !== 'queued') {
+    return { error: result.status, status: HTTP_STATUS[result.status] || 409 };
+  }
+  const { document } = await loadServiceForCabinet(env);
+  await syncProjectState(db, document, plan.project_id, env);
+  withTransaction(db, () => {
+    db.prepare(
+      `UPDATE schedule_slots SET plan_status = 'planned', updated_at = ?
+       WHERE plan_id = ? AND edition_id IS NULL AND plan_status IN ('missed', 'failed', 'exhausted')`,
+    ).run(stamp, planId);
+    bumpDataVersion(db);
+  });
+  db.prepare(
+    'INSERT INTO audit_log (audit_id, actor, action, plan_id, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+  ).run(
+    randomUUID(),
+    'owner',
+    'retry_missed_plan',
+    planId,
+    JSON.stringify({ slotKey: plan.slot_key, projectId: plan.project_id }),
+    stamp,
+  );
+  return { status: 'queued', slotKey: plan.slot_key };
+}
 
 export async function retryEditionNow(db, editionId, env = process.env) {
   const detail = getEdition(db, editionId);

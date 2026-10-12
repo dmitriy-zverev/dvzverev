@@ -20,6 +20,7 @@ import { buildOverview, patchPlan } from '../../bot/cabinet/overview.mjs';
 import {
   aggregateEditionStatus,
   canRetryPublication,
+  canRetryPlanSlot,
   classifyReleaseSource,
   projectTitle,
   summaryBucket,
@@ -481,6 +482,30 @@ test('patch plan rejects stale version', async (t) => {
   });
   assert.equal(conflict.error, 'version_conflict');
   db.close();
+});
+
+test('plan retry is offered for missed slots without edition on the slot day', () => {
+  const now = new Date('2026-10-07T12:00:00Z');
+  const slotKey = '2026-10-07@12:00[Europe/Moscow]';
+  assert.equal(
+    canRetryPlanSlot({ slotKey, status: 'missed', editionId: null }, now),
+    true,
+  );
+  assert.equal(
+    canRetryPlanSlot({ slotKey, status: 'missed', editionId: 'abc' }, now),
+    false,
+  );
+  assert.equal(
+    canRetryPlanSlot(
+      { slotKey: '2026-10-06@12:00[Europe/Moscow]', status: 'missed', editionId: null },
+      now,
+    ),
+    false,
+  );
+  assert.equal(
+    canRetryPlanSlot({ slotKey, status: 'planned', editionId: null }, now),
+    false,
+  );
 });
 
 test('retry is offered only for an unpublished failure from today', () => {

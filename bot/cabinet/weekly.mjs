@@ -124,6 +124,55 @@ export function isSundayWeeklyPrepareWindow(now = new Date()) {
   return weekday === 7 && Number(p.hour) >= 20;
 }
 
+const DEFERRED_WEEKLY_SLOT_SQL = `
+  SELECT DISTINCT s.plan_id, s.edition_id
+  FROM schedule_slots s
+  LEFT JOIN vk_weekly_posts w ON w.plan_id = s.plan_id
+  LEFT JOIN editions e ON e.edition_id = s.edition_id
+  LEFT JOIN deliveries d ON d.edition_id = s.edition_id AND d.platform = 'vk'
+  WHERE s.plan_status != 'sent'
+    AND NOT EXISTS (
+      SELECT 1 FROM deliveries d2
+      WHERE d2.edition_id = s.edition_id AND d2.status = 'sent'
+    )
+    AND (
+      w.status IN ('deferred', 'scheduled')
+      OR e.aggregate_status = 'deferred'
+      OR d.status IN ('deferred', 'scheduled')
+    )`;
+
+/** Clears VK weekly deferral in DB after postponed posts were removed on the wall. */
+export function resetDeferredWeeklyPreparation(db, { now = new Date() } = {}) {
+  const stamp = now.toISOString();
+  const targets = db.prepare(DEFERRED_WEEKLY_SLOT_SQL).all();
+  if (!targets.length) return { reset: 0, planIds: [] };
+  const planIds = [];
+  withTransaction(db, () => {
+    for (const row of targets) {
+      db.prepare("DELETE FROM vk_weekly_posts WHERE plan_id = ? AND status != 'sent'").run(
+        row.plan_id,
+      );
+      if (row.edition_id) {
+        db.prepare(
+          `UPDATE deliveries SET status = 'cancelled', post_id = NULL, external_id = NULL,
+           sent_at = NULL, failure_reason = NULL, updated_at = ?
+           WHERE edition_id = ? AND status IN ('deferred', 'scheduled')`,
+        ).run(stamp, row.edition_id);
+        db.prepare(
+          "UPDATE editions SET aggregate_status = 'cancelled', updated_at = ? WHERE edition_id = ? AND aggregate_status = 'deferred'",
+        ).run(stamp, row.edition_id);
+      }
+      db.prepare(
+        `UPDATE schedule_slots SET plan_status = 'planned', edition_id = NULL, version = version + 1, updated_at = ?
+         WHERE plan_id = ? AND plan_status != 'sent'`,
+      ).run(stamp, row.plan_id);
+      planIds.push(row.plan_id);
+    }
+    bumpDataVersion(db);
+  });
+  return { reset: planIds.length, planIds };
+}
+
 function publishedAlready(row) {
   return row.plan_status === 'sent' || row.delivery_status === 'sent';
 }

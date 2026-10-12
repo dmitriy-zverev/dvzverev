@@ -4,6 +4,7 @@ import { getMeta, bumpDataVersion, withTransaction } from './db.mjs';
 import {
   OPERATOR_STATUS,
   canRetryPublication,
+  canRetryPlanSlot,
   summaryBucket,
   destinationTitle,
   matchesStatusFilter,
@@ -291,6 +292,13 @@ function mapCard(row, timeZone) {
   const time = row.slot_key.match(/@(\d{2}:\d{2})\[/)?.[1] || '00:00';
   const status = row.aggregate_status ?? row.plan_status;
   const operator = OPERATOR_STATUS[status] || OPERATOR_STATUS.planned;
+  const retryable =
+    !row.edition_id &&
+    canRetryPlanSlot({
+      slotKey: row.slot_key,
+      status,
+      editionId: row.edition_id,
+    });
   const topic = row.topic || row.edition_topic;
   const expired = isPayloadExpired(row);
   let contentPreview = null;
@@ -323,6 +331,7 @@ function mapCard(row, timeZone) {
     contentPreview,
     vkUrl,
     version: row.version,
+    retryable,
   };
 }
 

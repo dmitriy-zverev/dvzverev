@@ -16,6 +16,7 @@ import {
   queueWeeklyPrepare,
   weeklyPrepareEnabled,
   currentWeek,
+  resetDeferredWeeklyPreparation,
 } from '../../bot/cabinet/weekly.mjs';
 import { notifyWeeklyPrepareDigest, summarizeWeek } from '../../bot/cabinet/weekly-notify.mjs';
 import {
@@ -529,6 +530,45 @@ test('uncertain verify soft-fail does not abort later failed retries', async (t)
   assert.equal(
     f.db.prepare("SELECT status FROM vk_weekly_posts WHERE plan_id='p1'").get().status,
     'deferred',
+  );
+  f.db.close();
+});
+
+test('resetDeferredWeeklyPreparation returns slots to planned', async (t) => {
+  const f = await fixture(t);
+  const stamp = new Date().toISOString();
+  const editionId = 'edition-deferred-test';
+  f.db
+    .prepare(
+      `INSERT INTO editions(edition_id,project_id,slot_key,plan_id,format,aggregate_status,created_at,updated_at)
+       VALUES (?, 'things', ?, 'p0', 'lifestyle', 'deferred', ?, ?)`,
+    )
+    .run(editionId, f.week.start + '@18:00[Europe/Moscow]', stamp, stamp);
+  f.db
+    .prepare(
+      `INSERT INTO deliveries(delivery_id,edition_id,project_id,destination_id,platform,status,created_at,updated_at)
+       VALUES ('d0', ?, 'things', 'things-vk', 'vk', 'deferred', ?, ?)`,
+    )
+    .run(editionId, stamp, stamp);
+  f.db
+    .prepare(
+      `INSERT INTO vk_weekly_posts(plan_id,week_start,status,post_id,group_id,updated_at)
+       VALUES ('p0', ?, 'deferred', 99, '123', ?)`,
+    )
+    .run(f.week.start, stamp);
+  f.db
+    .prepare("UPDATE schedule_slots SET edition_id=?, plan_status='cancelled' WHERE plan_id='p0'")
+    .run(editionId);
+  const result = resetDeferredWeeklyPreparation(f.db);
+  assert.equal(result.reset, 1);
+  assert.equal(f.db.prepare("SELECT status FROM vk_weekly_posts WHERE plan_id='p0'").get(), undefined);
+  const slot = f.db.prepare("SELECT plan_status, edition_id FROM schedule_slots WHERE plan_id='p0'").get();
+  assert.equal(slot.plan_status, 'planned');
+  assert.equal(slot.edition_id, null);
+  assert.equal(
+    f.db.prepare('SELECT aggregate_status FROM editions WHERE edition_id=?').get(editionId)
+      .aggregate_status,
+    'cancelled',
   );
   f.db.close();
 });

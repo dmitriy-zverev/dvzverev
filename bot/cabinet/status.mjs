@@ -132,6 +132,15 @@ export function matchesStatusFilter(cardStatus, filter) {
 
 const SLOT_DATE = /^(\d{4}-\d{2}-\d{2})@\d{2}:\d{2}\[([^\]]+)\]$/;
 
+export function canRetryPlanSlot({ slotKey, status, editionId }, now = new Date()) {
+  if (editionId) return false;
+  if (!['missed', 'failed', 'exhausted'].includes(status)) return false;
+  const slot = SLOT_DATE.exec(slotKey || '');
+  if (!slot) return false;
+  const today = zonedParts(now, slot[2]);
+  return slot[1] === `${today.year}-${today.month}-${today.day}`;
+}
+
 export function canRetryPublication(detail, now = new Date()) {
   const slot = SLOT_DATE.exec(detail?.edition?.slotKey || '');
   if (!slot) return false;
