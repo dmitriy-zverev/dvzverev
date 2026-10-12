@@ -2,7 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { loadAppConfig } from '../app-config.mjs';
 import { readState, retryUnpublishedSlot } from '../core.mjs';
 import { getRedis, redisConfigured } from '../redis/client.mjs';
-import { getTask, markTaskStatus, SLOT_CATCHUP_MS } from '../redis/schedule.mjs';
+import {
+  getTask,
+  markTaskStatus,
+  requeuePlanFromScheduleRow,
+  SLOT_CATCHUP_MS,
+} from '../redis/schedule.mjs';
+import { rubricService } from './rubrics.mjs';
 import { bumpDataVersion, withTransaction } from './db.mjs';
 import { getEdition } from './overview.mjs';
 import { loadServiceForCabinet } from './projects.mjs';
@@ -35,16 +41,25 @@ export async function retryPlanNow(db, planId, env = process.env) {
 
   if (redisConfigured(env)) {
     const redis = await getRedis(env);
-    const task = await getTask(redis, planId);
-    if (!task) return { error: 'not_found', status: 404 };
-    if (task.editionId) return { error: 'not_retryable', status: 409 };
-    if (!['missed', 'failed', 'exhausted'].includes(task.status)) {
+    let task = await getTask(redis, planId);
+    if (!task) {
+      const { document } = await loadServiceForCabinet(env);
+      const service = rubricService(db, document);
+      const restored = await requeuePlanFromScheduleRow(redis, service, plan, now);
+      if (restored.error) {
+        return { error: restored.error, status: HTTP_STATUS[restored.error] || 409 };
+      }
+      task = restored.task;
+    } else if (task.editionId) {
       return { error: 'not_retryable', status: 409 };
+    } else if (!['missed', 'failed', 'exhausted'].includes(task.status)) {
+      return { error: 'not_retryable', status: 409 };
+    } else {
+      const ageMs = now.getTime() - Date.parse(task.slotUtc);
+      if (ageMs < 0 || ageMs >= SLOT_CATCHUP_MS) return { error: 'not_retryable', status: 409 };
+      const updated = await markTaskStatus(redis, planId, 'planned');
+      if (!updated) return { error: 'not_found', status: 404 };
     }
-    const ageMs = now.getTime() - Date.parse(task.slotUtc);
-    if (ageMs < 0 || ageMs >= SLOT_CATCHUP_MS) return { error: 'not_retryable', status: 409 };
-    const updated = await markTaskStatus(redis, planId, 'planned');
-    if (!updated) return { error: 'not_found', status: 404 };
     withTransaction(db, () => {
       db.prepare(
         `UPDATE schedule_slots SET plan_status = 'planned', updated_at = ?

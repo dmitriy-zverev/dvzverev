@@ -1416,7 +1416,9 @@ function retryFeedback(code) {
   if (code === 'generation_pending') return 'Публикация уже запускается.';
   if (code === 'locked') return 'Публикация занята. Повторите через несколько секунд.';
   if (code === 'paused') return 'Канал на паузе. Снимите паузу и повторите.';
-  if (code === 'not_retryable' || code === 'not_recoverable' || code === 'not_found')
+  if (code === 'not_found') return 'Слот не найден в очереди. Обновите календарь и попробуйте снова.';
+  if (code === 'slot_conflict') return 'Слот занят другой задачей. Обновите календарь.';
+  if (code === 'not_retryable' || code === 'not_recoverable')
     return 'Повтор недоступен: пост уже отправлен или исход неизвестен.';
   return 'Не удалось запустить публикацию. Обновите страницу и повторите.';
 }

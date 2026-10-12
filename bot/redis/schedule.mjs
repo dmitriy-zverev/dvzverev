@@ -165,6 +165,44 @@ export async function getTask(redis, taskId) {
   return decodeTask(await redis.get(taskKey(taskId)));
 }
 
+const SLOT_KEY_PARTS = /^(\d{4}-\d{2}-\d{2})@(\d{2}:\d{2})\[([^\]]+)\]$/;
+
+/** Recreate a Redis task from SQLite when the key was lost but the plan row remains. */
+export async function requeuePlanFromScheduleRow(redis, service, row, now = new Date()) {
+  const destination = service.destinations?.[row.destination_id];
+  if (!destination) return { error: 'invalid_configuration' };
+  const parts = SLOT_KEY_PARTS.exec(row.slot_key || '');
+  if (!parts) return { error: 'invalid_slot' };
+  const [, dateYmd, time, timezone] = parts;
+  const project = service.projects?.[row.project_id];
+  const missedSlotsPolicy = project?.schedule?.missedSlots || 'skip';
+  const task = buildTaskRecord({
+    projectId: row.project_id,
+    destinationId: row.destination_id,
+    dateYmd,
+    time,
+    timezone,
+    destination,
+    weekStart: isoWeekStart(dateYmd, timezone),
+    now,
+    existing: {
+      id: row.plan_id,
+      topic: row.topic,
+      brief: row.brief,
+      version: row.version,
+      status: row.plan_status,
+      editionId: row.edition_id,
+      missedSlotsPolicy,
+    },
+  });
+  if (row.publication_kind) task.publicationKind = row.publication_kind;
+  if (row.expected_media) task.expectedMedia = row.expected_media;
+  task.status = 'planned';
+  const saved = await saveTask(redis, task, { reserveOccupancy: true });
+  if (!saved) return { error: 'slot_conflict' };
+  return { task };
+}
+
 export async function clearWeek(redis, weekStartYmd) {
   if (!weekStartYmd) return;
   const ids = await redis.sMembers(weekIndexKey(weekStartYmd));

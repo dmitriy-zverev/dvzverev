@@ -9,6 +9,7 @@ import {
   markTaskStatus,
   materializeWeek,
   reconcileDueQueue,
+  requeuePlanFromScheduleRow,
   updateTaskEditorial,
 } from '../../bot/redis/schedule.mjs';
 import { encodeTask, decodeTask } from '../../bot/redis/codec.mjs';
