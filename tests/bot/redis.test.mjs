@@ -10,10 +10,12 @@ import {
   materializeWeek,
   reconcileDueQueue,
   requeuePlanFromScheduleRow,
+  syncMissingCabinetPlans,
+  discardStaleCabinetRedisTask,
   updateTaskEditorial,
 } from '../../bot/redis/schedule.mjs';
 import { encodeTask, decodeTask } from '../../bot/redis/codec.mjs';
-import { taskKey, DUE_ZSET } from '../../bot/redis/keys.mjs';
+import { taskKey, DUE_ZSET, occupancyKey, slotUtcMs } from '../../bot/redis/keys.mjs';
 import service from '../../bot/service.json' with { type: 'json' };
 import { taskStatusFromState, reconcileProjectTasks } from '../../bot/redis/runner.mjs';
 
@@ -393,4 +395,185 @@ test('requeuePlanFromScheduleRow restores a missing redis task as planned', asyn
   assert.ok(restored.task);
   assert.equal(restored.task.status, 'planned');
   assert.equal(decodeTask(await redis.get(taskKey(planId))).status, 'planned');
+});
+
+test('syncMissingCabinetPlans restores sqlite plans missing from redis', async () => {
+  const redis = createMockRedis();
+  const planId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const seedRows = [
+    {
+      plan_id: planId,
+      project_id: 'dark-academia',
+      destination_id: 'connaissance-vk',
+      slot_utc: '2026-10-14T07:00:00.000Z',
+      slot_key: '2026-10-14@10:00[Europe/Moscow]',
+      plan_status: 'missed',
+      version: 1,
+      edition_id: null,
+      publication_kind: 'text',
+    },
+  ];
+  const { restored } = await syncMissingCabinetPlans(
+    redis,
+    service,
+    seedRows,
+    new Date('2026-10-14T07:10:00Z'),
+  );
+  assert.equal(restored, 1);
+  assert.equal(decodeTask(await redis.get(taskKey(planId))).status, 'planned');
+});
+
+test('syncMissingCabinetPlans skips slot with in-flight occupancy holder', async () => {
+  const redis = createMockRedis();
+  const uncertainId = '11111111-1111-4111-8111-111111111111';
+  const newPlanId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const slotUtc = '2026-10-14T07:00:00.000Z';
+  await redis.set(
+    taskKey(uncertainId),
+    encodeTask({
+      id: uncertainId,
+      projectId: 'dark-academia',
+      destinationId: 'connaissance-vk',
+      platform: 'vk',
+      slotUtc,
+      slotKey: '2026-10-14@10:00[Europe/Moscow]',
+      status: 'uncertain',
+      publicationKind: 'text',
+      weekStart: '2026-10-12',
+      version: 1,
+    }),
+  );
+  await redis.set(
+    occupancyKey('dark-academia', 'connaissance-vk', slotUtcMs(slotUtc)),
+    uncertainId,
+  );
+  const seedRows = [
+    {
+      plan_id: newPlanId,
+      project_id: 'dark-academia',
+      destination_id: 'connaissance-vk',
+      slot_utc: slotUtc,
+      slot_key: '2026-10-14@10:00[Europe/Moscow]',
+      plan_status: 'planned',
+      version: 1,
+      edition_id: null,
+      publication_kind: 'text',
+    },
+  ];
+  const { restored } = await syncMissingCabinetPlans(
+    redis,
+    service,
+    seedRows,
+    new Date('2026-10-14T07:10:00Z'),
+  );
+  assert.equal(restored, 0);
+  assert.equal(await redis.get(taskKey(newPlanId)), null);
+});
+
+test('syncMissingCabinetPlans skips missed slots past catchup window', async () => {
+  const redis = createMockRedis();
+  const planId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const seedRows = [
+    {
+      plan_id: planId,
+      project_id: 'dark-academia',
+      destination_id: 'connaissance-vk',
+      slot_utc: '2026-10-14T07:00:00.000Z',
+      slot_key: '2026-10-14@10:00[Europe/Moscow]',
+      plan_status: 'missed',
+      version: 1,
+      edition_id: null,
+      publication_kind: 'text',
+    },
+  ];
+  const { restored } = await syncMissingCabinetPlans(
+    redis,
+    service,
+    seedRows,
+    new Date('2026-10-14T20:00:00Z'),
+  );
+  assert.equal(restored, 0);
+  assert.equal(await redis.get(taskKey(planId)), null);
+});
+
+test('discardStaleCabinetRedisTask drops planned task when cabinet plan_id rotated', async () => {
+  const redis = createMockRedis();
+  const staleId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  const slotUtc = '2026-10-14T07:00:00.000Z';
+  await redis.set(
+    taskKey(staleId),
+    encodeTask({
+      id: staleId,
+      projectId: 'dark-academia',
+      destinationId: 'connaissance-vk',
+      platform: 'vk',
+      slotUtc,
+      slotKey: '2026-10-14@10:00[Europe/Moscow]',
+      status: 'planned',
+      publicationKind: 'text',
+      weekStart: '2026-10-12',
+      version: 1,
+    }),
+  );
+  const task = decodeTask(await redis.get(taskKey(staleId)));
+  const dropped = await discardStaleCabinetRedisTask(redis, task, {
+    plan_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    plan_status: 'missed',
+  });
+  assert.equal(dropped, true);
+  assert.equal(await redis.get(taskKey(staleId)), null);
+});
+
+test('discardStaleCabinetRedisTask keeps uncertain task on plan_id mismatch', async () => {
+  const redis = createMockRedis();
+  const uncertainId = '11111111-1111-4111-8111-111111111111';
+  await redis.set(
+    taskKey(uncertainId),
+    encodeTask({
+      id: uncertainId,
+      projectId: 'dark-academia',
+      destinationId: 'connaissance-vk',
+      platform: 'vk',
+      slotUtc: '2026-10-14T07:00:00.000Z',
+      slotKey: '2026-10-14@10:00[Europe/Moscow]',
+      status: 'uncertain',
+      publicationKind: 'text',
+      weekStart: '2026-10-12',
+      version: 1,
+    }),
+  );
+  const task = decodeTask(await redis.get(taskKey(uncertainId)));
+  const dropped = await discardStaleCabinetRedisTask(redis, task, {
+    plan_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    plan_status: 'planned',
+  });
+  assert.equal(dropped, false);
+  assert.ok(await redis.get(taskKey(uncertainId)));
+});
+
+test('discardStaleCabinetRedisTask keeps sent task on plan_id mismatch', async () => {
+  const redis = createMockRedis();
+  const sentId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+  await redis.set(
+    taskKey(sentId),
+    encodeTask({
+      id: sentId,
+      projectId: 'dark-academia',
+      destinationId: 'connaissance-vk',
+      platform: 'vk',
+      slotUtc: '2026-10-14T07:00:00.000Z',
+      slotKey: '2026-10-14@10:00[Europe/Moscow]',
+      status: 'sent',
+      publicationKind: 'text',
+      weekStart: '2026-10-12',
+      version: 1,
+    }),
+  );
+  const task = decodeTask(await redis.get(taskKey(sentId)));
+  const dropped = await discardStaleCabinetRedisTask(redis, task, {
+    plan_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    plan_status: 'planned',
+  });
+  assert.equal(dropped, false);
+  assert.ok(await redis.get(taskKey(sentId)));
 });

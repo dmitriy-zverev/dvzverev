@@ -4,11 +4,15 @@ import {
   ensureCurrentWeek,
   reconcileDueQueue,
   weekUtcBounds,
+  materializeWeek,
+  seedMapFromRows,
+  getTask,
+  cabinetSeedForTask,
+  discardStaleCabinetRedisTask,
+  syncMissingCabinetPlans,
 } from './schedule.mjs';
 import { listRubrics, rubricService } from '../cabinet/rubrics.mjs';
 import { createHash } from 'node:crypto';
-import { materializeWeek, seedMapFromRows } from './schedule.mjs';
-import { getTask, markTaskStatus } from './schedule.mjs';
 import { weekIndexKey } from './keys.mjs';
 import { getMeta } from '../cabinet/db.mjs';
 
@@ -36,8 +40,8 @@ export async function bootstrapRedisSchedule(
     for (const id of await redis.sMembers(weekIndexKey(weekStart))) {
       const task = await getTask(redis, id);
       if (!task || task.adHoc || !getMeta(db, `rubrics_managed:${task.projectId}`)) continue;
-      const slot = seedRows.find((s) => s.plan_id === id);
-      if (!slot || slot.plan_status === 'cancelled') await markTaskStatus(redis, id, 'cancelled');
+      const slot = cabinetSeedForTask(seedRows, task);
+      await discardStaleCabinetRedisTask(redis, task, slot);
     }
   }
   const result = await ensureCurrentWeek(redis, service, { now, seedRows });
@@ -59,6 +63,9 @@ export async function bootstrapRedisSchedule(
         );
         await redis.set(key, signature);
       }
+    }
+    if (seedRows.length) {
+      await syncMissingCabinetPlans(redis, service, seedRows, now);
     }
   }
   await reconcileDueQueue(redis, now);

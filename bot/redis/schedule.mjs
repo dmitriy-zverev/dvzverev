@@ -32,6 +32,17 @@ const DUE_SCAN_BATCH = 48;
 
 export { SLOT_WINDOW_MS, SLOT_CATCHUP_MS };
 
+/** Do not discard or preempt tasks that may still complete delivery for this slot. */
+const IN_FLIGHT_REDIS_TASK_STATUSES = new Set(['sent', 'generating', 'uncertain']);
+
+function rubricAdoptLegacyFromConfig(configJson) {
+  try {
+    return Boolean(JSON.parse(configJson || '{}').adoptLegacy);
+  } catch {
+    return false;
+  }
+}
+
 function taskAgeMs(task, nowMs) {
   return nowMs - slotUtcMs(task.slotUtc);
 }
@@ -197,7 +208,22 @@ export async function requeuePlanFromScheduleRow(redis, service, row, now = new 
   });
   if (row.publication_kind) task.publicationKind = row.publication_kind;
   if (row.expected_media) task.expectedMedia = row.expected_media;
+  if (row.rubric_revision) task.rubricRevision = row.rubric_revision;
+  if (row.rubric_id) {
+    task.rubricId = row.rubric_id;
+    task.rubricLegacyAllowed = rubricAdoptLegacyFromConfig(row.rubric_config);
+  }
   task.status = 'planned';
+  const ms = slotUtcMs(task.slotUtc);
+  const occ = occupancyKey(row.project_id, row.destination_id, ms);
+  const holder = await redis.get(occ);
+  if (holder) {
+    const holderTask = await getTask(redis, holder);
+    if (!holderTask) await redis.del(occ);
+    else if (holder !== row.plan_id && !IN_FLIGHT_REDIS_TASK_STATUSES.has(holderTask.status)) {
+      await discardTask(redis, holder);
+    }
+  }
   const saved = await saveTask(redis, task, { reserveOccupancy: true });
   if (!saved) return { error: 'slot_conflict' };
   return { task };
@@ -264,9 +290,7 @@ export async function materializeWeek(
           if (existingSeed?.rubric_revision) task.rubricRevision = existingSeed.rubric_revision;
           if (existingSeed?.rubric_id) {
             task.rubricId = existingSeed.rubric_id;
-            task.rubricLegacyAllowed = Boolean(
-              JSON.parse(existingSeed.rubric_config || '{}').adoptLegacy,
-            );
+            task.rubricLegacyAllowed = rubricAdoptLegacyFromConfig(existingSeed.rubric_config);
           }
           if (existingSeed?.expected_media) task.expectedMedia = existingSeed.expected_media;
           await saveTask(redis, task);
@@ -426,6 +450,49 @@ export async function createAdHocTask(
 export async function discardTask(redis, taskId) {
   const task = await getTask(redis, taskId);
   if (task) await removeTask(redis, task);
+}
+
+export function cabinetSeedForTask(seedRows, task) {
+  return seedRows.find(
+    (row) =>
+      row.project_id === task.projectId &&
+      row.destination_id === task.destinationId &&
+      row.slot_utc === task.slotUtc,
+  );
+}
+
+/** Drop redis tasks that no longer match the cabinet row for the same slot. */
+export async function discardStaleCabinetRedisTask(redis, task, slot) {
+  if (IN_FLIGHT_REDIS_TASK_STATUSES.has(task.status)) return false;
+  const stalePlanId = Boolean(slot && slot.plan_id !== task.id);
+  const drop = !slot || slot.plan_status === 'cancelled' || stalePlanId;
+  if (!drop) return false;
+  await discardTask(redis, task.id);
+  return true;
+}
+
+/** SQLite plan rows without a Redis task (e.g. after plan_id rotation) are restored here. */
+export async function syncMissingCabinetPlans(redis, service, seedRows, now = new Date()) {
+  let restored = 0;
+  const nowMs = now.getTime();
+  for (const row of seedRows) {
+    if (row.edition_id) continue;
+    if (!['planned', 'missed'].includes(row.plan_status)) continue;
+    if (row.plan_status === 'missed') {
+      const ageMs = nowMs - Date.parse(row.slot_utc);
+      if (!Number.isFinite(ageMs) || ageMs >= SLOT_CATCHUP_MS) continue;
+    }
+    if (await getTask(redis, row.plan_id)) continue;
+    const occ = occupancyKey(row.project_id, row.destination_id, slotUtcMs(row.slot_utc));
+    const holder = await redis.get(occ);
+    if (holder && holder !== row.plan_id) {
+      const holderTask = await getTask(redis, holder);
+      if (holderTask && IN_FLIGHT_REDIS_TASK_STATUSES.has(holderTask.status)) continue;
+    }
+    const result = await requeuePlanFromScheduleRow(redis, service, row, now);
+    if (result.task) restored += 1;
+  }
+  return { restored };
 }
 
 export async function reconcileDueQueue(redis, now = new Date()) {
