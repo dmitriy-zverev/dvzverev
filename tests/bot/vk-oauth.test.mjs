@@ -31,8 +31,8 @@ test('background refresh skips disconnected accounts and backs off failed refres
         if (fail) throw new Error('vk_oauth_exchange_rejected');
       },
     },
-    async () => {
-      reports++;
+    async (_error, notify) => {
+      if (notify) reports++;
     },
     () => time,
   );
@@ -54,7 +54,7 @@ test('background refresh skips disconnected accounts and backs off failed refres
   assert.equal(calls, 3);
   await tick();
   assert.equal(calls, 4);
-  assert.equal(reports, 2);
+  assert.equal(reports, 1);
 });
 
 async function fixture(t, fetcher) {

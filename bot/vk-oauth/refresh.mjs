@@ -12,7 +12,7 @@ export function createRefreshTick(client, report, now = Date.now) {
     } catch (error) {
       failures += 1;
       retryAt = now() + Math.min(60, 2 ** Math.min(failures - 1, 6)) * 60000;
-      await report(error);
+      await report(error, failures === 1);
     }
   };
 }

@@ -358,7 +358,7 @@ export async function handleVkOAuthRoute({
   }
 }
 
-export async function reportOAuthError(env, error) {
+export async function reportOAuthError(env, error, { notify = true } = {}) {
   const notifyConfig = {
     logDir: env.BOT_LOG_DIR || 'bot/data/logs',
     statePath: resolve(env.BOT_LOG_DIR || 'bot/data/logs', 'vk-oauth-notify.json'),
@@ -377,7 +377,7 @@ export async function reportOAuthError(env, error) {
     },
     new Error(/^vk_[a-z0-9_]+$/.test(error.message) ? error.message : 'vk_oauth_internal_failure'),
   );
-  if (notifyConfig.token && notifyConfig.alertChatId) {
+  if (notify && notifyConfig.token && notifyConfig.alertChatId) {
     try {
       await sendNotification(
         notifyConfig,

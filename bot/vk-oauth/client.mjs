@@ -46,18 +46,28 @@ export class VkOAuthClient {
   }
   async tokenRequest(parameters) {
     const state = randomBytes(32).toString('base64url');
-    const response = await this.fetcher('https://id.vk.ru/oauth2/auth', {
-      method: 'POST',
-      redirect: 'error',
-      signal: AbortSignal.timeout(30000),
-      body: new URLSearchParams({
-        ...parameters,
-        client_id: this.config.clientId,
-        redirect_uri: this.config.redirectUri,
-        state,
-      }),
-    });
-    const body = await response.json();
+    let response;
+    try {
+      response = await this.fetcher('https://id.vk.ru/oauth2/auth', {
+        method: 'POST',
+        redirect: 'error',
+        signal: AbortSignal.timeout(30000),
+        body: new URLSearchParams({
+          ...parameters,
+          client_id: this.config.clientId,
+          redirect_uri: this.config.redirectUri,
+          state,
+        }),
+      });
+    } catch {
+      throw new Error('vk_oauth_token_transport_failure');
+    }
+    let body;
+    try {
+      body = await response.json();
+    } catch {
+      throw new Error('vk_oauth_token_invalid_response');
+    }
     if (!response.ok || body.error) {
       const reason = ['invalid_scope', 'invalid_client', 'invalid_grant'].includes(body.error)
         ? '_' + body.error

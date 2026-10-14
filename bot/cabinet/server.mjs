@@ -654,14 +654,18 @@ export function startCabinetServer(env = process.env) {
   });
   server.listen(port, env.BOT_CABINET_HOST || 'localhost');
   if (env.VK_OAUTH_ENABLED === 'true') {
-    const tick = createRefreshTick(getOAuthBroker(env), (error) => reportOAuthError(env, error));
+    const tick = createRefreshTick(getOAuthBroker(env), (error, notify) =>
+      reportOAuthError(env, error, { notify }),
+    );
     const stop = startRefreshWorker(tick);
     server.once('close', stop);
   }
   if (env.VK_WEEKLY_OAUTH_ENABLED === 'true') {
     const owner = getOwnerVkClient(env);
     if (owner) {
-      const tick = createRefreshTick(owner, (error) => reportOAuthError(env, error));
+      const tick = createRefreshTick(owner, (error, notify) =>
+        reportOAuthError(env, error, { notify }),
+      );
       const stop = startRefreshWorker(tick);
       server.once('close', stop);
     }
