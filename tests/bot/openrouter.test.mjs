@@ -224,12 +224,14 @@ test('invalid generation exhausts after three calls without publishing; next slo
     throw new GenerationFailure('invalid_generated_post');
   };
   let result = await publish(config, {
+    manual: true,
     now: new Date('2026-10-05T07:00:00Z'),
     generate: fail,
     notify: async () => {},
   });
   for (let i = 0; i < 2; i++)
     result = await publish(config, {
+      manual: true,
       now: new Date(result.retryAt),
       generate: fail,
       notify: async () => {},
@@ -237,6 +239,7 @@ test('invalid generation exhausts after three calls without publishing; next slo
   assert.equal(result.status, 'exhausted');
   assert.equal(calls, 3);
   const next = await publish(config, {
+    manual: true,
     now: new Date('2026-10-06T07:00:00Z'),
     generate,
     send: async () => 503,

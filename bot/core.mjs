@@ -11,6 +11,9 @@ import {
   DEFAULT_MODEL,
   DEFAULT_PROMPT,
   sharedProviderFailure,
+  attemptsPerModel,
+  generationAttemptLimit,
+  modelIndexForAttempt,
 } from './openrouter.mjs';
 export { formatPost, formatVkPost } from './content.mjs';
 import { mkdir, readFile, rm } from 'node:fs/promises';
@@ -608,12 +611,13 @@ async function generateForSlot(config, state, slot, now, generate, notify, sched
   const models = config.openrouterModels?.length
     ? config.openrouterModels
     : [config.openrouterModel || DEFAULT_MODEL];
-  const limit = models.length > 1 ? models.length : config.maxAttempts;
+  const perModel = attemptsPerModel(config);
+  const limit = generationAttemptLimit(models, perModel);
   const limitReached = job.attempts >= limit;
   job.status = 'generating';
   if (!limitReached) job.attempts++;
   await saveState(config, state);
-  const model = models[Math.min(job.attempts - 1, models.length - 1)];
+  const model = models[modelIndexForAttempt(job.attempts, models.length, perModel)];
   job.model = model;
   const started = Date.now();
   let post;

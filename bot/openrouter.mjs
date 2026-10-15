@@ -3,8 +3,22 @@ import { formatVkPost } from './content.mjs';
 import { recordGenerationCost } from './costs.mjs';
 
 export const DEFAULT_MODEL = 'google/gemini-3.1-flash-lite';
+export const DEFAULT_ATTEMPTS_PER_MODEL = 3;
 export const DEFAULT_PROMPT =
   'Напиши мне пост про вайбкодинг на 500 символов в нужном нам формате.';
+
+export function attemptsPerModel(config) {
+  const n = config?.maxAttempts;
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_ATTEMPTS_PER_MODEL;
+}
+
+export function generationAttemptLimit(models, perModel = DEFAULT_ATTEMPTS_PER_MODEL) {
+  return models.length * perModel;
+}
+
+export function modelIndexForAttempt(attemptNumber, modelCount, perModel = DEFAULT_ATTEMPTS_PER_MODEL) {
+  return Math.min(Math.floor((attemptNumber - 1) / perModel), modelCount - 1);
+}
 
 export class GenerationFailure extends Error {
   constructor(reason, { code = null, kind = 'temporary', retryAfter = 0 } = {}) {
@@ -86,77 +100,94 @@ async function requestOneCompletion(config, options = {}, fetchImpl = fetch) {
 export function sharedProviderFailure(error) {
   return error.reason === 'missing_api_key' || [401, 402, 403].includes(error.code);
 }
-export async function requestCompletion(config, options = {}, fetchImpl = fetch) {
-  const models = config.openrouterModels?.length
-    ? config.openrouterModels
-    : [config.openrouterModel || DEFAULT_MODEL];
+async function completionWithModelRetries(
+  config,
+  models,
+  run,
+  { options = {}, fetchImpl = fetch, postId = null, onFailure = null } = {},
+) {
+  const perModel = models.length === 1 ? 1 : attemptsPerModel(config);
   let failure;
-  for (const [index, model] of models.entries()) {
-    try {
-      return await requestOneCompletion(
-        { ...config, openrouterModel: model },
-        { ...options, body: { ...options.body, model } },
-        fetchImpl,
-      );
-    } catch (error) {
-      if (!(error instanceof GenerationFailure) || sharedProviderFailure(error)) throw error;
-      failure = error;
-      if (index < models.length - 1) {
-        error.logId ||= await logError(
-          config,
-          {
-            platform: 'openrouter',
-            reason: error.reason,
-            errorCode: error.code,
-            model,
-            status: 'fallback',
-            postId: options.costPostId || config.generationPostId || options.id,
-          },
-          error,
-        );
-        if (config.onGenerationFailure) await config.onGenerationFailure(error, model);
+  for (const [modelIndex, model] of models.entries()) {
+    for (let tryIndex = 0; tryIndex < perModel; tryIndex += 1) {
+      try {
+        return await run(model, fetchImpl);
+      } catch (error) {
+        if (!(error instanceof GenerationFailure) || sharedProviderFailure(error)) throw error;
+        failure = error;
+        if (onFailure) onFailure(error);
+        const lastTryOnModel = tryIndex === perModel - 1;
+        const lastModel = modelIndex === models.length - 1;
+        if (!lastTryOnModel || !lastModel) {
+          if (lastTryOnModel) {
+            error.logId ||= await logError(
+              config,
+              {
+                platform: 'openrouter',
+                reason: error.reason,
+                errorCode: error.code,
+                model,
+                status: 'fallback',
+                postId: postId || options.costPostId || config.generationPostId || options.id,
+              },
+              error,
+            );
+            if (config.onGenerationFailure) await config.onGenerationFailure(error, model);
+          }
+        }
       }
     }
   }
   throw failure;
 }
+
+export async function requestCompletion(config, options = {}, fetchImpl = fetch) {
+  const models = config.openrouterModels?.length
+    ? config.openrouterModels
+    : [config.openrouterModel || DEFAULT_MODEL];
+  return completionWithModelRetries(
+    config,
+    models,
+    (model, fetcher) =>
+      requestOneCompletion(
+        { ...config, openrouterModel: model },
+        { ...options, body: { ...options.body, model } },
+        fetcher,
+      ),
+    { options, fetchImpl },
+  );
+}
 export async function generatePost(config, options = {}) {
   const models = config.openrouterModels?.length
     ? config.openrouterModels
     : [config.openrouterModel || DEFAULT_MODEL];
-  let failure;
-  for (const [index, model] of models.entries()) {
-    try {
-      return await generateOnePost(
+  let latestFailure;
+  return completionWithModelRetries(
+    config,
+    models,
+    (model, fetchImpl) =>
+      generateOnePost(
         {
           ...config,
           openrouterModel: model,
           openrouterModels: [model],
           generationPostId: options.id,
         },
-        { ...options, feedback: failure?.reason || options.feedback },
-      );
-    } catch (error) {
-      if (!(error instanceof GenerationFailure) || sharedProviderFailure(error)) throw error;
-      failure = error;
-      if (index < models.length - 1) {
-        error.logId ||= await logError(
-          config,
-          {
-            platform: 'openrouter',
-            reason: error.reason,
-            errorCode: error.code,
-            model,
-            status: 'fallback',
-            postId: options.costPostId || config.generationPostId || options.id,
-          },
-          error,
-        );
-        if (config.onGenerationFailure) await config.onGenerationFailure(error, model);
-      }
-    }
-  }
-  throw failure;
+        {
+          ...options,
+          feedback: latestFailure?.reason || options.feedback,
+          fetchImpl,
+        },
+      ),
+    {
+      options,
+      fetchImpl: options.fetchImpl || fetch,
+      postId: options.id,
+      onFailure: (error) => {
+        latestFailure = error;
+      },
+    },
+  );
 }
 
 async function generateOnePost(

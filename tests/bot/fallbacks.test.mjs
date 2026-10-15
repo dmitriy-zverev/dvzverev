@@ -26,24 +26,21 @@ const config = {
   openrouterPrompt: 'Literary editorial',
 };
 
-test('text fallback handles API errors and invalid content, returning the third model', async () => {
+test('text fallback retries each model three times before switching', async () => {
   const requests = [];
-  const result = await generatePost(config, {
+  const result = await generatePost({ ...config, maxAttempts: 3 }, {
     id: 'fallback',
     fetchImpl: async (_url, init) => {
       const model = JSON.parse(init.body).model;
       requests.push(model);
-      if (requests.length === 1)
-        return { ok: false, status: 503, json: async () => ({ error: { code: 503 } }) };
-      if (requests.length === 2)
-        return {
-          ok: true,
-          json: async () => ({ choices: [{ finish_reason: 'stop', message: { content: '{}' } }] }),
-        };
-      return { ok: true, json: async () => ({ ...valid(), model }) };
+      if (model === models[2]) return { ok: true, json: async () => ({ ...valid(), model }) };
+      return { ok: false, status: 503, json: async () => ({ error: { code: 503 } }) };
     },
   });
-  assert.deepEqual(requests, models);
+  assert.equal(requests.length, 7);
+  assert.equal(requests.filter((model) => model === models[0]).length, 3);
+  assert.equal(requests.filter((model) => model === models[1]).length, 3);
+  assert.equal(requests.at(-1), models[2]);
   assert.equal(result.generation.model, models[2]);
 });
 
@@ -62,7 +59,7 @@ test('shared authentication failure does not spend requests on fallback models',
   assert.equal(calls, 1);
 });
 
-test('scheduler saves one attempt per model, including model-specific configuration failure', async (t) => {
+test('scheduler retries each model three times before fallback, then publishes', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'text-fallback-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const c = {
@@ -78,9 +75,12 @@ test('scheduler saves one attempt per model, including model-specific configurat
   const requested = [];
   const ids = [];
   let sends = 0;
-  const options = {
+  const publishOptions = (extra = {}) => ({
     manual: true,
     notify: async () => {},
+    ...extra,
+  });
+  const options = publishOptions({
     sendVK: async () => {
       sends++;
       return 12;
@@ -89,9 +89,10 @@ test('scheduler saves one attempt per model, including model-specific configurat
       requested.push(selected.openrouterModel);
       ids.push(id);
       assert.equal(selected.openrouterModels.length, 1);
-      if (requested.length === 1)
+      if (selected.openrouterModel === models[0])
         throw new GenerationFailure('api_rejected', { kind: 'configuration', code: 404 });
-      if (requested.length === 2) throw new GenerationFailure('network_or_invalid_response');
+      if (selected.openrouterModel === models[1])
+        throw new GenerationFailure('network_or_invalid_response');
       return {
         id,
         kind: 'literary',
@@ -100,18 +101,21 @@ test('scheduler saves one attempt per model, including model-specific configurat
         generation: { title: 'austen-hope', model: selected.openrouterModel },
       };
     },
-  };
-  assert.equal((await publish(c, options)).status, 'retry_wait');
+  });
+  let status = (await publish(c, options)).status;
+  assert.equal(status, 'retry_wait');
   assert.equal((await readState(c)).pauses.openrouter, undefined);
-  assert.equal(
-    (await publish(c, { ...options, now: new Date(Date.now() + 60000) })).status,
-    'retry_wait',
-  );
-  assert.equal(
-    (await publish(c, { ...options, now: new Date(Date.now() + 120000) })).status,
-    'sent',
-  );
-  assert.deepEqual(requested, models);
+  for (let i = 0; i < 8 && status !== 'sent'; i += 1) {
+    const state = await readState(c);
+    const when = state.pendingGeneration?.retryAt
+      ? new Date(state.pendingGeneration.retryAt)
+      : new Date(Date.now() + 60000);
+    status = (await publish(c, publishOptions({ ...options, now: when }))).status;
+  }
+  assert.equal(status, 'sent');
+  assert.equal(requested.filter((model) => model === models[0]).length, 3);
+  assert.equal(requested.filter((model) => model === models[1]).length, 3);
+  assert.equal(requested.at(-1), models[2]);
   assert.equal(new Set(ids).size, 1);
   assert.equal(sends, 1);
 });

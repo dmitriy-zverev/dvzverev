@@ -75,6 +75,11 @@ test('programming task keeps answers private and rejects unchecked tasks', async
     { ...task, checked: false },
     { ...task, correct_answer: '' },
     { ...task, text: 'Источник https://invented.invalid' },
+    { ...task, text: '**Одна полезная штука**\n\nТекст без разметки.' },
+    {
+      ...task,
+      text: 'Одна полезная штука · 2026-10-06\n\nDead letter queue — это…',
+    },
   ]) {
     await assert.rejects(
       generatePost(config, {

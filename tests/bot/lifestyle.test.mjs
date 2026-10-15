@@ -50,7 +50,7 @@ test('lifestyle keeps fallback chain when the primary model returns unsafe conte
       return reviewed(model === 'primary' ? { ...content, paragraphs: ['Цена 99 руб.', 'Купите.'] } : content, init);
     },
   });
-  assert.deepEqual(models, ['primary', 'backup', 'backup']);
+  assert.deepEqual(models, ['primary', 'primary', 'primary', 'backup', 'backup']);
   assert.equal(post.kind, 'lifestyle');
 });
 
