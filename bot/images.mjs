@@ -13,9 +13,9 @@ export const IMAGE_MODELS = [
   'openai/gpt-image-2.5-sunburst',
   'meta/muse-image',
 ];
-export const PORTRAIT_IMAGE = { width: 1080, height: 1350, aspectRatio: '3:4' };
+export const PORTRAIT_IMAGE = { width: 1080, height: 1080, aspectRatio: '1:1' };
 export const IMAGE_FORMAT_PROMPT =
-  'Формат изображения: 1080 × 1350 px, соотношение сторон 3:4. Вертикальный кадр. Важные элементы держи внутри кадра, не обрезай их краем.';
+  'Формат изображения: 1080 × 1080 px, соотношение сторон 1:1. Квадратный кадр. Важные элементы держи внутри кадра, не обрезай их краем.';
 export class ImageFailure extends Error {
   constructor(reason, code = null) {
     super(`Image operation failed: ${reason}`);

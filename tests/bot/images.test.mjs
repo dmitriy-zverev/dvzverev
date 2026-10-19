@@ -37,7 +37,7 @@ test('static covers are real PNGs and upload as a wall photo with a user credent
   Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(header);
   header.write('IHDR', 12);
   header.writeUInt32BE(1080, 16);
-  header.writeUInt32BE(1350, 20);
+  header.writeUInt32BE(1080, 20);
   await writeFile(path, header);
   assert.equal((await cachedCover(config, 'static')).width, 1080);
   const calls = [];
@@ -81,7 +81,7 @@ test('album upload uses getUploadServer, file1 transfer, and photos.save', async
   Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(pngHeader);
   pngHeader.write('IHDR', 12);
   pngHeader.writeUInt32BE(1080, 16);
-  pngHeader.writeUInt32BE(1350, 20);
+  pngHeader.writeUInt32BE(1080, 20);
   await writeFile(path, pngHeader);
   const calls = [];
   const attachment = await uploadVkAlbumPhoto(
@@ -129,7 +129,7 @@ test('album upload skips getAlbums when vkAlbumId is configured', async (t) => {
   Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(header);
   header.write('IHDR', 12);
   header.writeUInt32BE(1080, 16);
-  header.writeUInt32BE(1350, 20);
+  header.writeUInt32BE(1080, 20);
   await writeFile(path, header);
   const calls = [];
   await uploadVkAlbumPhoto(
@@ -171,7 +171,7 @@ test('PNG normalization produces a single still image without legacy GIF convers
   assert.deepEqual(await cachedCover(config, 'normalized'), {
     status: 'ready',
     width: 1080,
-    height: 1350,
+    height: 1080,
   });
 });
 
@@ -237,7 +237,7 @@ test('cover receives the actual post, is cached after normalization, and never r
       assert.equal(body.n, 1);
       assert.equal(body.model, 'google/gemini-3.1-flash-lite-image');
       assert.equal(body.aspect_ratio, '16:9');
-      assert.equal(body.prompt.includes('1080 × 1350'), false);
+      assert.equal(body.prompt.includes('1080 × 1080'), false);
       return {
         ok: true,
         json: async () => ({ data: [{ b64_json: png.toString('base64') }], usage: { cost: 0 } }),
@@ -262,7 +262,7 @@ test('cover receives the actual post, is cached after normalization, and never r
   );
 });
 
-test('static photo asks for 3:4 and falls back to the next image model', async (t) => {
+test('static photo asks for 1:1 and falls back to the next image model', async (t) => {
   const config = await setup(t);
   config.staticPhoto = true;
   config.openrouterKey = 'secret';
@@ -272,7 +272,7 @@ test('static photo asks for 3:4 and falls back to the next image model', async (
   Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(portrait);
   portrait.write('IHDR', 12);
   portrait.writeUInt32BE(1080, 16);
-  portrait.writeUInt32BE(1350, 20);
+  portrait.writeUInt32BE(1080, 20);
   const result = await generateCover(
     config,
     { postId: 'portrait', image: { text: 'Тихий двор' } },
@@ -280,9 +280,9 @@ test('static photo asks for 3:4 and falls back to the next image model', async (
       fetchImpl: async (_url, init) => {
         const body = JSON.parse(init.body);
         seen.push(body.model);
-        assert.equal(body.aspect_ratio, '3:4');
-        assert.match(body.prompt, /1080 × 1350 px/);
-        assert.match(body.prompt, /3:4/);
+        assert.equal(body.aspect_ratio, '1:1');
+        assert.match(body.prompt, /1080 × 1080 px/);
+        assert.match(body.prompt, /1:1/);
         if (body.model !== IMAGE_MODELS[2]) {
           return { ok: false, status: 503, json: async () => ({ error: { code: 503 } }) };
         }
@@ -294,7 +294,7 @@ test('static photo asks for 3:4 and falls back to the next image model', async (
   assert.deepEqual(seen, IMAGE_MODELS);
   assert.equal(result.model, IMAGE_MODELS[2]);
   assert.equal(result.width, 1080);
-  assert.equal(result.height, 1350);
+  assert.equal(result.height, 1080);
 });
 
 test('captioned photo retry and VK retry reuse the image without sending separate text', async (t) => {

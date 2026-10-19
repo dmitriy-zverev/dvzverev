@@ -8,7 +8,7 @@ Image.MAX_IMAGE_PIXELS = 20_000_000
 warnings.simplefilter('error', Image.DecompressionBombWarning)
 mode = sys.argv[3] if len(sys.argv) > 3 else 'gif'
 width = int(sys.argv[4]) if len(sys.argv) > 5 else (1080 if mode == 'png' else 1280)
-height = int(sys.argv[5]) if len(sys.argv) > 5 else (1350 if mode == 'png' else 720)
+height = int(sys.argv[5]) if len(sys.argv) > 5 else (1080 if mode == 'png' else 720)
 with Image.open(sys.argv[1]) as image:
     image = ImageOps.exif_transpose(image).convert('RGB')
     # Keep the whole frame. Pad when the model returns a different ratio.
