@@ -99,7 +99,7 @@ export function publicationKind(config, slotKeyValue, destination) {
   const time = slotKeyValue.match(/@(\d{2}:\d{2})\[/)?.[1];
   const mediaTimes = destination?.media?.times || config.mediaTimes;
   const mediaEnabled = destination?.media?.enabled === true;
-  if (mediaEnabled && mediaTimes?.includes(time)) {
+  if (mediaEnabled && (!mediaTimes?.length || mediaTimes.includes(time))) {
     const kind = destination.media.kind || config.coverMode || 'image';
     if (destination.media.uploadMode === 'photo') return { kind: 'image', media: 'image' };
     if (kind === 'video') return { kind: 'video', media: 'video' };

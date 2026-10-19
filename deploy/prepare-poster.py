@@ -19,7 +19,7 @@ root = Path(__file__).resolve().parents[1]
 bot = root / 'bot'
 output = Path(args.output)
 output.mkdir(parents=True, exist_ok=True)
-excluded = {'VK_PHOTOS_ACCESS_TOKEN', 'VK_USER_ACCESS_TOKEN', 'VK_ACCESS_TOKEN_USER', 'VK_REFRESH_TOKEN', 'VK_DEVICE_ID', 'VK_OAUTH_CLIENT_ID', 'VK_OAUTH_CLIENT_SECRET', 'BOT_ENV_FILE', 'NODE_OPTIONS', 'BOT_IMAGE', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'NODE_USE_ENV_PROXY'}
+excluded = {'VK_PHOTOS_ACCESS_TOKEN', 'VK_USER_ACCESS_TOKEN', 'VK_ACCESS_TOKEN_USER', 'VK_REFRESH_TOKEN', 'VK_DEVICE_ID', 'VK_OAUTH_CLIENT_ID', 'VK_OAUTH_CLIENT_SECRET', 'VK_LEGACY_OAUTH_ENABLED', 'VK_LEGACY_CLIENT_ID', 'VK_LEGACY_REDIRECT_URI', 'BOT_ENV_FILE', 'NODE_OPTIONS', 'BOT_IMAGE', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'NODE_USE_ENV_PROXY'}
 lines = []
 for line in (bot / '.env').read_text().splitlines():
     if not line.strip() or line.lstrip().startswith('#'):
@@ -27,7 +27,7 @@ for line in (bot / '.env').read_text().splitlines():
     if '=' not in line:
         raise ValueError('Unsupported multiline environment file')
     key = line.split('=', 1)[0].strip()
-    if key in excluded or key.startswith('VKID_') or ('VK' in key and any(x in key for x in ['USER', 'REFRESH', 'PHOTOS', 'DEVICE'])):
+    if key in excluded or key.startswith('VKID_') or key.startswith('VK_LEGACY_') or ('VK' in key and any(x in key for x in ['USER', 'REFRESH', 'PHOTOS', 'DEVICE'])):
       continue
     if key == 'BOT_IMAGE':
       continue
@@ -60,8 +60,8 @@ oauth_config_keys = {
     'VK_OAUTH_ENABLED', 'VK_OAUTH_CLIENT_ID', 'VK_OAUTH_CLIENT_SECRET',
     'VK_OAUTH_TRIAL_CLIENT_ID', 'VK_OAUTH_REDIRECT_URI', 'VK_OAUTH_SCOPES',
     'VK_OAUTH_ENCRYPTION_KEY', 'VK_OAUTH_STORE_PATH', 'VK_OAUTH_MEDIA_DIR',
-    'VK_OAUTH_ALLOWED_USER_ID', 'VK_LEGACY_OAUTH_ENABLED', 'VK_LEGACY_CLIENT_ID',
-    'VK_LEGACY_REDIRECT_URI', 'VK_WEEKLY_OAUTH_ENABLED', 'VK_WEEKLY_CLIENT_ID', 'BOT_CABINET_MEMORY_LIMIT',
+    'VK_OAUTH_ALLOWED_USER_ID', 'VK_WEEKLY_OAUTH_ENABLED', 'VK_WEEKLY_CLIENT_ID',
+    'BOT_CABINET_MEMORY_LIMIT',
 }
 if args.preserve_env:
     for line in args.preserve_env.read_text().splitlines():

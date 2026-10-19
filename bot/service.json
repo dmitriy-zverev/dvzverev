@@ -19,14 +19,14 @@
     "budget-editor": {
       "adapter": "openrouter",
       "credentialEnv": "OPENROUTER_API_KEY",
-      "model": "qwen/qwen3-32b",
-      "fallbackModels": ["qwen/qwen3.5-flash-02-23", "deepseek/deepseek-v4.1-flash"]
+      "model": "deepseek/deepseek-v4.1-flash-1017",
+      "fallbackModels": ["openai/gpt-6-luna", "z-ai/glm-5.3-flash"]
     },
     "lifestyle-editor": {
       "adapter": "openrouter",
       "credentialEnv": "OPENROUTER_API_KEY",
-      "model": "qwen/qwen3.5-flash-02-23",
-      "fallbackModels": ["qwen/qwen3-32b", "deepseek/deepseek-v4.1-flash"]
+      "model": "deepseek/deepseek-v4.1-flash-1017",
+      "fallbackModels": ["openai/gpt-6-luna", "z-ai/glm-5.3-flash"]
     }
   },
   "destinations": {
@@ -38,9 +38,9 @@
         "enabled": true,
         "kind": "image",
         "prompt": "prompts/dark-academia-image.md",
-        "times": ["18:00"],
-        "model": "inclusionai/ming-image-0.1-design",
-        "maxAttempts": 3,
+        "model": "google/gemini-3.1-flash-lite-image",
+        "fallbackModels": ["openai/gpt-image-2.5-sunburst", "meta/muse-image"],
+        "maxAttempts": 1,
         "uploadMode": "photo",
         "photosCredentialEnv": "VK_PHOTOS_ACCESS_TOKEN",
         "scheduling": "vk-weekly"
@@ -52,7 +52,15 @@
       "credentialEnv": "VK_ACCESS_TOKEN",
       "albumIdEnv": "VK_CODE_TO_THINK_ALBUM_ID",
       "media": {
-        "enabled": false
+        "enabled": true,
+        "kind": "image",
+        "prompt": "prompts/code-to-think-image.md",
+        "model": "google/gemini-3.1-flash-lite-image",
+        "fallbackModels": ["openai/gpt-image-2.5-sunburst", "meta/muse-image"],
+        "maxAttempts": 1,
+        "uploadMode": "photo",
+        "photosCredentialEnv": "VK_PHOTOS_ACCESS_TOKEN",
+        "scheduling": "vk-weekly"
       }
     },
     "things-vk": {
@@ -63,9 +71,9 @@
         "enabled": true,
         "kind": "image",
         "prompt": "prompts/things-image.md",
-        "times": ["18:00"],
-        "model": "inclusionai/ming-image-0.1-design",
-        "maxAttempts": 3,
+        "model": "google/gemini-3.1-flash-lite-image",
+        "fallbackModels": ["openai/gpt-image-2.5-sunburst", "meta/muse-image"],
+        "maxAttempts": 1,
         "uploadMode": "photo",
         "photosCredentialEnv": "VK_PHOTOS_ACCESS_TOKEN",
         "scheduling": "vk-weekly"
@@ -111,11 +119,12 @@
       "language": "ru",
       "postSource": "openrouter",
       "prompts": {
-        "editor": "prompts/code-to-think.md"
+        "editor": "prompts/code-to-think.md",
+        "cover": "prompts/code-to-think-image.md"
       },
       "generation": {
         "provider": "budget-editor",
-        "reviewModel": "qwen/qwen3.5-flash-02-23"
+        "reviewModel": "openai/gpt-6-luna"
       },
       "schedule": {
         "timezone": "Europe/Moscow",
@@ -153,7 +162,7 @@
       },
       "generation": {
         "provider": "lifestyle-editor",
-        "reviewModel": "qwen/qwen3.5-flash-02-23"
+        "reviewModel": "openai/gpt-6-luna"
       },
       "schedule": {
         "timezone": "Europe/Moscow",

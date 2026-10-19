@@ -15,7 +15,7 @@ import { generatePost } from '../openrouter.mjs';
 import { generateCover, uploadVkPhoto } from '../images.mjs';
 import { assertSlotCurrent, applyRubricConfig, ensureRubrics } from './rubrics.mjs';
 import { formatVkPost } from '../content.mjs';
-import { getWeeklyVkClient } from '../vk-oauth/legacy.mjs';
+import { getOwnerVkClient, getWeeklyVkClient } from '../vk-oauth/legacy.mjs';
 import { notifyWeeklyPrepareDigest } from './weekly-notify.mjs';
 
 /** Cap slot retries so a broken token/API cannot hammer VK or spam alerts. */
@@ -567,22 +567,36 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
         );
 
         let attachment = stored.attachment || null;
+        let poster = client;
         if (media === 'image' && !attachment) {
-          const image = await cover(config, { postId: id, image: { text: message } });
-          const uploaded = client.uploadWeeklyImage
-            ? await client.uploadWeeklyImage(config, {
-                postId: id,
-                vkGroupId: config.vkGroupId,
-                image,
-              })
-            : await upload(config, { postId: id, vkGroupId: config.vkGroupId, image });
-          attachment = typeof uploaded === 'string' ? uploaded : uploaded.attachment;
-          if (!/^(?:photo|doc)-?\d+_\d+(?:_[\w-]+)?$/.test(attachment || ''))
-            throw new Error('vk_photo_save_invalid');
-          db.prepare('UPDATE vk_weekly_posts SET attachment=? WHERE plan_id=?').run(
-            attachment,
-            slot.plan_id,
-          );
+          try {
+            const owner = getOwnerVkClient(env);
+            if (!owner?.status()?.canPhoto) throw new Error('vk_photo_token_required');
+            const photoConfig = {
+              ...config,
+              staticPhoto: true,
+              coverMode: 'image',
+              vkPhotosToken: await owner.accessToken(),
+            };
+            await cover(photoConfig, { postId: id, image: { text: message } });
+            attachment = await uploadVkPhoto(photoConfig, {
+              postId: id,
+              vkGroupId: config.vkGroupId,
+            });
+            if (!/^photo-?\d+_\d+(?:_[\w-]+)?$/.test(attachment || ''))
+              throw new Error('vk_photo_save_invalid');
+            poster = owner;
+            db.prepare('UPDATE vk_weekly_posts SET attachment=? WHERE plan_id=?').run(
+              attachment,
+              slot.plan_id,
+            );
+          } catch (error) {
+            console.error(
+              `weekly image skipped slot=${slot.plan_id}: ${error.message || error}`,
+            );
+            attachment = null;
+            poster = client;
+          }
         }
 
         await client.accessToken();
@@ -604,7 +618,8 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
           publish_date: publishDate,
         };
         if (attachment) wallParams.attachments = attachment;
-        const result = await client.api('wall.post', wallParams);
+        const postedMedia = attachment ? media : 'text';
+        const result = await poster.api('wall.post', wallParams);
         if (!Number.isSafeInteger(result?.post_id)) throw new Error('vk_wall_post_invalid');
         created = true;
         db.prepare(
@@ -619,7 +634,7 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
             groupId: config.vkGroupId,
             publishDate,
             attachment,
-            media,
+            media: postedMedia,
           })
         )
           throw new Error('vk_weekly_post_verification_failed');

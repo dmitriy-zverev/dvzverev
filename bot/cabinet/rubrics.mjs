@@ -196,18 +196,28 @@ export function applyRubricConfig(config, rubric) {
     openrouterPrompt: rubric.textPrompt
       ? `${rubric.textPrompt}\n\nОбщие правила группы. Соблюдай их вместе с заданием рубрики «${rubric.name}»:\n${base.openrouterPrompt}`
       : base.openrouterPrompt,
-    coverPrompt: rubric.mediaPrompt
-      ? `${rubric.mediaPrompt}\n\nВизуальный стиль группы:\n${base.coverPrompt || ''}`
-      : base.coverPrompt,
+    coverPrompt: `${
+      rubric.mediaPrompt
+        ? `${rubric.mediaPrompt}\n\nВизуальный стиль группы:\n${base.coverPrompt || ''}`
+        : base.coverPrompt || ''
+    }${
+      config.projectId === 'code-to-think' && rubric.name
+        ? `\nНарисуй название рубрики «${rubric.name}» пиксельным шрифтом. Название группы «Код на подумать» — мелким текстом в углу.`
+        : ''
+    }`,
     videoPrompt: rubric.mediaPrompt
       ? `${rubric.mediaPrompt}\n\nВизуальный стиль группы:\n${base.videoPrompt || ''}`
       : base.videoPrompt,
-    weeklyImages: rubric.media !== 'text',
-    imagesEnabled: rubric.media !== 'text',
-    vkImagesEnabled: rubric.media !== 'text',
-    mediaTimes: rubric.media !== 'text' ? rubric.times : [],
-    staticPhoto: rubric.media === 'image',
-    coverMode: rubric.media === 'video' ? 'video' : 'image',
+    weeklyImages: Boolean(config.vkImagesEnabled) || rubric.media !== 'text',
+    imagesEnabled: Boolean(config.imagesEnabled) || rubric.media !== 'text',
+    vkImagesEnabled: Boolean(config.vkImagesEnabled) || rubric.media !== 'text',
+    mediaTimes: config.vkImagesEnabled && !config.mediaTimes?.length
+      ? null
+      : rubric.media !== 'text'
+        ? rubric.times
+        : [],
+    staticPhoto: Boolean(config.staticPhoto) || rubric.media === 'image',
+    coverMode: rubric.media === 'video' && !config.staticPhoto ? 'video' : config.coverMode || 'image',
   };
 }
 

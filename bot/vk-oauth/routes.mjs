@@ -4,13 +4,7 @@ import { VkOAuthClient, oauthConfig } from './client.mjs';
 import { logError } from '../logging.mjs';
 import { sendNotification } from '../notifications.mjs';
 import { publicationBackoffSeconds, sendTelegram } from '../core.mjs';
-import {
-  getOwnerVkClient,
-  legacyCallbackPage,
-  legacyManualLoginPage,
-  parseLegacyRedirectUrl,
-  weeklyVkStatus,
-} from './legacy.mjs';
+import { getOwnerVkClient, weeklyVkStatus } from './legacy.mjs';
 
 let broker;
 let trialBroker;
@@ -65,13 +59,7 @@ export async function handleVkOAuthRoute({
       callbackState &&
       /^[\w-]{43}$/.test(callbackState) &&
       weekly?.store.get('state:' + callbackState);
-    if (
-      route.startsWith('/vk/legacy/') ||
-      (route === '/vk/callback' &&
-        !weeklyCallback &&
-        !url.searchParams.has('code') &&
-        env.VK_LEGACY_OAUTH_ENABLED === 'true')
-    ) {
+    if (route.startsWith('/vk/legacy/')) {
       const owner = getOwnerVkClient(env);
       if (route === '/vk/legacy/status') {
         json(response, 200, weeklyVkStatus(env), cors);
@@ -135,53 +123,12 @@ export async function handleVkOAuthRoute({
         return true;
       }
       if (request.method === 'GET' && route === '/vk/legacy/login') {
-        if (
-          ['https://oauth.vk.ru/blank.html', 'https://oauth.vk.com/blank.html'].includes(
-            owner.config.redirectUri,
-          )
-        ) {
-          const page = legacyManualLoginPage(owner.begin(session.sessionId));
-          response.writeHead(200, {
-            'Content-Type': 'text/html; charset=utf-8',
-            'Cache-Control': 'no-store',
-            'Referrer-Policy': 'no-referrer',
-            'Content-Security-Policy': `default-src 'none'; style-src 'nonce-${page.nonce}'; script-src 'nonce-${page.nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
-          });
-          response.end(page.html);
-          return true;
-        }
         response.writeHead(303, {
           Location: owner.begin(session.sessionId),
           'Cache-Control': 'no-store',
           'Referrer-Policy': 'no-referrer',
         });
         response.end();
-        return true;
-      }
-      if (request.method === 'GET' && route === '/vk/callback') {
-        const page = legacyCallbackPage();
-        response.writeHead(200, {
-          'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-store',
-          'Referrer-Policy': 'no-referrer',
-          'Content-Security-Policy': `default-src 'none'; style-src 'nonce-${page.nonce}'; script-src 'nonce-${page.nonce}'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'`,
-        });
-        response.end(page.html);
-        return true;
-      }
-      if (request.method === 'POST' && route === '/vk/legacy/complete') {
-        if (weekly) throw new Error('vk_oauth_server_login_required');
-        assertOrigin(request, env);
-        const body = parseJson(await readBody(request));
-        json(
-          response,
-          200,
-          await owner.complete(
-            body.redirectUrl ? parseLegacyRedirectUrl(body.redirectUrl) : body,
-            session.sessionId,
-          ),
-          cors,
-        );
         return true;
       }
       json(response, 404, { error: 'not_found' }, cors);

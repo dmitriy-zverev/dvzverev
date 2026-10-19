@@ -213,6 +213,10 @@ function mediaConfig(env, post, config = {}) {
     staticPhoto: true,
     coverMode: 'image',
     imageModel: env.OZON_IMAGE_MODEL || 'openai/gpt-image-1',
+    imageModels: [env.OZON_IMAGE_MODEL || 'openai/gpt-image-1'],
+    imageWidth: 1280,
+    imageHeight: 720,
+    imageAspectRatio: '16:9',
   };
 }
 function referencesPath(env, post) {

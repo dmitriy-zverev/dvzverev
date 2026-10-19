@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomBytes } from 'node:crypto';
 import { openCabinetDb } from '../../bot/cabinet/db.mjs';
 import {
   nextWeek,
@@ -20,16 +19,11 @@ import {
 } from '../../bot/cabinet/weekly.mjs';
 import { notifyWeeklyPrepareDigest, summarizeWeek } from '../../bot/cabinet/weekly-notify.mjs';
 import {
-  LegacyVkClient,
-  legacyCallbackPage,
-  legacyManualLoginPage,
-  parseLegacyRedirectUrl,
   getOwnerVkClient,
   getWeeklyVkClient,
   weeklyVkStatus,
 } from '../../bot/vk-oauth/legacy.mjs';
 import { listWeeklyCommunityTargets } from '../../bot/vk-oauth/community-weekly.mjs';
-import { OAuthStore } from '../../bot/vk-oauth/store.mjs';
 import { weeklyDelivery } from '../../bot/cabinet/weekly-delivery.mjs';
 import { selectLiteraryQuote } from '../../bot/literary-quotes.mjs';
 
@@ -963,77 +957,8 @@ test('successful write with missing photo remains uncertain and never posts agai
   f.db.close();
 });
 
-test('login verifies real user and permissions, consumes state once and never refreshes another app', async (t) => {
-  const root = await mkdtemp(join(tmpdir(), 'legacy-test-'));
-  const store = new OAuthStore(join(root, 'oauth.sqlite'), randomBytes(32).toString('hex'));
-  t.after(async () => {
-    store.close();
-    await rm(root, { recursive: true, force: true });
-  });
-  let now = 100000;
-  const fetcher = async (url) => ({
-    ok: true,
-    json: async () => ({ response: url.includes('users.get') ? [{ id: 42 }] : 270340 }),
-  });
-  const legacy = new LegacyVkClient(
-    store,
-    {
-      clientId: '54809516',
-      redirectUri: 'https://oauth.vk.ru/blank.html',
-      allowedUserId: '42',
-    },
-    fetcher,
-    () => now,
-  );
-  const url = new URL(legacy.begin('session'));
-  assert.equal(url.searchParams.get('response_type'), 'token');
-  const body = {
-    state: url.searchParams.get('state'),
-    access_token: 'vk1.a.' + 'a'.repeat(30),
-    expires_in: '86400',
-  };
-  const returnedUrl = 'https://oauth.vk.ru/blank.html#' + new URLSearchParams(body);
-  assert.deepEqual(parseLegacyRedirectUrl(returnedUrl), body);
-  await legacy.complete(parseLegacyRedirectUrl(returnedUrl), 'session');
-  assert.equal(legacy.status().canPrepare, true);
-  assert.equal(legacy.status().refreshAvailable, false);
-  await assert.rejects(legacy.complete(body, 'session'), /invalid_state/);
-  now += 86400001;
-  assert.equal(legacy.status().canPrepare, false);
-  await assert.rejects(legacy.accessToken(), /login_required/);
-  const page = legacyCallbackPage();
-  assert.match(page.html, /history.replaceState/);
-  assert.match(page.html, /\/bot\/\?vk=connected/);
-  const manual = legacyManualLoginPage(url.href);
-  assert.match(manual.html, /id="vk-return" type="password"/);
-  assert.match(manual.html, /credentials:'same-origin'/);
-  assert.equal(manual.html.includes(body.access_token), false);
-  assert.throws(
-    () => parseLegacyRedirectUrl(returnedUrl.replace('oauth.vk.ru', 'evil.test')),
-    /invalid_redirect/,
-  );
-  assert.throws(
-    () => parseLegacyRedirectUrl(returnedUrl.replace('https:', 'http:')),
-    /invalid_redirect/,
-  );
-  assert.throws(
-    () => parseLegacyRedirectUrl('https://oauth.vk.ru/blank.html#error=access_denied'),
-    /consent_required/,
-  );
-  const wrong = new URL(legacy.begin('session'));
-  await assert.rejects(
-    legacy.complete({ ...body, state: wrong.searchParams.get('state') }, 'other-session'),
-    /invalid_state/,
-  );
-  legacy.config.redirectUri = 'https://oauth.vk.com/blank.html';
-  const comLogin = new URL(legacy.begin('session'));
-  assert.equal(comLogin.origin, 'https://oauth.vk.com');
-  assert.equal(comLogin.searchParams.get('redirect_uri'), 'https://oauth.vk.com/blank.html');
-});
-
 test('weekly preparation defaults to community tokens when user oauth is disabled', () => {
   const env = {
-    VK_LEGACY_OAUTH_ENABLED: 'false',
     VK_WEEKLY_OAUTH_ENABLED: 'false',
     BOT_CONFIG_PATH: join(process.cwd(), 'bot/service.json'),
     VK_ACCESS_TOKEN: 'vk1.a.community-code',
@@ -1054,7 +979,6 @@ test('weekly preparation defaults to community tokens when user oauth is disable
 
 test('owner oauth can be enabled while weekly posts stay on community', () => {
   const env = {
-    VK_LEGACY_OAUTH_ENABLED: 'false',
     VK_WEEKLY_OAUTH_ENABLED: 'true',
     VK_WEEKLY_CLIENT_ID: '54809454',
     VK_OAUTH_REDIRECT_URI: 'https://www.dvzverev.ru/vk/callback/',
@@ -1077,39 +1001,4 @@ test('owner oauth can be enabled while weekly posts stay on community', () => {
   assert.equal(status.ownerOAuth.available, true);
   assert.equal(status.ownerOAuth.connected, false);
   owner.store.close();
-});
-
-test('rejected manual token is never stored and its attempt cannot be replayed', async (t) => {
-  const root = await mkdtemp(join(tmpdir(), 'vk-rejected-'));
-  const store = new OAuthStore(join(root, 'oauth.sqlite'), randomBytes(32).toString('hex'));
-  t.after(async () => {
-    store.close();
-    await rm(root, { recursive: true, force: true });
-  });
-  const client = new LegacyVkClient(
-    store,
-    {
-      clientId: '54809516',
-      redirectUri: 'https://oauth.vk.ru/blank.html',
-      allowedUserId: '42',
-    },
-    async () => ({
-      ok: true,
-      json: async () => ({
-        error: {
-          error_code: 5,
-          error_msg: 'User authorization failed: access_token was given to another ip address.',
-        },
-      }),
-    }),
-  );
-  const body = {
-    state: new URL(client.begin('session')).searchParams.get('state'),
-    access_token: 'vk1.a.' + 'a'.repeat(30),
-    expires_in: '86400',
-  };
-  await assert.rejects(client.complete(body, 'session'), /vk_api_rejected_5_ip_mismatch/);
-  assert.equal(store.get('token'), null);
-  assert.equal(client.status().connected, false);
-  await assert.rejects(client.complete(body, 'session'), /invalid_state/);
 });

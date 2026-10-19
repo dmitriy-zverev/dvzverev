@@ -117,6 +117,7 @@ test('PKCE callback validates session, consumes state once and verifies identity
   assert.equal(auth.searchParams.get('app_id'), auth.searchParams.get('client_id'));
   assert.equal(auth.searchParams.get('sdk_type'), 'vkid');
   assert.equal(auth.searchParams.get('v'), '2.6.1');
+  assert.equal(auth.searchParams.get('prompt'), 'consent');
   assert.equal(auth.searchParams.get('code_challenge').length, 43);
   const query = new URLSearchParams({
     state: auth.searchParams.get('state'),
@@ -421,6 +422,8 @@ test('HTTP OAuth routes require cabinet session; POST requires Origin; callback 
   assert.equal(weeklyUrl.searchParams.get('app_id'), '789');
   assert.equal(weeklyUrl.searchParams.get('sdk_type'), 'vkid');
   assert.equal(weeklyUrl.searchParams.get('response_type'), 'code');
+  assert.equal(weeklyUrl.searchParams.get('prompt'), 'consent');
+  assert.equal(weeklyUrl.searchParams.get('scope'), 'wall photos groups');
   const weeklyCallback = await fetch(
     `${root}/vk/callback?state=${weeklyUrl.searchParams.get('state')}&code=code&device_id=device`,
     { redirect: 'manual', headers },
@@ -459,7 +462,7 @@ test('HTTP OAuth routes require cabinet session; POST requires Origin; callback 
         body: '{}',
       })
     ).status,
-    400,
+    404,
   );
 });
 

@@ -62,6 +62,14 @@ export function materializeScheduleSlots(db, service, env, now = new Date()) {
               publication.kind = rubric.media;
               publication.media = rubric.media === 'text' ? null : rubric.media;
             }
+            if (
+              destination.media?.enabled &&
+              destination.media.uploadMode === 'photo' &&
+              !destination.media.times?.length
+            ) {
+              publication.kind = 'image';
+              publication.media = 'image';
+            }
             const existing = db
               .prepare(
                 'SELECT plan_id, plan_status, edition_id, config_version FROM schedule_slots WHERE project_id = ? AND destination_id = ? AND slot_utc = ?',

@@ -9,6 +9,22 @@ import { DEFAULT_IMAGE_MODEL } from '../images.mjs';
 import { readEnvValue, readOptionalEnvValue } from './env.mjs';
 import { readPromptFile, resolveRelativeConfigPath } from './paths.mjs';
 
+const RUSSIAN_EDITORIAL_MARK = 'РЕДАКЦИОННАЯ НОРМА РУССКОГО ТЕКСТА';
+
+export function imageModelChain(media, env = {}) {
+  const primary =
+    (media?.kind === 'image' && media.model) || env.OPENROUTER_IMAGE_MODEL || DEFAULT_IMAGE_MODEL;
+  const fallbacks = Array.isArray(media?.fallbackModels) ? media.fallbackModels : [];
+  return [...new Set([primary, ...fallbacks].filter(Boolean))];
+}
+
+export function applyRussianEditorial(prompt, policy) {
+  const base = (prompt || '').trim();
+  const extra = (policy || '').trim();
+  if (!extra || base.includes(RUSSIAN_EDITORIAL_MARK)) return base;
+  return `${base}\n\n${extra}`;
+}
+
 function destinationByPlatform(project, service, platform) {
   for (const destinationId of project.delivery.destinations) {
     const destination = service.destinations[destinationId];
@@ -74,6 +90,11 @@ export async function runtimeConfigForProject(service, projectId, env, { configR
     ? await readPromptFile(configRoot, project.prompts.cover)
     : await readFile(new URL('../prompts/cover.md', import.meta.url), 'utf8');
   const postSource = project.postSource || 'openrouter';
+  const projectPrompt = prompts.editor?.content_text ?? (editorPrompt.trim() || DEFAULT_PROMPT);
+  const editorial =
+    project.language === 'ru'
+      ? (await readPromptFile(configRoot, 'prompts/ru-editorial.md')).trim()
+      : '';
   const queuePath = project.queuePath
     ? resolveRelativeConfigPath(configRoot, project.queuePath)
     : resolve(configRoot, `queues/${projectId}.json`);
@@ -134,6 +155,10 @@ export async function runtimeConfigForProject(service, projectId, env, { configR
       (vk?.destination.media?.kind === 'image' && vk.destination.media.model) ||
       env.OPENROUTER_IMAGE_MODEL ||
       DEFAULT_IMAGE_MODEL,
+    imageModels: imageModelChain(
+      vk?.destination.media?.kind === 'image' ? vk.destination.media : null,
+      env,
+    ),
     vkEnabled: Boolean(vk),
     vkConfigError: Boolean(vk) && (!vkToken || !/^[1-9]\d*$/.test(vkGroupId)),
     maxAttempts: 3,
@@ -143,7 +168,7 @@ export async function runtimeConfigForProject(service, projectId, env, { configR
     openrouterModel: generation.model,
     openrouterModels: generation.models,
     reviewModel: project.generation.reviewModel || generation.models[1] || generation.model,
-    openrouterPrompt: prompts.editor?.content_text ?? (editorPrompt.trim() || DEFAULT_PROMPT),
+    openrouterPrompt: applyRussianEditorial(projectPrompt, editorial),
     promptVersions: Object.fromEntries(
       Object.entries(prompts).map(([role, row]) => [
         role,

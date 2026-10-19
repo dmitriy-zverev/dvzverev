@@ -131,6 +131,14 @@ function validateDestination(errors, destination, path) {
       (typeof destination.media.model !== 'string' || !destination.media.model.trim())
     )
       push(errors, `${path}.media.model`, 'must be a nonempty model');
+    if (
+      destination.media.fallbackModels !== undefined &&
+      (!Array.isArray(destination.media.fallbackModels) ||
+        destination.media.fallbackModels.length > 2 ||
+        destination.media.fallbackModels.some((model) => typeof model !== 'string' || !model.trim()) ||
+        new Set(destination.media.fallbackModels).size !== destination.media.fallbackModels.length)
+    )
+      push(errors, `${path}.media.fallbackModels`, 'must contain at most two unique model IDs');
     if (typeof destination.media.enabled !== 'boolean') {
       push(errors, `${path}.media.enabled`, 'must be boolean');
     }

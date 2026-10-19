@@ -10,7 +10,7 @@ export function oauthConfig(env = process.env) {
   return {
     clientId: env.VK_OAUTH_CLIENT_ID,
     redirectUri: redirect.href,
-    scope: env.VK_OAUTH_SCOPES || 'wall photos groups video',
+    scope: env.VK_OAUTH_SCOPES || 'wall photos groups',
     mediaDir: env.VK_OAUTH_MEDIA_DIR || 'bot/content/oauth',
     allowedUserId: env.VK_OAUTH_ALLOWED_USER_ID || '',
   };
@@ -38,6 +38,8 @@ export class VkOAuthClient {
       redirect_uri: this.config.redirectUri,
       response_type: 'code',
       scope: this.config.scope,
+      // Repeat consent after VK enables new app rights; a prior personal_info grant hides the form.
+      prompt: 'consent',
       state,
       code_challenge_method: 's256',
       code_challenge: createHash('sha256').update(verifier).digest('base64url'),
