@@ -327,11 +327,21 @@ test('after report includes escaped project blocks, safe VK links and redacted e
     sentAt: now.toISOString(),
     vkUrl: 'https://vk.com/wall-242034586_123',
     projectTitle: 'Код <на> подумать',
+    editionId: 'edition-a',
+    costUsd: 0.001,
+    models: {
+      text: 'deepseek/deepseek-v4.1-flash-1017',
+      review: 'openai/gpt-6-luna',
+      image: 'google/gemini-3.1-flash-lite-image',
+    },
   };
   snapshot.members[1] = {
     ...snapshot.members[1],
     deliveryStatus: 'failed',
     failureReason: 'Bad vk1.a.secret_secret https://api.vk.com/private',
+    editionId: 'edition-b',
+    costUsd: 0.0002,
+    models: { text: 'z-ai/glm-5.3-flash' },
   };
   snapshot.progress = { ...snapshot.progress, sent: 1, failed: 1, needsAttention: true };
   const result = renderReport({
@@ -344,6 +354,12 @@ test('after report includes escaped project blocks, safe VK links and redacted e
   assert.match(result.bodyHtml, /href="https:\/\/vk.com\/wall-242034586_123">Открыть пост →/);
   assert.match(result.bodyPlain, /Причина: Bad \[REDACTED\]/);
   assert.doesNotMatch(result.bodyHtml, /secret_secret|api.vk.com/);
+  assert.match(result.bodyPlain, /текст: deepseek\/deepseek-v4.1-flash-1017/);
+  assert.match(result.bodyPlain, /проверка: openai\/gpt-6-luna/);
+  assert.match(result.bodyPlain, /картинка: google\/gemini-3.1-flash-lite-image/);
+  assert.match(result.bodyPlain, /\$0\.0010/);
+  assert.match(result.bodyPlain, /текст: z-ai\/glm-5\.3-flash/);
+  assert.match(result.bodyPlain, /Итого генерация: \$0\.0012/);
   db.close();
 });
 

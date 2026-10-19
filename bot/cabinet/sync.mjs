@@ -25,6 +25,11 @@ const MATERIALIZE_DAYS_FORWARD = 14;
 const MATERIALIZE_DAYS_BACK = 7;
 const SLOT_WINDOW_MINUTES = 5;
 
+export function generationCostUsd(...parts) {
+  const known = parts.filter((value) => typeof value === 'number' && Number.isFinite(value));
+  return known.length ? known.reduce((sum, value) => sum + value, 0) : null;
+}
+
 export function materializeScheduleSlots(db, service, env, now = new Date()) {
   service = rubricService(db, service);
   const configVersion = db
@@ -206,9 +211,18 @@ export async function syncProjectState(db, service, projectId, env, now = new Da
           : typeof entry.html === 'string'
             ? entry.html.replace(/<[^>]+>/g, '')
             : null;
-      const models = entry.generation
-        ? { text: entry.generation.model, review: entry.generation.reviewModel }
-        : null;
+      const reviewModel =
+        entry.generation?.reviewModel || entry.generation?.editorial?.reviewModel || null;
+      const imageModel = entry.image?.model || null;
+      const models =
+        entry.generation || imageModel
+          ? {
+              text: entry.generation?.model || null,
+              review: reviewModel,
+              image: imageModel,
+            }
+          : null;
+      const cost = generationCostUsd(entry.generation?.cost, entry.image?.cost);
       const existingEdition = db
         .prepare('SELECT edition_id FROM editions WHERE edition_id = ?')
         .get(editionId);
@@ -228,7 +242,7 @@ export async function syncProjectState(db, service, projectId, env, now = new Da
           body,
           entry.generation?.promptVersions?.editor?.versionId || promptVersion || null,
           models ? JSON.stringify(models) : null,
-          entry.generation?.cost ?? null,
+          cost,
           status,
           entry.createdAt || now.toISOString(),
           now.toISOString(),
@@ -247,7 +261,7 @@ export async function syncProjectState(db, service, projectId, env, now = new Da
         ).run(
           body,
           models ? JSON.stringify(models) : null,
-          entry.generation?.cost ?? null,
+          cost,
           entry.generation?.promptVersions?.editor?.versionId || promptVersion || null,
           status,
           now.toISOString(),

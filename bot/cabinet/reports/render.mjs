@@ -55,6 +55,7 @@ export function renderReport({ reportKind, snapshot, reportConfig, now = new Dat
       if (!before && member.deliveryStatus !== 'sent' && member.failureReason) {
         lines.push(`Причина: ${short(redact(member.failureReason), 160)}`);
       }
+      if (!before) lines.push(...generationLines(member));
       let plain = `${label}\n${lines.join('\n')}`;
       let html = `<b>${escapeHtml(label)}</b>\n${lines.map(escapeHtml).join('\n')}`;
       if (!before && member.deliveryStatus === 'sent' && isSafePostUrl(member.vkUrl)) {
@@ -87,7 +88,7 @@ export function renderReport({ reportKind, snapshot, reportConfig, now = new Dat
       const unknown = costs.size - known.length;
       if (costs.size)
         add(
-          `Генерация: ${known.length ? '$' + known.reduce((a, b) => a + b, 0).toFixed(4) : 'стоимость неизвестна'}${unknown && known.length ? ` · без цены: ${unknown}` : ''}`,
+          `Итого генерация: ${known.length ? '$' + known.reduce((a, b) => a + b, 0).toFixed(4) : 'стоимость неизвестна'}${unknown && known.length ? ` · без цены: ${unknown}` : ''}`,
         );
       if (reportKind === 'deadline' && !progress.allTerminal)
         add(`Серия ещё не завершена. Сводка на ${clock(now, timeZone)}.`);
@@ -129,6 +130,16 @@ function short(value, limit) {
       .trim(),
   );
   return chars.length > limit ? chars.slice(0, limit - 1).join('') + '…' : chars.join('');
+}
+function generationLines(member) {
+  const models = member.models || {};
+  const lines = [];
+  if (models.text) lines.push(`текст: ${short(models.text, 80)}`);
+  if (models.review && models.review !== models.text) lines.push(`проверка: ${short(models.review, 80)}`);
+  if (models.image) lines.push(`картинка: ${short(models.image, 80)}`);
+  if (Number.isFinite(member.costUsd)) lines.push(`$${member.costUsd.toFixed(4)}`);
+  else if (lines.length || member.editionId) lines.push('стоимость неизвестна');
+  return lines;
 }
 function formatKind(member) {
   if (member.publicationKind === 'image') return 'текст + фото';

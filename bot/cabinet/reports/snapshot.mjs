@@ -12,7 +12,7 @@ import { operatorLabel } from '../time.mjs';
 const MEMBER_ROWS_SQL = `${DELIVERY_SNAPSHOT}
 SELECT m.member_id, m.plan_id, m.project_id, m.destination_id, m.slot_utc, m.edition_id,
        s.plan_status, s.publication_kind, s.expected_media, s.topic, s.brief, s.topic_state,
-       e.aggregate_status, e.topic AS edition_topic, e.cost_usd,
+       e.aggregate_status, e.topic AS edition_topic, e.cost_usd, e.models_json,
        d.status AS delivery_status, d.retry_at, d.failure_reason, d.sent_at, d.external_id,
        d.platform, d.vk_group_id
 FROM batch_members m
@@ -79,9 +79,25 @@ function mapMemberRow(row, timeZone) {
     failureReason: row.failure_reason,
     sentAt: row.sent_at,
     costUsd: row.cost_usd,
+    models: parseModels(row.models_json),
     vkUrl: vkPostUrl(row),
     terminal: isTerminalDeliveryStatus(deliveryStatus),
   };
+}
+
+function parseModels(raw) {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw);
+    if (!value || typeof value !== 'object') return null;
+    return {
+      text: typeof value.text === 'string' ? value.text : null,
+      review: typeof value.review === 'string' ? value.review : null,
+      image: typeof value.image === 'string' ? value.image : null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function planDeliveryStatus(planStatus) {
