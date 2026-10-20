@@ -373,6 +373,13 @@ test('rubric prompt leads and the group prompt is appended', () => {
   );
   assert.equal(forced.vkImagesEnabled, false);
   assert.deepEqual(forced.mediaTimes, []);
+  const timed = applyRubricConfig(
+    { projectId: 'code-to-think', coverPrompt: 'STYLE' },
+    { id: 'r4', revision: 1, name: 'ЧТО ВЫВЕДЕТ КОД? · 12:00', media: 'image' },
+  );
+  assert.match(timed.coverPrompt, /«ЧТО ВЫВЕДЕТ КОД\?»/);
+  assert.doesNotMatch(timed.coverPrompt, /12:00/);
+  assert.match(timed.coverPrompt, /не рисуй/);
 });
 
 test('Redis ignores failures and unfinished generation from the old rubric revision', () => {

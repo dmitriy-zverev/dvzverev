@@ -180,6 +180,12 @@ export function bindRubricSlot(db, planId, rubric) {
   ).run(planId, rubric.id, rubric.name, rubric.color, rubric.revision);
 }
 
+function rubricLabelForImage(name) {
+  return String(name || '')
+    .replace(/\s*[·•|–—-]\s*(?:[01]?\d|2[0-3]):[0-5]\d\s*$/u, '')
+    .trim();
+}
+
 export function applyRubricConfig(config, rubric) {
   if (!rubric) return config;
   if (config.rubricId === rubric.id && config.rubricRevision === rubric.revision) return config;
@@ -202,7 +208,7 @@ export function applyRubricConfig(config, rubric) {
         : base.coverPrompt || ''
     }${
       config.projectId === 'code-to-think' && rubric.name
-        ? `\nНарисуй название рубрики «${rubric.name}» пиксельным шрифтом. Название группы «Код на подумать» — мелким текстом в углу.`
+        ? `\nНарисуй название рубрики «${rubricLabelForImage(rubric.name)}» пиксельным шрифтом. Время слота, часы и дату публикации не рисуй. Название группы «Код на подумать» — мелким текстом в углу.`
         : ''
     }`,
     videoPrompt: rubric.mediaPrompt

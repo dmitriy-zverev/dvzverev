@@ -229,7 +229,7 @@ No flickering edges, boiling textures, or face/object morphing.
 
 OUTPUT GOAL
 
-The result should look like a moving editorial photograph from a calm premium lifestyle magazine.
+The result should look like a moving editorial photograph from a calm premium lifestyle magazine. No clock times, HH:MM, or publication dates.
 
 The viewer should notice the atmosphere first and the product naturally second.
 

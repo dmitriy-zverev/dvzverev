@@ -125,7 +125,7 @@ No jerky, stuttering, or ping-pong motion.
 No flickering textures or boiling edges.
 No colliding / overlapping moving layers.
 
-The final result should look like a moving fragment of an old painting or an art-house period film.
+The final result should look like a moving fragment of an old painting or an art-house period film. No clock times, HH:MM, or publication dates.
 
 SCENE FOR THIS GIF:
 [SCENE]
