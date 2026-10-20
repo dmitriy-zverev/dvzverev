@@ -1,7 +1,7 @@
 import { openPanel, closePanel, resizeFields } from './panels.js';
 import { icon } from './icons.js';
 import { createOzonComposer } from './ozon.js';
-import { createRubricManager } from './rubrics.js';
+import { createRubricManager } from './rubrics.js?v=14047686';
 
 const app = document.getElementById('app');
 if (!app || !('apiBase' in app.dataset)) {
@@ -1698,7 +1698,7 @@ async function loadEditorialBundle(project) {
   if (!project) {
     return { overview: null, memory: [], series: [], diversity: null, revision: null };
   }
-  const { createEditorialWorkbench } = await import('./editorial.js');
+  const { createEditorialWorkbench } = await import('./editorial.js?v=14047686');
   editorialWorkbench ||= createEditorialWorkbench({
     api,
     escapeText,

@@ -66,7 +66,7 @@ export function createRubricManager({ api, escapeText: esc, refresh, selectProje
                     (
                       r,
                     ) => `<article class="rubric-card" style="--rubric-color:${safeColor(r.color)}">
-            <div class="rubric-card-heading"><span class="rubric-dot" aria-hidden="true"></span><h3>${esc(r.name)}</h3><span class="rubric-media">${mediaLabels[r.media]}</span></div>
+            <div class="rubric-card-heading"><span class="rubric-dot" aria-hidden="true"></span><h3>${esc(r.name)}</h3><span class="rubric-media">${esc(mediaLabels[r.media] || 'Изображение')}</span></div>
             <p class="rubric-rhythm">${r.days.map((d) => days[d - 1]).join(' · ')}<strong>${r.times.map(esc).join(' / ')}</strong></p>
             <p class="rubric-description">${esc(r.textPrompt || 'Стиль и правила из системного промпта группы')}</p>
             <div class="rubric-card-footer"><span>${r.pending ? 'Отмена записей не завершена' : r.enabled ? (r.media === 'text' ? 'Выходит по расписанию' : r.media === 'photo' ? 'Текст и изображение' : 'Недельная подготовка в VK') : 'На паузе'}</span><button type="button" data-rubric-edit="${esc(r.id)}" aria-label="${r.pending ? 'Продолжить' : 'Настроить'} →">${r.pending ? 'Продолжить' : 'Настроить'} ${icon('right')}</button></div>
