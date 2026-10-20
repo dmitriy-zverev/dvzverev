@@ -647,6 +647,10 @@ function latestActiveObservation(db, projectId, vkPostId, metricMode) {
     .get(projectId, String(vkPostId), metricMode);
 }
 
+export function writeMetricObservation(db, input) {
+  return upsertObservation(db, input);
+}
+
 function upsertObservation(db, input) {
   const existing = db
     .prepare(

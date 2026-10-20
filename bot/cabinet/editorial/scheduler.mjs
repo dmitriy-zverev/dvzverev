@@ -4,6 +4,7 @@ import { createWeeklyEditorialJob } from './job.mjs';
 import { notifyEditorialFailure, notifyEditorialProposal } from './notify.mjs';
 import { syncEditorialMemory } from './memory.mjs';
 import { pauseExpiredOpenSeries } from './series.mjs';
+import { collectWeeklyVkStats } from '../analytics/weekly-vk.mjs';
 
 /**
  * Sunday 19:30 Europe/Moscow: one weekly proposal job per enabled project.
@@ -21,6 +22,20 @@ export async function runEditorialScheduler(db, service, env, now = new Date()) 
   const marker = `editorial_weekly_ran:${weekStart}`;
   if (getMeta(db, marker)) {
     return { skipped: true, reason: 'already_ran', weekStart };
+  }
+
+  let weekStats = null;
+  try {
+    weekStats = await collectWeeklyVkStats(db, env, { now });
+    syncEditorialMemory(db, { now });
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        type: 'weekly_vk_stats_failed',
+        message: String(error.message || error),
+        at: now.toISOString(),
+      }),
+    );
   }
 
   const results = [];
@@ -68,5 +83,5 @@ export async function runEditorialScheduler(db, service, env, now = new Date()) 
   }
 
   setMeta(db, marker, now.toISOString());
-  return { weekStart, results };
+  return { weekStart, weekStats, results };
 }

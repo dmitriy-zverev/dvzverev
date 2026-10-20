@@ -159,15 +159,43 @@ function summarizeRecent(snapshot) {
   const n = snapshot.memory?.length || 0;
   const findings = snapshot.diversity?.findings?.length || 0;
   const incomplete = snapshot.incompleteEditions?.length || 0;
-  return `За 30 дней: ${n} подтверждённых VK-постов; повторов/замечаний: ${findings}; незавершённых выпусков (не оценены): ${incomplete}.`;
+  const week = snapshot.metrics?.week;
+  const base = `За 30 дней: ${n} подтверждённых VK-постов; повторов/замечаний: ${findings}; незавершённых выпусков (не оценены): ${incomplete}.`;
+  if (!week?.posts) return base;
+  return `${base} Неделя ${week.from}: постов ${week.posts}, медиана охвата ${week.medianReach ?? 'нет'}, просмотры ${week.views}, лайки ${week.likes}, комментарии ${week.comments}, репосты ${week.reposts}.`;
+}
+
+function reachByRubric(snapshot) {
+  const stats = new Map(
+    (snapshot.metrics?.week?.items || []).map((item) => [String(item.vkPostId), item]),
+  );
+  const buckets = {};
+  for (const memory of snapshot.memory || []) {
+    const stat = stats.get(String(memory.vkPostId || ''));
+    if (!stat || stat.reach == null || !memory.rubricId) continue;
+    (buckets[memory.rubricId] ||= []).push(stat.reach);
+  }
+  return buckets;
+}
+
+function median(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor((sorted.length - 1) / 2)];
 }
 
 function buildContinue(snapshot, evidenceIds) {
   const rubrics = snapshot.diversity?.counts?.rubrics || {};
+  const reach = reachByRubric(snapshot);
   const actual = snapshot.rubrics?.filter((r) => r.state === 'active' && r.enabled);
   const ranked = actual
     ? actual.map((r) => [r.id, rubrics[r.id] || 0]).sort((a, b) => b[1] - a[1])
     : Object.entries(rubrics).sort((a, b) => b[1] - a[1]);
+  if (Object.keys(reach).length) {
+    ranked.sort(
+      (a, b) => (median(reach[b[0]] || []) ?? -1) - (median(reach[a[0]] || []) ?? -1),
+    );
+  }
   if (actual && !actual.length) return [];
   if (!ranked.length) {
     return [
@@ -185,7 +213,9 @@ function buildContinue(snapshot, evidenceIds) {
   }
   return ranked.slice(0, 2).map(([rubricId]) => ({
     rubricId,
-    reason: 'рубрика уже присутствует в памяти; продолжить с чередованием темы',
+    reason: reach[rubricId]
+      ? `медиана охвата рубрики за неделю ${median(reach[rubricId])}; продолжить с чередованием темы`
+      : 'рубрика уже присутствует в памяти; продолжить с чередованием темы',
     evidenceIds: evidenceIds
       .filter((id) => id.startsWith('memory:') || id.startsWith('finding:'))
       .slice(0, 5),

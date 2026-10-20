@@ -297,7 +297,7 @@ function observationCoverage(db, projectId, editionId) {
   try {
     const row = db
       .prepare(
-        `SELECT observed_at, reach_organic, reach_paid, views
+        `SELECT observed_at, reach_total, reach_organic, reach_paid, views, likes, comments, reposts
          FROM metric_observations
          WHERE project_id = ? AND edition_id = ? AND is_active = 1
          ORDER BY observed_at DESC LIMIT 1`,
@@ -309,9 +309,13 @@ function observationCoverage(db, projectId, editionId) {
     return {
       hasMetrics: true,
       observedAt: row.observed_at,
+      reachTotal: row.reach_total,
       reachOrganic: row.reach_organic,
       reachPaid: row.reach_paid,
       views: row.views,
+      likes: row.likes,
+      comments: row.comments,
+      reposts: row.reposts,
     };
   } catch {
     return { hasMetrics: false, observedAt: null, note: 'данных недостаточно' };

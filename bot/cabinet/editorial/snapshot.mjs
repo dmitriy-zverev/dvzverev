@@ -89,7 +89,10 @@ export function buildEditorialSnapshot(
     )
     .all(projectId);
 
-  const metricsMeta = latestMetricsMeta(db, projectId);
+  const metricsMeta = {
+    ...latestMetricsMeta(db, projectId),
+    week: weekPerformance(db, projectId, planWeek),
+  };
   const activePlan = latestApprovedRevision(db, projectId, planWeek);
   const experiments = listOpenExperiments(db, projectId);
   const promptVersions = listActivePromptVersions(db, projectId);
@@ -172,6 +175,45 @@ export function buildEditorialSnapshot(
     .digest('hex');
 
   return { snapshot, inputSnapshotHash: hash, metricsStale: metricsMeta.stale };
+}
+
+function weekPerformance(db, projectId, planWeek) {
+  const start = addDaysYmd(planWeek, -7);
+  let rows = [];
+  try {
+    rows = db
+      .prepare(
+        `SELECT vk_post_id, views, reach_total, reach_organic, likes, comments, reposts
+         FROM metric_observations
+         WHERE project_id = ? AND is_active = 1 AND source = 'vk-oauth-weekly' AND period_from = ?`,
+      )
+      .all(projectId, start);
+  } catch {
+    rows = [];
+  }
+  const reaches = rows
+    .map((row) => row.reach_organic ?? row.reach_total)
+    .filter((value) => value != null)
+    .sort((a, b) => a - b);
+  const sum = (key) => rows.reduce((total, row) => total + (row[key] || 0), 0);
+  return {
+    from: start,
+    to: planWeek,
+    posts: rows.length,
+    medianReach: reaches.length ? reaches[Math.floor((reaches.length - 1) / 2)] : null,
+    views: sum('views'),
+    likes: sum('likes'),
+    comments: sum('comments'),
+    reposts: sum('reposts'),
+    items: rows.map((row) => ({
+      vkPostId: row.vk_post_id,
+      reach: row.reach_organic ?? row.reach_total,
+      views: row.views,
+      likes: row.likes,
+      comments: row.comments,
+      reposts: row.reposts,
+    })),
+  };
 }
 
 function latestMetricsMeta(db, projectId) {
