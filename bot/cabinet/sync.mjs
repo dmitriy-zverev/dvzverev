@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { bumpDataVersion, setMeta, withTransaction } from './db.mjs';
 import { aggregateEditionStatus, mapEntryStatus, publicationKind } from './status.mjs';
 import {
@@ -20,6 +20,7 @@ import { runAnalyticsCleanup } from './analytics/ttl.mjs';
 import { runEditorialScheduler } from './editorial/scheduler.mjs';
 import { syncEditorialMemory } from './editorial/memory.mjs';
 import { rubricService, rubricForDate, bindRubricSlot, retireUnownedSlots } from './rubrics.mjs';
+import { readGenerationCosts } from '../costs.mjs';
 
 const MATERIALIZE_DAYS_FORWARD = 14;
 const MATERIALIZE_DAYS_BACK = 7;
@@ -28,6 +29,16 @@ const SLOT_WINDOW_MINUTES = 5;
 export function generationCostUsd(...parts) {
   const known = parts.filter((value) => typeof value === 'number' && Number.isFinite(value));
   return known.length ? known.reduce((sum, value) => sum + value, 0) : null;
+}
+
+export function editionCostUsd(entry, events = []) {
+  const tracked = events.filter(
+    (event) =>
+      event.postId === entry.postId && typeof event.usd === 'number' && Number.isFinite(event.usd),
+  );
+  if (entry.postId && tracked.length)
+    return tracked.reduce((sum, event) => sum + event.usd, 0);
+  return generationCostUsd(entry.generation?.cost, entry.image?.cost);
 }
 
 export function materializeScheduleSlots(db, service, env, now = new Date()) {
@@ -178,6 +189,12 @@ export async function syncProjectState(db, service, projectId, env, now = new Da
     : resolve(configRoot, `state/${projectId}.json`);
   const raw = JSON.parse(await readFile(statePath, 'utf8'));
   const destinationId = project.delivery?.destinations?.[0];
+  const ledger =
+    project.metrics?.enabled === true
+      ? await readGenerationCosts({
+          costLedgerPath: resolve(dirname(statePath), 'generation-costs.jsonl'),
+        })
+      : { events: [] };
 
   return withTransaction(db, () => {
     let editions = 0;
@@ -222,7 +239,7 @@ export async function syncProjectState(db, service, projectId, env, now = new Da
               image: imageModel,
             }
           : null;
-      const cost = generationCostUsd(entry.generation?.cost, entry.image?.cost);
+      const cost = editionCostUsd(entry, ledger.events);
       const existingEdition = db
         .prepare('SELECT edition_id FROM editions WHERE edition_id = ?')
         .get(editionId);

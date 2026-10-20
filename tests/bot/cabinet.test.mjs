@@ -15,7 +15,7 @@ import { openCabinetDb } from '../../bot/cabinet/db.mjs';
 import { refreshServiceSnapshot } from '../../bot/cabinet/projects.mjs';
 import { startCabinetServer } from '../../bot/cabinet/server.mjs';
 import { schedulerHeartbeatStatus } from '../../bot/health.mjs';
-import { materializeScheduleSlots, syncProjectState } from '../../bot/cabinet/sync.mjs';
+import { editionCostUsd, materializeScheduleSlots, syncProjectState } from '../../bot/cabinet/sync.mjs';
 import { buildOverview, patchPlan } from '../../bot/cabinet/overview.mjs';
 import {
   aggregateEditionStatus,
@@ -206,6 +206,28 @@ test('active cabinet use slides the session for another 12 hours', async (t) => 
     headers: { Cookie: `cabinet_session=${session.token}` },
   });
   assert.equal(denied.status, 401);
+});
+
+test('edition cost keeps failed attempts that the ledger recorded', () => {
+  const cost = editionCostUsd(
+    { postId: 'p', generation: { cost: 0.00084 }, image: { cost: 0.03375 } },
+    [
+      { postId: 'p', usd: 0.00127905 },
+      { postId: 'p', usd: 0.00113928 },
+      { postId: 'p', usd: 0.0000689 },
+      { postId: 'p', usd: 0.000769708 },
+      { postId: 'p', usd: 0.0000703 },
+      { postId: 'p', usd: 0.03375325 },
+      { postId: 'other', usd: 9 },
+      { postId: 'p', usd: null },
+    ],
+  );
+  assert.ok(Math.abs(cost - 0.037080488) < 1e-9);
+  assert.ok(
+    Math.abs(
+      editionCostUsd({ postId: 'p', generation: { cost: 0.2 }, image: { cost: 0.1 } }, []) - 0.3,
+    ) < 1e-9,
+  );
 });
 
 test('overview API requires session', async (t) => {
