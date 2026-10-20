@@ -63,16 +63,17 @@ export function materializeScheduleSlots(db, service, env, now = new Date()) {
               key,
               destination,
             );
-            if (rubric) {
-              publication.kind = rubric.media;
-              publication.media = rubric.media === 'text' ? null : rubric.media;
-            } else if (
+            if (
               destination.media?.enabled &&
               destination.media.uploadMode === 'photo' &&
               !destination.media.times?.length
             ) {
               publication.kind = 'image';
               publication.media = 'image';
+            } else if (rubric) {
+              const kind = rubric.media === 'photo' ? 'image' : rubric.media;
+              publication.kind = kind;
+              publication.media = kind === 'text' ? null : kind;
             }
             const existing = db
               .prepare(

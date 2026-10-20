@@ -371,8 +371,8 @@ test('rubric prompt leads and the group prompt is appended', () => {
     { vkImagesEnabled: true, openrouterPrompt: 'S', coverPrompt: '', videoPrompt: '' },
     { id: 'r3', revision: 1, name: 'Текст', media: 'text', times: ['10:00'] },
   );
-  assert.equal(forced.vkImagesEnabled, false);
-  assert.deepEqual(forced.mediaTimes, []);
+  assert.equal(forced.vkImagesEnabled, true);
+  assert.equal(forced.mediaTimes, null);
   const timed = applyRubricConfig(
     { projectId: 'code-to-think', coverPrompt: 'STYLE' },
     { id: 'r4', revision: 1, name: 'ЧТО ВЫВЕДЕТ КОД? · 12:00', media: 'image' },

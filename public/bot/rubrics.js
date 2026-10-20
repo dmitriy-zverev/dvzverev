@@ -1,7 +1,7 @@
 import { openPanel, closePanel } from './panels.js';
 import { icon } from './icons.js';
 const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-const mediaLabels = { text: 'Текст', image: 'GIF', video: 'Короткое видео' };
+const mediaLabels = { text: 'Текст', photo: 'Изображение', image: 'GIF', video: 'Короткое видео' };
 const rubricCount = (count) =>
   `${count} ${count % 100 >= 11 && count % 100 <= 14 ? 'рубрик' : count % 10 === 1 ? 'рубрика' : count % 10 >= 2 && count % 10 <= 4 ? 'рубрики' : 'рубрик'}`;
 const messages = {
@@ -69,7 +69,7 @@ export function createRubricManager({ api, escapeText: esc, refresh, selectProje
             <div class="rubric-card-heading"><span class="rubric-dot" aria-hidden="true"></span><h3>${esc(r.name)}</h3><span class="rubric-media">${mediaLabels[r.media]}</span></div>
             <p class="rubric-rhythm">${r.days.map((d) => days[d - 1]).join(' · ')}<strong>${r.times.map(esc).join(' / ')}</strong></p>
             <p class="rubric-description">${esc(r.textPrompt || 'Стиль и правила из системного промпта группы')}</p>
-            <div class="rubric-card-footer"><span>${r.pending ? 'Отмена записей не завершена' : r.enabled ? (r.media === 'text' ? 'Выходит по расписанию' : 'Недельная подготовка в VK') : 'На паузе'}</span><button type="button" data-rubric-edit="${esc(r.id)}" aria-label="${r.pending ? 'Продолжить' : 'Настроить'} →">${r.pending ? 'Продолжить' : 'Настроить'} ${icon('right')}</button></div>
+            <div class="rubric-card-footer"><span>${r.pending ? 'Отмена записей не завершена' : r.enabled ? (r.media === 'text' ? 'Выходит по расписанию' : r.media === 'photo' ? 'Текст и изображение' : 'Недельная подготовка в VK') : 'На паузе'}</span><button type="button" data-rubric-edit="${esc(r.id)}" aria-label="${r.pending ? 'Продолжить' : 'Настроить'} →">${r.pending ? 'Продолжить' : 'Настроить'} ${icon('right')}</button></div>
           </article>`,
                   )
                   .join('')
@@ -112,10 +112,10 @@ export function createRubricManager({ api, escapeText: esc, refresh, selectProje
             `<option value="${key}" ${r.media === key ? 'selected' : ''}>${label}</option>`,
         )
         .join('')}</select></label>
-      <div class="rubric-media-note" id="rubric-media-note"><strong>Медиа готовятся на неделю вперёд</strong><p>GIF уходит на стену как документ сообщества (community-токен). Отдельный вход VK не нужен. Короткое видео пока требует user OAuth.</p></div>
+      <div class="rubric-media-note" id="rubric-media-note"><strong>К посту готовится изображение</strong><p>Квадратная обложка выходит вместе с текстом.</p></div>
       <label class="rubric-system-prompt-label">Системный промпт<span class="rubric-collapsible-prompt" data-collapsible-prompt><textarea name="systemPrompt" rows="5">${esc(data.systemPrompts?.[r.projectId] || '')}</textarea><button type="button" class="rubric-prompt-toggle" data-prompt-expand hidden>Показать полностью</button></span><span class="meta">Общий для всех рубрик этой группы.</span></label>
       <label>Промпт рубрики<textarea name="textPrompt" rows="5" maxlength="6000" placeholder="О чём эта рубрика, подача, структура, ограничения…">${esc(r.textPrompt)}</textarea><span class="meta">Основное задание рубрики. Системный промпт группы добавляется следом.</span></label>
-      <label>Промпт для GIF и видео · необязательно<textarea name="mediaPrompt" rows="4" maxlength="6000" placeholder="Сюжеты, композиция, настроение, движение камеры…">${esc(r.mediaPrompt)}</textarea><span class="meta">Основной визуальный промпт рубрики. Стиль группы добавляется следом. Пустое поле оставляет только стиль группы.</span></label>
+      <label>Визуальный промпт · необязательно<textarea name="mediaPrompt" rows="4" maxlength="6000" placeholder="Сюжеты, композиция, настроение, движение камеры…">${esc(r.mediaPrompt)}</textarea><span class="meta">Основной визуальный промпт рубрики. Стиль группы добавляется следом. Пустое поле оставляет только стиль группы.</span></label>
       <label class="rubric-enabled"><input type="checkbox" name="enabled" ${r.enabled ? 'checked' : ''}> Рубрика активна</label>
       <p class="rubric-change-note">Изменения применяются к ещё не вышедшим постам. Подготовленные отложенные записи отменяются; медиа понадобится подготовить заново. Опубликованные посты сохраняются.</p>
       <p class="rubric-error" role="alert" id="rubric-error"></p></div>
@@ -136,8 +136,17 @@ export function createRubricManager({ api, escapeText: esc, refresh, selectProje
       });
     const note = dialog.querySelector('#rubric-media-note');
     const media = form.elements.namedItem('media');
+    const mediaNotes = {
+      photo: ['К посту готовится изображение', 'Квадратная обложка выходит вместе с текстом.'],
+      image: ['GIF готовится отдельно', 'GIF уходит на стену как документ. Короткое видео требует отдельной подготовки.'],
+      video: ['Короткое видео', 'Ролик готовится отдельно и требует прав на видео.'],
+    };
     const syncNote = () => {
-      note.hidden = media.value === 'text';
+      const copy = mediaNotes[media.value];
+      note.hidden = !copy;
+      if (!copy) return;
+      note.querySelector('strong').textContent = copy[0];
+      note.querySelector('p').textContent = copy[1];
     };
     syncNote();
     media.onchange = syncNote;

@@ -811,7 +811,7 @@ function readSlotMeta(node) {
 
 function renderSlotSummary(meta) {
   const kind = escapeText(
-    { image: 'GIF', text: 'Текст', video: 'Видео' }[meta.publicationKind] ||
+    { image: 'Изображение', photo: 'Изображение', gif: 'GIF', text: 'Текст', video: 'Видео' }[meta.publicationKind] ||
       meta.publicationKind ||
       '—',
   );

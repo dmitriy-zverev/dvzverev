@@ -40,6 +40,9 @@ test('lifestyle rejects invented prices, medical claims, links, markup and exact
   await assert.rejects(generatePost(cfg, { id: 'repeat', historyPosts: [content.paragraphs.join('\n\n')],
     fetchImpl: async () => response(content) }), GenerationFailure);
   await assert.rejects(generatePost(cfg, { id: 'cut', fetchImpl: async () => response(content, 'length') }), GenerationFailure);
+  const wrapped = await generatePost(cfg, { id: 'wrap', fetchImpl: async (_url, init) =>
+    reviewed({ ...content, paragraphs: [content.paragraphs[0], 'Строка\nпродолжается.'] }, init) });
+  assert.match(formatVkPost(wrapped), /Строка продолжается/);
 });
 
 test('lifestyle keeps fallback chain when the primary model returns unsafe content', async () => {

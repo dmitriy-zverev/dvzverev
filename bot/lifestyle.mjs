@@ -4,6 +4,12 @@ import { lifestyleText } from './content.mjs';
 const TYPES = ['одна вещь', 'маленькая проблема — простое решение', 'подборка',
   'сохранить на потом', 'неочевидное применение', 'деталь спокойного быта', 'сезонный сценарий'];
 
+function invalidLifestyle(reason) {
+  const failure = new GenerationFailure('invalid_generated_lifestyle_post');
+  failure.message += `: ${reason}`;
+  return failure;
+}
+
 export async function generateLifestylePost(config, {
   id, history = [], historyPosts = [], feedback = '', fetchImpl = fetch, now = new Date(),
 } = {}) {
@@ -27,18 +33,23 @@ export async function generateLifestylePost(config, {
     } },
   } }, fetchImpl);
   try {
-    if (response.choices?.[0]?.finish_reason !== 'stop') throw new Error();
+    if (response.choices?.[0]?.finish_reason !== 'stop') throw invalidLifestyle('finish_' + (response.choices?.[0]?.finish_reason || 'missing'));
     const result = JSON.parse(response.choices[0].message.content);
+    if (Array.isArray(result?.paragraphs)) {
+      result.paragraphs = result.paragraphs.map((paragraph) =>
+        typeof paragraph === 'string' ? paragraph.replace(/[ \t]*\n[ \t]*/g, ' ').trim() : paragraph,
+      );
+    }
     if (!result || Object.keys(result).length !== 2 || typeof result.theme !== 'string' ||
         !result.theme.trim() || result.theme.length > 150 || !Array.isArray(result.paragraphs) ||
         result.paragraphs.length < 2 || result.paragraphs.length > 6 ||
-        result.paragraphs.some(p => typeof p !== 'string' || !p.trim() || /\n|\*\*|```/.test(p)))
-      throw new Error();
+        result.paragraphs.some(p => typeof p !== 'string' || !p.trim() || /\*\*|```/.test(p)))
+      throw invalidLifestyle('shape');
     const post = { id, kind: 'lifestyle', text: result.paragraphs.map(p => p.trim()).join('\n\n') };
     const text = lifestyleText(post);
     if (/лечит|гипоаллерген|ортопедич|сертифиц|безопас[^.\n]{0,30}дет|\d+[.,]?\d*\s*(?:₽|руб|%|доллар)|мы\s+(?:купили|испытали|проверили)|успейте купить|шок-цена|налетай/iu.test(text))
-      throw new Error();
-    if (historyPosts.some(previous => previous.trim() === text)) throw new Error();
+      throw invalidLifestyle('forbidden_claim');
+    if (historyPosts.some(previous => previous.trim() === text)) throw invalidLifestyle('repeat');
     const reviewModel = config.reviewModel || config.openrouterModel;
     const review = await requestCompletion({ ...config, openrouterModel: reviewModel,
       openrouterModels: [reviewModel] }, { kind: 'review', body: {
@@ -66,6 +77,6 @@ export async function generateLifestylePost(config, {
     } };
   } catch (error) {
     if (error instanceof GenerationFailure) throw error;
-    throw new GenerationFailure('invalid_generated_lifestyle_post');
+    throw invalidLifestyle('unreadable');
   }
 }

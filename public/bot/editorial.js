@@ -1,7 +1,7 @@
 import { openPanel, closePanel, resizeFields } from './panels.js';
 import { icon } from './icons.js';
 const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-const media = { text: 'Текст', image: 'GIF', video: 'Короткое видео' };
+const media = { text: 'Текст', photo: 'Изображение', image: 'GIF', video: 'Короткое видео' };
 const metrics = { views: 'Просмотры', likes: 'Лайки', comments: 'Комментарии', reposts: 'Репосты' };
 const states = {
   proposed: 'На рассмотрении',
@@ -106,7 +106,7 @@ export function createEditorialWorkbench({ api, escapeText: esc, refresh }) {
         )
         .join('')}</select></label>
       <label>Задание для текста<textarea name="textPrompt" maxlength="6000">${esc(s.config.textPrompt)}</textarea></label>
-      <label>Задание для GIF и видео<textarea name="mediaPrompt" maxlength="6000">${esc(s.config.mediaPrompt)}</textarea></label>
+      <label>Визуальный промпт<textarea name="mediaPrompt" maxlength="6000">${esc(s.config.mediaPrompt)}</textarea></label>
       <div class="editorial-test-grid"><label>Публикаций для проверки<input name="targetPosts" type="number" min="2" max="30" required value="${s.targetPosts}"></label><label>Пересмотреть через дней<input name="reviewDays" type="number" min="1" max="60" required value="${s.reviewDays}"></label></div>
       <label>Основная метрика<select name="metric">${Object.entries(metrics)
         .map(([k, v]) => `<option value="${k}" ${s.metric === k ? 'selected' : ''}>${v}</option>`)

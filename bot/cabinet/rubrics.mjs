@@ -38,7 +38,7 @@ export function validateRubric(input) {
     !times.length ||
     times.length > 8 ||
     times.some((t) => !TIME_PATTERN.test(t)) ||
-    !['text', 'image', 'video'].includes(input.media || 'text')
+    !['text', 'photo', 'image', 'video'].includes(input.media || 'text')
   )
     throw new Error('rubric_invalid');
   const textPrompt = String(input.textPrompt || '').trim();
@@ -82,7 +82,7 @@ export function ensureRubrics(db, service, now = new Date()) {
       for (const { time, media, days } of variants.values()) {
         const id = randomUUID();
         const config = validateRubric({
-          name: `${media === 'text' ? 'Основная рубрика' : media === 'image' ? 'GIF' : 'Видеоистория'} · ${time}`,
+          name: `${media === 'text' ? 'Основная рубрика' : media === 'photo' ? 'Изображение' : media === 'image' ? 'GIF' : 'Видеоистория'} · ${time}`,
           days,
           times: [time],
           media,
@@ -214,16 +214,16 @@ export function applyRubricConfig(config, rubric) {
     videoPrompt: rubric.mediaPrompt
       ? `${rubric.mediaPrompt}\n\nВизуальный стиль группы:\n${base.videoPrompt || ''}`
       : base.videoPrompt,
-    weeklyImages: rubric.media === 'text' ? false : Boolean(config.vkImagesEnabled) || true,
-    imagesEnabled: rubric.media === 'text' ? false : Boolean(config.imagesEnabled) || true,
-    vkImagesEnabled: rubric.media === 'text' ? false : Boolean(config.vkImagesEnabled) || true,
+    weeklyImages: rubric.media !== 'text' || Boolean(config.vkImagesEnabled),
+    imagesEnabled: rubric.media !== 'text' || Boolean(config.vkImagesEnabled),
+    vkImagesEnabled: rubric.media !== 'text' || Boolean(config.vkImagesEnabled),
     mediaTimes:
-      rubric.media === 'text'
+      rubric.media === 'text' && !config.vkImagesEnabled
         ? []
         : config.vkImagesEnabled && !config.mediaTimes?.length
           ? null
           : rubric.times,
-    staticPhoto: rubric.media === 'text' ? false : Boolean(config.staticPhoto) || rubric.media === 'image',
+    staticPhoto: rubric.media === 'photo' || Boolean(config.staticPhoto),
     coverMode: rubric.media === 'video' && !config.staticPhoto ? 'video' : config.coverMode || 'image',
   };
 }
