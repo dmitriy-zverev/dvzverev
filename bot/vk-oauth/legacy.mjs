@@ -75,7 +75,7 @@ function ownerBrokerFingerprint(env) {
   ].join('|');
 }
 
-/** VK ID PKCE for scope checks. Not used for weekly GIF posts. */
+/** VK ID PKCE. Wall posts and photo uploads use this token, not a community key. */
 export function getOwnerVkClient(env) {
   if (env.VK_WEEKLY_OAUTH_ENABLED !== 'true') return null;
   const key = ownerBrokerFingerprint(env);
@@ -93,7 +93,64 @@ export function getOwnerVkClient(env) {
   return ownerBroker;
 }
 
-/** Weekly prepare/publish always uses community tokens (text + GIF docs). */
+export const OAUTH_PUBLISH_ATTEMPTS = 3;
+
+export async function useOwnerPublishingToken(config, env = process.env) {
+  if (!config?.vkEnabled) return config;
+  const owner = getOwnerVkClient(env);
+  if (!owner) throw new Error('vk_oauth_required');
+  const status = owner.status();
+  if (!status.connected) throw new Error('vk_oauth_login_required');
+  if (!status.canPhoto) throw new Error('vk_oauth_photo_scope_required');
+  const token = await owner.accessToken();
+  return { ...config, vkToken: token, vkPhotosToken: token, vkAuth: 'oauth' };
+}
+
+export async function refreshOwnerPublishingToken(config, env = process.env) {
+  const owner = getOwnerVkClient(env);
+  if (!owner) throw new Error('vk_oauth_required');
+  const token = await owner.accessToken(true);
+  return { ...config, vkToken: token, vkPhotosToken: token, vkAuth: 'oauth' };
+}
+
+export async function beginPublishAuth(config, env = process.env) {
+  if (!config?.vkEnabled) return config;
+  const communityToken = config.vkCommunityToken || config.vkToken;
+  const base = { ...config, vkCommunityToken: communityToken };
+  try {
+    const oauth = await useOwnerPublishingToken(base, env);
+    return { ...oauth, vkCommunityToken: communityToken, vkAuth: 'oauth' };
+  } catch (error) {
+    return {
+      ...base,
+      vkAuth: 'oauth-unavailable',
+      vkOauthError: error.message,
+    };
+  }
+}
+
+export function usesOauth(config) {
+  return config?.vkAuth === 'oauth' || config?.vkAuth === 'oauth-unavailable';
+}
+
+export function registerOauthFailure(entry) {
+  entry.oauthAttempts = (entry.oauthAttempts || 0) + 1;
+  return entry.oauthAttempts < OAUTH_PUBLISH_ATTEMPTS ? 'retry' : 'community-text';
+}
+
+export function oauthRetryAt(attempts, now = Date.now()) {
+  return new Date(now + 30000 * attempts).toISOString();
+}
+
+export function applyCommunityText(config) {
+  if (!config?.vkCommunityToken) return false;
+  config.vkToken = config.vkCommunityToken;
+  config.vkPhotosToken = '';
+  config.vkAuth = 'community-text';
+  return true;
+}
+
+/** Community publisher remains for callers that inject it. Live posts use owner OAuth. */
 export function getWeeklyVkClient(env) {
   return getCommunityWeeklyPublisher(env);
 }

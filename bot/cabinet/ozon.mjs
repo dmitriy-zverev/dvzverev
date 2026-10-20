@@ -15,7 +15,7 @@ import {
 import { loadAppConfig } from '../app-config.mjs';
 import { requestCompletion } from '../openrouter.mjs';
 import { generateCover, coverPath, uploadVkPhoto } from '../images.mjs';
-import { getWeeklyVkClient } from '../vk-oauth/legacy.mjs';
+import { getOwnerVkClient, getWeeklyVkClient } from '../vk-oauth/legacy.mjs';
 import { createLargeBodyReader } from './analytics/routes.mjs';
 
 const exec = promisify(execFile);
@@ -487,7 +487,11 @@ export async function publishOzonPost(db, env, id, body, dependencies = {}) {
   const config = await app.resolveProjectConfig(post.input.projectId);
   if (String(config.vkGroupId) !== String(post.groupId))
     fail('Сообщество проекта изменилось. Создайте новый черновик.', 409);
-  const client = dependencies.client || getWeeklyVkClient(env);
+  const owner = dependencies.ownerClient || getOwnerVkClient(env);
+  const ownerReady = Boolean(owner?.status?.().connected && owner.status().canPhoto);
+  if (!dependencies.client && env.VK_WEEKLY_OAUTH_ENABLED === 'true' && !ownerReady)
+    fail('Нужен OAuth VK с правами стены и фото.', 409);
+  const client = dependencies.client || (ownerReady ? owner : getWeeklyVkClient(env));
   const vkStatus = client?.status?.();
   if (!vkStatus?.canPrepare) {
     fail(

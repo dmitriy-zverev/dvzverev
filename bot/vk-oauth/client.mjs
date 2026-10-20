@@ -150,22 +150,29 @@ export class VkOAuthClient {
     if (!token) throw new Error('vk_oauth_login_required');
     if (force && rejectedToken && token.accessToken !== rejectedToken) return token.accessToken;
     if (!force && token.expiresAt - this.now() > 300000) return token.accessToken;
-    // Single broker process owns refresh rotation. Do not run multiple replicas on this volume.
+    // Poster and cabinet share this store. The lock lets only one process rotate the refresh token.
     if (!this.refreshPromise) {
-      this.refreshPromise = this.tokenRequest({
-        grant_type: 'refresh_token',
-        refresh_token: token.refreshToken,
-        device_id: token.deviceId,
-      })
-        .then((next) => {
-          this.save(next, token);
-          return next.access_token;
-        })
+      this.refreshPromise = this.refreshLocked(token, force)
         .finally(() => {
           this.refreshPromise = null;
         });
     }
     return this.refreshPromise;
+  }
+  async refreshLocked(seen, force) {
+    return this.store.exclusive(async () => {
+      const token = this.store.get('token');
+      if (!token) throw new Error('vk_oauth_login_required');
+      if (token.accessToken !== seen.accessToken) return token.accessToken;
+      if (!force && token.expiresAt - this.now() > 300000) return token.accessToken;
+      const next = await this.tokenRequest({
+        grant_type: 'refresh_token',
+        refresh_token: token.refreshToken,
+        device_id: token.deviceId,
+      });
+      this.save(next, token);
+      return next.access_token;
+    });
   }
   async rawApi(method, parameters, accessToken) {
     let response;

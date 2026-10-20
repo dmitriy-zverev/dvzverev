@@ -12,7 +12,7 @@ export class OAuthStore {
     this.db = new DatabaseSync(path);
     chmodSync(path, 0o600);
     this.db.exec(
-      'PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS oauth_values (key TEXT PRIMARY KEY, encrypted TEXT NOT NULL);',
+      'PRAGMA busy_timeout=30000; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS oauth_values (key TEXT PRIMARY KEY, encrypted TEXT NOT NULL);',
     );
   }
   get(key) {
@@ -50,6 +50,21 @@ export class OAuthStore {
   }
   clearStates() {
     this.db.prepare("DELETE FROM oauth_values WHERE key LIKE 'state:%'").run();
+  }
+  async exclusive(work) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const value = await work();
+      this.db.exec('COMMIT');
+      return value;
+    } catch (error) {
+      try {
+        this.db.exec('ROLLBACK');
+      } catch {
+        // COMMIT already finished, or BEGIN never took the lock.
+      }
+      throw error;
+    }
   }
   close() {
     this.db.close();

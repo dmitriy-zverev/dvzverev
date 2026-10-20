@@ -22,6 +22,13 @@ import { randomUUID } from 'node:crypto';
 import { openCabinetDb } from './cabinet/db.mjs';
 import { assertSlotCurrent, applyRubricConfig } from './cabinet/rubrics.mjs';
 import { weeklyDelivery } from './cabinet/weekly-delivery.mjs';
+import {
+  applyCommunityText,
+  oauthRetryAt,
+  refreshOwnerPublishingToken,
+  registerOauthFailure,
+  usesOauth,
+} from './vk-oauth/legacy.mjs';
 import { acquireLock } from './lock.mjs';
 import {
   generateCover,
@@ -431,7 +438,27 @@ async function prepareImages(config, state, entry, { generateImage, uploadImage,
     }
     await saveState(config, state);
   }
-  if (image.status !== 'ready') return;
+  if (image.status !== 'ready') {
+    if (usesOauth(config) && image.status === 'failed') {
+      const decision = registerOauthFailure(entry);
+      if (decision === 'retry') {
+        image.status = 'pending';
+        entry.status = 'retry_wait';
+        entry.retryAt = oauthRetryAt(entry.oauthAttempts);
+        await saveState(config, state);
+        return false;
+      }
+      delete image.vk?.attachment;
+      applyCommunityText(config);
+      await saveState(config, state);
+      return;
+    }
+    return;
+  }
+  if (config.vkAuth === 'community-text') {
+    delete image.vk?.attachment;
+    return;
+  }
   // Preserve old interrupted releases without re-sending their separate cover.
   if (image.telegram?.status === 'sending') {
     image.telegram.status = 'uncertain';
@@ -447,6 +474,22 @@ async function prepareImages(config, state, entry, { generateImage, uploadImage,
       image.vk.status = 'ready';
     } catch (error) {
       if (!(error instanceof ImageFailure)) throw error;
+      if (usesOauth(config)) {
+        const decision = registerOauthFailure(entry);
+        await failure('vk', error.reason, error.code, null, null, error);
+        if (decision === 'retry') {
+          image.vk.status = 'uploading';
+          entry.status = 'retry_wait';
+          entry.retryAt = oauthRetryAt(entry.oauthAttempts);
+          await saveState(config, state);
+          return false;
+        }
+        image.vk.status = 'failed';
+        delete image.vk.attachment;
+        applyCommunityText(config);
+        await saveState(config, state);
+        return;
+      }
       image.vk.attempts = (image.vk.attempts || 0) + 1;
       const retry = image.vk.attempts < (config.imageMaxAttempts || 1);
       const limited = [6, 9, 29].includes(error.code);
@@ -725,6 +768,49 @@ async function generateForSlot(config, state, slot, now, generate, notify, sched
   await saveState(config, state);
   await alert(config, state, event, notify);
   return null;
+}
+
+async function settleOauthVkFailure(config, state, entry, error, sendVK, now) {
+  if (entry.platform !== 'vk' || !usesOauth(config) || !(error instanceof VkRejection)) return null;
+  let current = error;
+  if (current.code === 5) {
+    try {
+      const refreshed = await refreshOwnerPublishingToken(config);
+      config.vkToken = refreshed.vkToken;
+      config.vkPhotosToken = refreshed.vkPhotosToken;
+      config.vkAuth = 'oauth';
+      entry.vkPostId = await sendVK(config, entry);
+      entry.vkSentAt = now.toISOString();
+      entry.status = 'sent';
+      entry.sentAt = entry.vkSentAt;
+      delete entry.reason;
+      state.deliveryFailureStreaks.vk = 0;
+      return { settled: true };
+    } catch (retryError) {
+      current = retryError instanceof VkRejection ? retryError : new VkRejection(5);
+    }
+  }
+  const decision = registerOauthFailure(entry);
+  if (decision === 'retry') {
+    entry.status = 'retry_wait';
+    entry.reason = 'oauth_publish_failed';
+    entry.errorCode = current.code;
+    entry.retryAt = oauthRetryAt(entry.oauthAttempts, now.getTime());
+    return { settled: true };
+  }
+  if (!applyCommunityText(config)) return { settled: false, error: current };
+  if (entry.image?.vk) delete entry.image.vk.attachment;
+  try {
+    entry.vkPostId = await sendVK(config, entry);
+    entry.vkSentAt = now.toISOString();
+    entry.status = 'sent';
+    entry.sentAt = entry.vkSentAt;
+    delete entry.reason;
+    state.deliveryFailureStreaks.vk = 0;
+    return { settled: true };
+  } catch (communityError) {
+    return { settled: false, error: communityError };
+  }
 }
 
 export async function publish(
@@ -1033,9 +1119,12 @@ export async function publish(
           platform: 'vk',
           retryAt: state.cooldowns.vk,
         };
+      if (entry.platform === 'vk' && (entry.oauthAttempts || 0) >= 3) applyCommunityText(config);
+      if (config.vkAuth === 'community-text' && entry.image?.vk) delete entry.image.vk.attachment;
       if (
+        config.vkAuth !== 'community-text' &&
         (await prepareImages(config, state, entry, { generateImage, uploadImage, notify })) ===
-        false
+          false
       )
         return {
           status: 'retry_wait',
@@ -1099,7 +1188,38 @@ export async function publish(
           entry.status = 'sent';
           entry.sentAt = new Date().toISOString();
         }
-      } catch (error) {
+      } catch (caught) {
+        let error = caught;
+        const oauth = await settleOauthVkFailure(config, state, entry, error, sendVK, now);
+        if (oauth?.error) error = oauth.error;
+        if (oauth?.settled) {
+          await saveState(config, state);
+          if (entry.status === 'retry_wait') {
+            const event = {
+              platform: entry.platform,
+              status: entry.status,
+              reason: entry.reason,
+              postId: entry.postId,
+              errorCode: entry.errorCode,
+              attempts: entry.oauthAttempts,
+              retryAt: entry.retryAt,
+            };
+            (entry.errors ||= []).push(event);
+            await saveState(config, state);
+            await alert(config, state, event, notify);
+          }
+          return {
+            status: entry.status,
+            postId: entry.postId,
+            messageId: entry.messageId,
+            platform: entry.platform || 'telegram',
+            vkPostId: entry.vkPostId,
+            errorCode: entry.errorCode,
+            reason: entry.reason,
+            attempts: entry.oauthAttempts || entry.attempts,
+            retryAt: entry.retryAt,
+          };
+        }
         const rejection = error instanceof TelegramRejection || error instanceof VkRejection;
         entry.errorCode = rejection ? error.code : null;
         if (!rejection) {

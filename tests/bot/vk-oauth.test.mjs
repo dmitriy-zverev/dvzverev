@@ -6,7 +6,13 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { OAuthStore } from '../../bot/vk-oauth/store.mjs';
 import { VkOAuthClient } from '../../bot/vk-oauth/client.mjs';
-import { getOwnerVkClient, getWeeklyVkClient } from '../../bot/vk-oauth/legacy.mjs';
+import {
+  beginPublishAuth,
+  getOwnerVkClient,
+  getWeeklyVkClient,
+  registerOauthFailure,
+  useOwnerPublishingToken,
+} from '../../bot/vk-oauth/legacy.mjs';
 import {
   getOAuthBroker,
   getTrialOAuthBroker,
@@ -151,6 +157,53 @@ test('expired state and provider state mismatch cannot authorize', async (t) => 
   );
   await assert.rejects(client.accessToken(true), /response_state_mismatch/);
   assert.equal(store.get('token').accessToken, 'access-a');
+});
+
+test('live publish uses the owner oauth token', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'vk-publish-'));
+  const key = randomBytes(32).toString('hex');
+  const env = {
+    VK_WEEKLY_OAUTH_ENABLED: 'true',
+    VK_WEEKLY_CLIENT_ID: '54809454',
+    VK_OAUTH_REDIRECT_URI: 'https://www.dvzverev.ru/vk/callback/',
+    VK_OAUTH_ENCRYPTION_KEY: key,
+    VK_OAUTH_STORE_PATH: join(dir, 'oauth.sqlite'),
+    VK_OAUTH_ALLOWED_USER_ID: '83357715',
+  };
+  const owner = getOwnerVkClient(env);
+  t.after(async () => {
+    owner.store.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+  owner.store.set('token', {
+    accessToken: 'oauth-user',
+    refreshToken: 'refresh-user',
+    deviceId: 'device',
+    userId: 83357715,
+    expiresAt: Date.now() + 3600000,
+    permissions: 270340,
+  });
+  const config = await useOwnerPublishingToken(
+    { vkEnabled: true, vkToken: 'community-key', vkPhotosToken: '', vkGroupId: '194579254' },
+    env,
+  );
+  assert.equal(config.vkToken, 'oauth-user');
+  assert.equal(config.vkPhotosToken, 'oauth-user');
+  const armed = await beginPublishAuth(
+    { vkEnabled: true, vkToken: 'community-key', vkGroupId: '194579254' },
+    env,
+  );
+  assert.equal(armed.vkToken, 'oauth-user');
+  assert.equal(armed.vkCommunityToken, 'community-key');
+  const entry = {};
+  assert.equal(registerOauthFailure(entry), 'retry');
+  assert.equal(registerOauthFailure(entry), 'retry');
+  assert.equal(registerOauthFailure(entry), 'community-text');
+  assert.equal(entry.oauthAttempts, 3);
+  await assert.rejects(
+    useOwnerPublishingToken({ vkEnabled: true }, { ...env, VK_WEEKLY_OAUTH_ENABLED: 'false' }),
+    /vk_oauth_required/,
+  );
 });
 
 test('expiry refresh is single-flight and persists rotated refresh token', async (t) => {

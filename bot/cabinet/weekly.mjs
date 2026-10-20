@@ -15,7 +15,11 @@ import { generatePost } from '../openrouter.mjs';
 import { generateCover, uploadVkPhoto } from '../images.mjs';
 import { assertSlotCurrent, applyRubricConfig, ensureRubrics } from './rubrics.mjs';
 import { formatVkPost } from '../content.mjs';
-import { getOwnerVkClient, getWeeklyVkClient } from '../vk-oauth/legacy.mjs';
+import {
+  getOwnerVkClient,
+  getWeeklyVkClient,
+  OAUTH_PUBLISH_ATTEMPTS,
+} from '../vk-oauth/legacy.mjs';
 import { notifyWeeklyPrepareDigest } from './weekly-notify.mjs';
 
 /** Cap slot retries so a broken token/API cannot hammer VK or spam alerts. */
@@ -463,6 +467,10 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
       if (!owned()) throw new Error('vk_weekly_lease_lost');
       let dispatching = false;
       let created = false;
+      let slotMessage = '';
+      let slotGroupId = '';
+      let slotContentMode = '';
+      let publishDate = 0;
       const stamp = new Date().toISOString();
       const media = slot.publication_kind === 'text' ? 'text' : 'image';
       const verifyOnly = slot.weekly_status === 'uncertain' && slot.weekly_post_id;
@@ -483,13 +491,29 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
           editorialPlan: { topic: slot.topic || '', brief: slot.brief || '' },
         };
         if (client.bindGroup) client.bindGroup(config.vkGroupId);
-        const token = await client.accessToken();
-        config.vkPhotosToken = token;
-        config.vkToken = token;
+        const ownerClient = dependencies.ownerClient || getOwnerVkClient(env);
+        const ownerReady = Boolean(
+          ownerClient?.status?.().connected && ownerClient.status().canPhoto,
+        );
+        let poster = client;
+        if (ownerReady) {
+          const oauthToken = await ownerClient.accessToken();
+          config.vkToken = oauthToken;
+          config.vkPhotosToken = oauthToken;
+          poster = ownerClient;
+        } else if (env.VK_WEEKLY_OAUTH_ENABLED === 'true') {
+          throw new Error('vk_oauth_required');
+        } else {
+          const token = await client.accessToken();
+          config.vkPhotosToken = token;
+          config.vkToken = token;
+        }
         config.openrouterPrompt += `\nРедакторский план имеет приоритет в рамках достоверности и обязательного формата: ${JSON.stringify(config.editorialPlan)}`;
         let stored = db.prepare('SELECT * FROM vk_weekly_posts WHERE plan_id=?').get(slot.plan_id);
         const id = slotGuid(slot.plan_id);
-        const publishDate = Math.floor(Date.parse(slot.slot_utc) / 1000);
+        publishDate = Math.floor(Date.parse(slot.slot_utc) / 1000);
+        slotGroupId = config.vkGroupId;
+        slotContentMode = config.contentMode;
 
         if (stored?.post_id) {
           let message = '';
@@ -500,7 +524,7 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
               message = '';
             }
           }
-          const receipt = await loadWallReceipt(client, config.vkGroupId, stored.post_id);
+          const receipt = await loadWallReceipt(poster, config.vkGroupId, stored.post_id);
           if (
             receipt.unreadable ||
             isPostponedReceipt(receipt.saved, {
@@ -560,6 +584,7 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
           });
         }
         const message = formatVkPost(post);
+        slotMessage = message;
         db.prepare('UPDATE vk_weekly_posts SET post_json=?,group_id=? WHERE plan_id=?').run(
           JSON.stringify(post),
           config.vkGroupId,
@@ -567,25 +592,21 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
         );
 
         let attachment = stored.attachment || null;
-        let poster = client;
         if (media === 'image' && !attachment) {
           try {
-            const owner = getOwnerVkClient(env);
-            if (!owner?.status()?.canPhoto) throw new Error('vk_photo_token_required');
+            if (!ownerReady) throw new Error('vk_photo_token_required');
             const photoConfig = {
               ...config,
               staticPhoto: true,
               coverMode: 'image',
-              vkPhotosToken: await owner.accessToken(),
             };
             await cover(photoConfig, { postId: id, image: { text: message } });
-            attachment = await uploadVkPhoto(photoConfig, {
+            attachment = await upload(photoConfig, {
               postId: id,
               vkGroupId: config.vkGroupId,
             });
             if (!/^photo-?\d+_\d+(?:_[\w-]+)?$/.test(attachment || ''))
               throw new Error('vk_photo_save_invalid');
-            poster = owner;
             db.prepare('UPDATE vk_weekly_posts SET attachment=? WHERE plan_id=?').run(
               attachment,
               slot.plan_id,
@@ -595,11 +616,20 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
               `weekly image skipped slot=${slot.plan_id}: ${error.message || error}`,
             );
             attachment = null;
-            poster = client;
+            if (env.VK_WEEKLY_OAUTH_ENABLED === 'true') {
+              const attempts =
+                db.prepare('SELECT attempts FROM vk_weekly_posts WHERE plan_id=?').get(slot.plan_id)
+                  ?.attempts || 1;
+              if (attempts < OAUTH_PUBLISH_ATTEMPTS) throw error;
+              if (client.bindGroup) client.bindGroup(config.vkGroupId);
+              config.vkToken = await client.accessToken();
+              config.vkPhotosToken = '';
+              poster = client;
+            }
           }
         }
 
-        await client.accessToken();
+        if (!ownerReady) await client.accessToken();
         if (!owned()) throw new Error('vk_weekly_lease_lost');
         assertSlotCurrent(db, slot);
         if (Date.parse(slot.slot_utc) <= Date.now() + 60000)
@@ -626,7 +656,7 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
           "UPDATE vk_weekly_posts SET status='uncertain',post_id=?,updated_at=? WHERE plan_id=?",
         ).run(result.post_id, new Date().toISOString(), slot.plan_id);
 
-        const receipt = await loadWallReceipt(client, config.vkGroupId, result.post_id);
+        const receipt = await loadWallReceipt(poster, config.vkGroupId, result.post_id);
         if (
           !receipt.unreadable &&
           !isPostponedReceipt(receipt.saved, {
@@ -649,11 +679,48 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
         const attempts =
           db.prepare('SELECT attempts FROM vk_weekly_posts WHERE plan_id=?').get(slot.plan_id)
             ?.attempts || 0;
+        if (
+          env.VK_WEEKLY_OAUTH_ENABLED === 'true' &&
+          !uncertain &&
+          !created &&
+          attempts >= OAUTH_PUBLISH_ATTEMPTS &&
+          slotMessage &&
+          slotGroupId
+        ) {
+          try {
+            if (client.bindGroup) client.bindGroup(slotGroupId);
+            await client.accessToken();
+            const posted = await client.api('wall.post', {
+              owner_id: -Number(slotGroupId),
+              from_group: 1,
+              message: slotMessage,
+              guid: slotGuid(slot.plan_id),
+              publish_date: publishDate,
+            });
+            if (Number.isSafeInteger(posted?.post_id)) {
+              markDeferred(
+                db,
+                slot,
+                { contentMode: slotContentMode },
+                slotMessage,
+                posted.post_id,
+                stamp,
+              );
+              consecutiveFailures = 0;
+              await pause(1200);
+              continue;
+            }
+          } catch (fallbackError) {
+            console.error(
+              `weekly community text fallback slot=${slot.plan_id}: ${fallbackError.message || fallbackError}`,
+            );
+          }
+        }
         const terminal =
           !uncertain &&
           (attempts >= WEEKLY_MAX_ATTEMPTS ||
             /login_required|wrong_user|lease_lost|community_/.test(error.message) ||
-            error.vkCode === 5);
+            (error.vkCode === 5 && env.VK_WEEKLY_OAUTH_ENABLED !== 'true'));
         db.prepare('UPDATE vk_weekly_posts SET status=?,error=?,updated_at=? WHERE plan_id=?').run(
           uncertain ? 'uncertain' : terminal ? 'exhausted' : 'failed',
           safeError(error),

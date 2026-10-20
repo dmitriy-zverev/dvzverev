@@ -34,6 +34,7 @@ import { formatCliError } from './config/errors.mjs';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { collectMetrics, importCommerce, metricsReport } from './metrics.mjs';
+import { beginPublishAuth } from './vk-oauth/legacy.mjs';
 
 function parseArgs(argv) {
   const args = [...argv];
@@ -101,6 +102,10 @@ function canScheduleProject(config) {
   );
 }
 
+async function configForPublish(config) {
+  return beginPublishAuth(config);
+}
+
 async function runMultiProjectScheduler(app, stoppingRef) {
   console.log(`Multi-project schedule: ${app.enabledProjectIds().join(', ')} (${app.configPath})`);
   lastProgressAt = Date.now();
@@ -124,7 +129,7 @@ async function runMultiProjectScheduler(app, stoppingRef) {
     for (const id of app.enabledProjectIds()) {
       let projectConfig;
       try {
-        projectConfig = await app.resolveProjectConfig(id);
+        projectConfig = await configForPublish(await app.resolveProjectConfig(id));
         if (redisConfigured()) {
           const redis = await getRedis();
           await reconcileProjectTasks(redis, id, await readState(projectConfig));
@@ -387,7 +392,9 @@ try {
         }
         console.log(JSON.stringify(payload, null, 2));
       } else if (args.length) {
-        const result = await publish(config, { manual: args[0] === '--publish-next' });
+        const result = await publish(await configForPublish(config), {
+          manual: args[0] === '--publish-next',
+        });
         console.log(JSON.stringify({ projectId: config.projectId || null, ...result }));
         if (['uncertain', 'failed', 'exhausted', 'paused', 'locked'].includes(result.status))
           process.exitCode = 1;
@@ -409,9 +416,8 @@ try {
         await heartbeat();
         while (!stopping) {
           try {
-            // GIF uploads use the community key; no user-token inbox polling.
             const result = canScheduleProject(config)
-              ? await publish(config)
+              ? await publish(await configForPublish(config))
               : { status: 'not_due' };
             if (config.chatId.trim() && result.status !== 'locked')
               await clearRuntimeFailure(config);
