@@ -166,6 +166,48 @@ test('login API returns 429 with Retry-After when locked', async (t) => {
   assert.ok(Number(whileLocked.headers.get('retry-after')) > 0);
 });
 
+test('active cabinet use slides the session for another 12 hours', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'cabinet-slide-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const env = {
+    ...process.env,
+    BOT_CABINET_DB_PATH: join(dir, 'cabinet.sqlite'),
+    BOT_CABINET_PASSWORD: 'test-password',
+    BOT_CABINET_HOST: '127.0.0.1',
+  };
+  const db = openCabinetDb(env);
+  const session = createSession(db, env);
+  db.prepare('UPDATE sessions SET expires_at = ? WHERE session_id = ?').run(
+    new Date(Date.now() + 60_000).toISOString(),
+    session.sessionId,
+  );
+  db.close();
+  const server = startCabinetServer({ ...env, BOT_CABINET_PORT: '0' });
+  await new Promise((resolve) => server.once('listening', resolve));
+  const address = server.address();
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const response = await fetch(`http://127.0.0.1:${address.port}/bot/api/v1/auth/session`, {
+    headers: { Cookie: `cabinet_session=${session.token}` },
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).authenticated, true);
+  const cookie = response.headers.get('set-cookie') || '';
+  assert.match(cookie, /Max-Age=43200/);
+  assert.match(cookie, new RegExp(`cabinet_session=${session.token}`));
+  const check = openCabinetDb(env);
+  const row = check.prepare('SELECT expires_at FROM sessions').get();
+  check.close();
+  assert.ok(Date.parse(row.expires_at) > Date.now() + 11 * 60 * 60 * 1000);
+
+  const expired = openCabinetDb(env);
+  expired.prepare('UPDATE sessions SET expires_at = ?').run(new Date(Date.now() - 1000).toISOString());
+  expired.close();
+  const denied = await fetch(`http://127.0.0.1:${address.port}/bot/api/v1/overview`, {
+    headers: { Cookie: `cabinet_session=${session.token}` },
+  });
+  assert.equal(denied.status, 401);
+});
+
 test('overview API requires session', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'cabinet-http-'));
   t.after(() => rm(dir, { recursive: true, force: true }));

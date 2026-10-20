@@ -2,6 +2,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 import { getMeta, setMeta } from './db.mjs';
 
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const SESSION_TTL_SEC = 12 * 60 * 60;
 const DEFAULT_LOGIN_MAX_ATTEMPTS = 5;
 const DEFAULT_LOGIN_WINDOW_SEC = 900;
 const DEFAULT_LOGIN_LOCKOUT_SEC = 900;
@@ -64,6 +65,16 @@ export function cookieFlags(env = process.env) {
   return `HttpOnly; Path=/; SameSite=Lax${secure}`;
 }
 
+export function sessionCookieHeader(token, env = process.env) {
+  return `cabinet_session=${token}; ${cookieFlags(env)}; Max-Age=${SESSION_TTL_SEC}`;
+}
+
+function sessionToken(cookieHeader) {
+  if (!cookieHeader) return null;
+  const match = cookieHeader.match(/(?:^|;\s*)cabinet_session=([^;]+)/);
+  return match ? match[1] : null;
+}
+
 export function createSession(db, env = process.env) {
   purgeExpiredSessions(db);
   const token = randomBytes(32).toString('base64url');
@@ -73,21 +84,31 @@ export function createSession(db, env = process.env) {
   db.prepare(
     'INSERT INTO sessions (session_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?)',
   ).run(sessionId, tokenHash, expiresAt, new Date().toISOString());
-  return { token, expiresAt, cookieFlags: cookieFlags(env) };
+  return { sessionId, token, expiresAt, cookieFlags: cookieFlags(env) };
 }
 
 export function sessionFromRequest(db, cookieHeader) {
-  if (!cookieHeader) return null;
-  const match = cookieHeader.match(/(?:^|;\s*)cabinet_session=([^;]+)/);
-  if (!match) return null;
-  const tokenHash = createHash('sha256').update(match[1]).digest('hex');
-  const row = db.prepare('SELECT session_id, expires_at FROM sessions WHERE token_hash = ?').get(tokenHash);
+  const token = sessionToken(cookieHeader);
+  if (!token) return null;
+  const tokenHash = createHash('sha256').update(token).digest('hex');
+  const row = db
+    .prepare('SELECT session_id, expires_at FROM sessions WHERE token_hash = ?')
+    .get(tokenHash);
   if (!row) return null;
   if (Date.parse(row.expires_at) <= Date.now()) {
     db.prepare('DELETE FROM sessions WHERE session_id = ?').run(row.session_id);
     return null;
   }
   return { sessionId: row.session_id };
+}
+
+export function slideSession(db, cookieHeader) {
+  const token = sessionToken(cookieHeader);
+  const session = sessionFromRequest(db, cookieHeader);
+  if (!session || !token) return null;
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+  db.prepare('UPDATE sessions SET expires_at = ? WHERE session_id = ?').run(expiresAt, session.sessionId);
+  return { sessionId: session.sessionId, token, expiresAt };
 }
 
 export function clearSession(db, cookieHeader) {

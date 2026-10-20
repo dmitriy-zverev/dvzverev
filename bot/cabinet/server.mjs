@@ -14,7 +14,9 @@ import {
   loginRateLimitError,
   recordLoginFailure,
   resetLoginAttempts,
+  sessionCookieHeader,
   sessionFromRequest,
+  slideSession,
   verifyPassword,
   requestHeader,
 } from './auth.mjs';
@@ -132,14 +134,19 @@ function parseUrl(request) {
   return new URL(request.url || '/', `http://${host}`);
 }
 
-function requireSession(db, request) {
-  const session = sessionFromRequest(db, request.headers.cookie);
+function rememberSessionCookie(response, token, env) {
+  response.setHeader('Set-Cookie', sessionCookieHeader(token, env));
+}
+
+function requireSession(db, request, response, env) {
+  const session = slideSession(db, request.headers.cookie);
   if (!session) {
     const error = new Error('Unauthorized');
     error.status = 401;
     throw error;
   }
-  return session;
+  rememberSessionCookie(response, session.token, env);
+  return { sessionId: session.sessionId };
 }
 
 async function handleRequest(request, response, env) {
@@ -212,7 +219,7 @@ async function handleRequest(request, response, env) {
         { ok: true, expiresAt: session.expiresAt },
         {
           ...cors,
-          'Set-Cookie': `cabinet_session=${session.token}; ${session.cookieFlags}; Max-Age=${12 * 3600}`,
+          'Set-Cookie': sessionCookieHeader(session.token, env),
         },
       );
       return;
@@ -234,12 +241,13 @@ async function handleRequest(request, response, env) {
     }
 
     if (route === '/auth/session' && request.method === 'GET') {
-      const session = sessionFromRequest(db, request.headers.cookie);
+      const session = slideSession(db, request.headers.cookie);
+      if (session) rememberSessionCookie(response, session.token, env);
       json(response, 200, { authenticated: Boolean(session) }, cors);
       return;
     }
 
-    const session = requireSession(db, request);
+    const session = requireSession(db, request, response, env);
     if (route === '/rubrics' || /^\/rubrics\/[\w-]+$/.test(route)) {
       if (request.method !== 'GET') assertOrigin(request, env);
       const { document: service, configRoot } = await loadServiceForCabinet(env);
