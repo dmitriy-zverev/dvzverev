@@ -49,10 +49,15 @@ test('editing an applied future brief returns the updated queue payload and reje
     const decision = await decidePlanRevision(db, job.revisionId, {
       decision: 'approve',
       syncRedisFn: null,
+      now: CLOCK,
     });
     const item = decision.applied[0];
     assert.ok(item);
-    const edited = editFutureBrief(db, item.briefId, { topic: 'Новая тема', thesis: 'Новый бриф' });
+    const edited = editFutureBrief(db, item.briefId, {
+      topic: 'Новая тема',
+      thesis: 'Новый бриф',
+      now: CLOCK,
+    });
     assert.equal(edited.slot.topic, 'Новая тема');
     assert.match(edited.slot.brief, /Новый бриф/);
     assert.equal(edited.slot.version, item.version + 1);
@@ -118,10 +123,12 @@ const service = {
   },
 };
 
+const CLOCK = new Date('2026-10-07T10:00:00.000Z');
+
 function openDb() {
   const db = openCabinetDb({ BOT_CABINET_DB_PATH: ':memory:' });
   refreshServiceSnapshot(db, service);
-  materializeScheduleSlots(db, service, {});
+  materializeScheduleSlots(db, service, {}, CLOCK);
   return db;
 }
 

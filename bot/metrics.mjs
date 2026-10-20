@@ -179,9 +179,13 @@ export async function collectMetrics(
       subscribers = nullableCount(members.response?.count);
     }
     const probe = force || !data.lastProbedAt || now - new Date(data.lastProbedAt) >= 7 * 86400_000;
-    const allowed = (method) => probe || data.capabilities[method]?.status === 'available';
+    const allowed = (method) =>
+      probe ||
+      data.capabilities[method]?.status === 'available' ||
+      (config.vkAuth === 'oauth' &&
+        data.capabilities[method]?.status === 'unavailable_with_community_key');
     let groupStats = null;
-    if (allowed('stats.get')) {
+    if (config.vkAuth !== 'oauth' && allowed('stats.get')) {
       const stats = await vkRequest(
         config,
         'stats.get',

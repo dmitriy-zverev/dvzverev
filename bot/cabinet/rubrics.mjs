@@ -208,15 +208,16 @@ export function applyRubricConfig(config, rubric) {
     videoPrompt: rubric.mediaPrompt
       ? `${rubric.mediaPrompt}\n\nВизуальный стиль группы:\n${base.videoPrompt || ''}`
       : base.videoPrompt,
-    weeklyImages: Boolean(config.vkImagesEnabled) || rubric.media !== 'text',
-    imagesEnabled: Boolean(config.imagesEnabled) || rubric.media !== 'text',
-    vkImagesEnabled: Boolean(config.vkImagesEnabled) || rubric.media !== 'text',
-    mediaTimes: config.vkImagesEnabled && !config.mediaTimes?.length
-      ? null
-      : rubric.media !== 'text'
-        ? rubric.times
-        : [],
-    staticPhoto: Boolean(config.staticPhoto) || rubric.media === 'image',
+    weeklyImages: rubric.media === 'text' ? false : Boolean(config.vkImagesEnabled) || true,
+    imagesEnabled: rubric.media === 'text' ? false : Boolean(config.imagesEnabled) || true,
+    vkImagesEnabled: rubric.media === 'text' ? false : Boolean(config.vkImagesEnabled) || true,
+    mediaTimes:
+      rubric.media === 'text'
+        ? []
+        : config.vkImagesEnabled && !config.mediaTimes?.length
+          ? null
+          : rubric.times,
+    staticPhoto: rubric.media === 'text' ? false : Boolean(config.staticPhoto) || rubric.media === 'image',
     coverMode: rubric.media === 'video' && !config.staticPhoto ? 'video' : config.coverMode || 'image',
   };
 }

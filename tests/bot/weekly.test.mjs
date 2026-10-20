@@ -69,6 +69,7 @@ async function fixture(t) {
     upload: async () => 'photo-123_42',
     pause: async () => {},
     notify: async () => ({ skipped: 'test' }),
+    now: new Date('2026-10-07T10:00:00Z'),
   };
   return { db, env, week, dependencies };
 }
@@ -583,6 +584,7 @@ test('weekly digest summarizes deferred holes once', async (t) => {
   const first = await notifyWeeklyPrepareDigest(f.db, {
     weekStart: f.week.start,
     source: 'schedule',
+    now: f.dependencies.now,
     env: {
       ...f.env,
       TELEGRAM_BOT_TOKEN: '1:token',
@@ -598,6 +600,7 @@ test('weekly digest summarizes deferred holes once', async (t) => {
   const second = await notifyWeeklyPrepareDigest(f.db, {
     weekStart: f.week.start,
     source: 'schedule',
+    now: f.dependencies.now,
     env: {
       ...f.env,
       TELEGRAM_BOT_TOKEN: '1:token',

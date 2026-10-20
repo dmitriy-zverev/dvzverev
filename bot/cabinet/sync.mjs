@@ -66,8 +66,7 @@ export function materializeScheduleSlots(db, service, env, now = new Date()) {
             if (rubric) {
               publication.kind = rubric.media;
               publication.media = rubric.media === 'text' ? null : rubric.media;
-            }
-            if (
+            } else if (
               destination.media?.enabled &&
               destination.media.uploadMode === 'photo' &&
               !destination.media.times?.length

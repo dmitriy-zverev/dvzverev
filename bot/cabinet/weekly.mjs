@@ -463,7 +463,8 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
       );
     let consecutiveFailures = 0;
     for (const slot of rows) {
-      if (Date.parse(slot.slot_utc) <= Date.now()) continue;
+      const clock = dependencies.now ? new Date(dependencies.now) : new Date();
+      if (Date.parse(slot.slot_utc) <= clock.getTime()) continue;
       if (!owned()) throw new Error('vk_weekly_lease_lost');
       let dispatching = false;
       let created = false;
@@ -592,9 +593,10 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
         );
 
         let attachment = stored.attachment || null;
-        if (media === 'image' && !attachment) {
+        if (media === 'image' && slot.publication_kind !== 'gif' && !attachment) {
           try {
-            if (!ownerReady) throw new Error('vk_photo_token_required');
+            if (env.VK_WEEKLY_OAUTH_ENABLED === 'true' && !ownerReady)
+              throw new Error('vk_photo_token_required');
             const photoConfig = {
               ...config,
               staticPhoto: true,
@@ -616,23 +618,14 @@ export async function prepareWeeklyPosts(env, week, owner, dependencies = {}) {
               `weekly image skipped slot=${slot.plan_id}: ${error.message || error}`,
             );
             attachment = null;
-            if (env.VK_WEEKLY_OAUTH_ENABLED === 'true') {
-              const attempts =
-                db.prepare('SELECT attempts FROM vk_weekly_posts WHERE plan_id=?').get(slot.plan_id)
-                  ?.attempts || 1;
-              if (attempts < OAUTH_PUBLISH_ATTEMPTS) throw error;
-              if (client.bindGroup) client.bindGroup(config.vkGroupId);
-              config.vkToken = await client.accessToken();
-              config.vkPhotosToken = '';
-              poster = client;
-            }
+            if (env.VK_WEEKLY_OAUTH_ENABLED === 'true') throw error;
           }
         }
 
         if (!ownerReady) await client.accessToken();
         if (!owned()) throw new Error('vk_weekly_lease_lost');
         assertSlotCurrent(db, slot);
-        if (Date.parse(slot.slot_utc) <= Date.now() + 60000)
+        if (Date.parse(slot.slot_utc) <= clock.getTime() + 60000)
           throw new Error('vk_weekly_slot_too_late');
 
         db.prepare("UPDATE vk_weekly_posts SET status='posting',updated_at=? WHERE plan_id=?").run(

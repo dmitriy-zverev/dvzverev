@@ -101,7 +101,7 @@ export async function notifyWeeklyPrepareDigest(
   const dedupeKey = `weekly_prepare_notify:${fingerprint}`;
   if (getMeta(db, dedupeKey)) return { skipped: 'deduped' };
 
-  const snapshot = summarizeWeek(db, weekStart);
+  const snapshot = summarizeWeek(db, weekStart, now);
   const sourceLabel = source === 'button' ? 'кнопка кабинета' : 'воскресенье 20:00';
   const lines = [
     `<b>Неделя VK</b> ${escapeHtml(weekStart)} — ${escapeHtml(snapshot.end)}`,

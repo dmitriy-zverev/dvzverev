@@ -367,6 +367,12 @@ test('rubric prompt leads and the group prompt is appended', () => {
   assert.equal(plain.openrouterPrompt, 'SYSTEM');
   assert.equal(plain.coverPrompt, 'GROUP STYLE');
   assert.equal(plain.videoPrompt, 'CAMERA');
+  const forced = applyRubricConfig(
+    { vkImagesEnabled: true, openrouterPrompt: 'S', coverPrompt: '', videoPrompt: '' },
+    { id: 'r3', revision: 1, name: 'Текст', media: 'text', times: ['10:00'] },
+  );
+  assert.equal(forced.vkImagesEnabled, false);
+  assert.deepEqual(forced.mediaTimes, []);
 });
 
 test('Redis ignores failures and unfinished generation from the old rubric revision', () => {

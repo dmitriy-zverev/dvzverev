@@ -779,13 +779,6 @@ async function settleOauthVkFailure(config, state, entry, error, sendVK, now) {
       config.vkToken = refreshed.vkToken;
       config.vkPhotosToken = refreshed.vkPhotosToken;
       config.vkAuth = 'oauth';
-      entry.vkPostId = await sendVK(config, entry);
-      entry.vkSentAt = now.toISOString();
-      entry.status = 'sent';
-      entry.sentAt = entry.vkSentAt;
-      delete entry.reason;
-      state.deliveryFailureStreaks.vk = 0;
-      return { settled: true };
     } catch (retryError) {
       current = retryError instanceof VkRejection ? retryError : new VkRejection(5);
     }
