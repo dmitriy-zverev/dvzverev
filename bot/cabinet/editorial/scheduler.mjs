@@ -11,23 +11,23 @@ import { collectWeeklyVkStats } from '../analytics/weekly-vk.mjs';
  * Failures never stop independent delivery. Concurrent jobs rejected per project.
  */
 export async function runEditorialScheduler(db, service, env, now = new Date()) {
-  syncEditorialMemory(db, { now });
   pauseExpiredOpenSeries(db, now);
 
   if (!isEditorialProposalWindow(now)) {
+    syncEditorialMemory(db, { now });
     return { skipped: true, reason: 'outside_window' };
   }
 
   const weekStart = nextPlanWeekStart(now);
   const marker = `editorial_weekly_ran:${weekStart}`;
   if (getMeta(db, marker)) {
+    syncEditorialMemory(db, { now });
     return { skipped: true, reason: 'already_ran', weekStart };
   }
 
   let weekStats = null;
   try {
     weekStats = await collectWeeklyVkStats(db, env, { now });
-    syncEditorialMemory(db, { now });
   } catch (error) {
     console.error(
       JSON.stringify({
