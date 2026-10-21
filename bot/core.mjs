@@ -1461,6 +1461,7 @@ export async function retryUnpublishedSlot(config, slotKey, task = {}, now = new
           return { status: 'not_recoverable' };
         }
         entry.vkText = decodeCaptionHtml(entry.html);
+        if (config.vkGroupId) entry.vkGroupId = config.vkGroupId;
         if (mediaForSlot(config, entry.slot, now)) {
           entry.image = { status: 'pending', text: entry.vkText };
         }
