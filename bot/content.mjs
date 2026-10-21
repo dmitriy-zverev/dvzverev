@@ -15,19 +15,6 @@ export const decodeCaptionHtml = (html) =>
     .replaceAll('&lt;', '<')
     .replaceAll('&amp;', '&');
 
-export const TELEGRAM_PHOTO_CAPTION_LIMIT = 1024;
-
-// Telegram counts parsed caption text, excluding markup and hidden link URLs.
-export const visibleTextLength = (html) =>
-  html.replace(/<[^>]*>/g, '').replace(/&(?:amp|lt|gt|quot);/g, 'x').length;
-
-export function telegramPhotoCaptionTooLong(html, telegramEnabled = true) {
-  return (
-    telegramEnabled !== false &&
-    visibleTextLength(html) > TELEGRAM_PHOTO_CAPTION_LIMIT
-  );
-}
-
 export function formatPost(post) {
   if (post?.kind === 'lifestyle') return escapeHtml(lifestyleText(post));
   if (post?.kind === 'programming') return escapeHtml(programmingText(post));

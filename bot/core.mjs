@@ -4,14 +4,7 @@ import { recentVideoScenes } from './video-scenes.mjs';
 import { sendNotification } from './notifications.mjs';
 import { writeAtomic } from './storage.mjs';
 import { logError } from './logging.mjs';
-import {
-  decodeCaptionHtml,
-  escapeHtml,
-  formatPost,
-  formatVkPost,
-  telegramPhotoCaptionTooLong,
-  visibleTextLength,
-} from './content.mjs';
+import { decodeCaptionHtml, escapeHtml, formatPost, formatVkPost } from './content.mjs';
 import {
   generatePost,
   GenerationFailure,
@@ -333,7 +326,6 @@ export async function sendTelegram(config, html, fetchImpl = fetch) {
 }
 
 export async function sendTelegramAnimation(config, entry, caption = '', fetchImpl = fetch) {
-  if (visibleTextLength(caption) > 1024) throw new TelegramRejection(400);
   if (!(await cachedCover(config, entry.postId))) throw new ImageFailure('missing_cached_image');
   const photo = await readFile(coverPath(config, entry.postId));
   const form = new FormData();
@@ -1056,8 +1048,6 @@ export async function publish(
             try {
               entry.html = formatPost(post);
               if (mediaForSlot(config, slot, now)) {
-                if (config.imagesEnabled && telegramPhotoCaptionTooLong(entry.html, config.telegramEnabled))
-                  throw new Error('Photo caption too long');
                 entry.retryAt = now.toISOString();
                 entry.image = { status: 'pending', text: formatVkPost(post) };
               }
@@ -1457,9 +1447,6 @@ export async function retryUnpublishedSlot(config, slotKey, task = {}, now = new
     for (const entry of targets) {
       const platform = entry.platform || 'telegram';
       if (typeof entry.vkText !== 'string' && typeof entry.html === 'string') {
-        if (telegramPhotoCaptionTooLong(entry.html, config.telegramEnabled)) {
-          return { status: 'not_recoverable' };
-        }
         entry.vkText = decodeCaptionHtml(entry.html);
         if (config.vkGroupId) entry.vkGroupId = config.vkGroupId;
         if (mediaForSlot(config, entry.slot, now)) {

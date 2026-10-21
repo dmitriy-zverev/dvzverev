@@ -7,10 +7,10 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 const exec = promisify(execFile);
-export const DEFAULT_IMAGE_MODEL = 'google/gemini-3.1-flash-lite-image';
+export const DEFAULT_IMAGE_MODEL = 'openai/gpt-image-2.5-sunburst';
 export const IMAGE_MODELS = [
   DEFAULT_IMAGE_MODEL,
-  'openai/gpt-image-2.5-sunburst',
+  'google/gemini-3.1-flash-lite-image',
   'meta/muse-image',
 ];
 export const PORTRAIT_IMAGE = { width: 1080, height: 1080, aspectRatio: '1:1' };

@@ -235,7 +235,7 @@ test('cover receives the actual post, is cached after normalization, and never r
       const body = JSON.parse(init.body);
       assert.match(body.prompt, /Ускоряем ревью тестами/);
       assert.equal(body.n, 1);
-      assert.equal(body.model, 'google/gemini-3.1-flash-lite-image');
+      assert.equal(body.model, 'openai/gpt-image-2.5-sunburst');
       assert.equal(body.aspect_ratio, '16:9');
       assert.equal(body.prompt.includes('1080 × 1080'), false);
       return {
@@ -686,37 +686,6 @@ test('VK-only posts keep long photo captions within VK wall limits', async (t) =
   });
   assert.equal(result.status, 'sent');
   assert.equal(walls, 1);
-});
-
-test('overlong photo captions are rejected before generation or delivery, never split into two posts', async (t) => {
-  const config = await setup(t);
-  let images = 0,
-    photos = 0,
-    texts = 0,
-    walls = 0;
-  const result = await publish(config, {
-    manual: true,
-    provider: async () => ({ ...post, summary: 'Длинный текст. '.repeat(100) }),
-    generateImage: async () => {
-      images++;
-      return { status: 'ready' };
-    },
-    sendPhoto: async () => {
-      photos++;
-      return 1;
-    },
-    send: async () => {
-      texts++;
-      return 2;
-    },
-    sendVK: async () => {
-      walls++;
-      return 3;
-    },
-    notify: async () => {},
-  });
-  assert.equal(result.status, 'failed');
-  assert.deepEqual({ images, photos, texts, walls }, { images: 0, photos: 0, texts: 0, walls: 0 });
 });
 
 test('VK text-only mode skips photo upload and alerts while Telegram keeps its captioned cover', async (t) => {
