@@ -4,7 +4,14 @@ import { recentVideoScenes } from './video-scenes.mjs';
 import { sendNotification } from './notifications.mjs';
 import { writeAtomic } from './storage.mjs';
 import { logError } from './logging.mjs';
-import { escapeHtml, formatPost, formatVkPost, visibleTextLength } from './content.mjs';
+import {
+  decodeCaptionHtml,
+  escapeHtml,
+  formatPost,
+  formatVkPost,
+  telegramPhotoCaptionTooLong,
+  visibleTextLength,
+} from './content.mjs';
 import {
   generatePost,
   GenerationFailure,
@@ -1049,7 +1056,7 @@ export async function publish(
             try {
               entry.html = formatPost(post);
               if (mediaForSlot(config, slot, now)) {
-                if (config.imagesEnabled && visibleTextLength(entry.html) > 1024)
+                if (config.imagesEnabled && telegramPhotoCaptionTooLong(entry.html, config.telegramEnabled))
                   throw new Error('Photo caption too long');
                 entry.retryAt = now.toISOString();
                 entry.image = { status: 'pending', text: formatVkPost(post) };
@@ -1449,6 +1456,15 @@ export async function retryUnpublishedSlot(config, slotKey, task = {}, now = new
     }
     for (const entry of targets) {
       const platform = entry.platform || 'telegram';
+      if (typeof entry.vkText !== 'string' && typeof entry.html === 'string') {
+        if (telegramPhotoCaptionTooLong(entry.html, config.telegramEnabled)) {
+          return { status: 'not_recoverable' };
+        }
+        entry.vkText = decodeCaptionHtml(entry.html);
+        if (mediaForSlot(config, entry.slot, now)) {
+          entry.image = { status: 'pending', text: entry.vkText };
+        }
+      }
       entry.status = 'retry_wait';
       entry.attempts = 0;
       entry.retryAt = now.toISOString();

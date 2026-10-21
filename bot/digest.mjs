@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { requestCompletion, GenerationFailure } from './openrouter.mjs';
-import { formatVkPost, formatPost, visibleTextLength } from './content.mjs';
+import { formatVkPost, formatPost, telegramPhotoCaptionTooLong } from './content.mjs';
 
 export const DIGEST_PROMPT = await readFile(
   new URL('./prompts/digest.md', import.meta.url),
@@ -455,7 +455,7 @@ export async function generateDigest(
     });
     const post = { id, kind: 'digest', title: result.title, items };
     const text = formatVkPost(post);
-    if (config.imagesEnabled && visibleTextLength(formatPost(post)) > 1024)
+    if (config.imagesEnabled && telegramPhotoCaptionTooLong(formatPost(post), config.telegramEnabled))
       throw new Error('Photo caption too long');
     return {
       ...post,

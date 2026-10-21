@@ -664,6 +664,30 @@ test('VK upload saves a GIF document using the community token and returns its a
   assert.equal(urls.length, 3);
 });
 
+test('VK-only posts keep long photo captions within VK wall limits', async (t) => {
+  const config = await setup(t);
+  config.telegramEnabled = false;
+  let walls = 0;
+  const result = await publish(config, {
+    manual: true,
+    provider: async () => ({
+      id: 'llm-long-vk',
+      kind: 'lifestyle',
+      text: `${'После дождя обувь остаётся у двери. '.repeat(40)}`.trim(),
+      generation: { title: 'Поддон', model: 'test' },
+    }),
+    generateImage: async () => ({ status: 'ready', width: 1080, height: 1080 }),
+    uploadImage: async () => 'photo-42_77',
+    sendVK: async () => {
+      walls++;
+      return 99;
+    },
+    notify: async () => {},
+  });
+  assert.equal(result.status, 'sent');
+  assert.equal(walls, 1);
+});
+
 test('overlong photo captions are rejected before generation or delivery, never split into two posts', async (t) => {
   const config = await setup(t);
   let images = 0,
